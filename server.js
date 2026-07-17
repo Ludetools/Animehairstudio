@@ -14,8 +14,34 @@ const types = {
 };
 
 function sendJson(response, status, value) {
-  response.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  response.writeHead(status, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Access-Control-Allow-Origin": "*"
+  });
   response.end(JSON.stringify(value));
+}
+
+function writeProjectFile(destination, content, callback) {
+  const temporary = `${destination}.saving-${process.pid}`;
+  fs.writeFile(temporary, content, "utf8", (writeError) => {
+    if (writeError) {
+      callback(writeError);
+      return;
+    }
+    fs.rename(temporary, destination, (renameError) => {
+      if (!renameError) {
+        callback(null);
+        return;
+      }
+      fs.unlink(destination, (unlinkError) => {
+        if (unlinkError && unlinkError.code !== "ENOENT") {
+          fs.unlink(temporary, () => callback(unlinkError));
+          return;
+        }
+        fs.rename(temporary, destination, callback);
+      });
+    });
+  });
 }
 
 function saveProjectWithNativeDialog(request, response) {
@@ -64,7 +90,7 @@ function saveProjectWithNativeDialog(request, response) {
           sendJson(response, 200, { saved: false, cancelled: true });
           return;
         }
-        fs.writeFile(destination, payload.content, "utf8", (writeError) => {
+        writeProjectFile(destination, payload.content, (writeError) => {
           if (writeError) {
             sendJson(response, 500, { error: "Could not write the project file" });
             return;
@@ -78,6 +104,19 @@ function saveProjectWithNativeDialog(request, response) {
 
 const server = http.createServer((request, response) => {
   const url = new URL(request.url, `http://${request.headers.host}`);
+  if (request.method === "OPTIONS") {
+    response.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type"
+    });
+    response.end();
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/health") {
+    sendJson(response, 200, { app: "anime-hair-studio", saveAs: true });
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/api/save-project") {
     saveProjectWithNativeDialog(request, response);
     return;

@@ -36,8 +36,10 @@
           <button class="tool-button" data-tool="scale" title="Scale strand thickness (R)" aria-label="Scale tool"><span class="tool-icon icon-scale" aria-hidden="true"></span><kbd>R</kbd></button>
           <button class="tool-button" data-tool="relax" title="Relax curve point (T)" aria-label="Relax curve point tool"><span class="tool-icon icon-relax" aria-hidden="true"></span><kbd>T</kbd></button>
           <button class="tool-button" data-tool="place" title="Place strand (A)" aria-label="Place strand tool"><span class="tool-icon icon-place" aria-hidden="true"></span><kbd>A</kbd></button>
+          <button class="tool-button" data-tool="draw" title="Draw strand (D)" aria-label="Draw strand tool"><span class="tool-icon icon-draw" aria-hidden="true"></span><kbd>D</kbd></button>
         </div>
         <div class="viewport-modes" aria-label="Editing modes">
+          <button id="mirrorXToggle" class="tool-button mirror-button" title="Mirror edits and new strands across the X axis" aria-label="Toggle X axis mirror" aria-pressed="false"><span class="tool-icon icon-mirror-x" aria-hidden="true"></span></button>
           <button id="spaceToggle" class="tool-button space-button" title="Toggle world/object space (O)" aria-label="Toggle transform space"><span class="tool-icon icon-space" aria-hidden="true"></span><kbd>O</kbd></button>
           <button id="hierarchyToggle" class="tool-button hierarchy-button" title="Toggle hierarchy editing (H)" aria-label="Toggle hierarchy editing"><img src="./assets/hierarchy-icon.png" alt="" /><kbd>H</kbd></button>
           <button id="proportionalToggle" class="tool-button proportional-button" title="Toggle proportional editing (B)" aria-label="Toggle proportional editing"><span class="tool-icon icon-proportional" aria-hidden="true"></span><kbd>B</kbd></button>
@@ -64,6 +66,9 @@
             </button>
             <button id="toggleWire" title="Toggle strand topology" aria-label="Toggle strand topology" aria-pressed="false">
               <span>W</span>
+            </button>
+            <button id="scalpGuideVisibilityToggle" class="scalp-guide-visibility-button active" title="Hide scalp guide" aria-label="Hide scalp guide" aria-pressed="true">
+              <span class="tool-icon icon-scalp-guide" aria-hidden="true"></span>
             </button>
             <button id="groupColorToggle" class="group-color-button" title="Show group colors" aria-label="Show group colors" aria-pressed="false">
               <span class="group-color-swatches" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
@@ -173,14 +178,16 @@
           <div class="subsection-label">New Strand Defaults</div>
           <div class="subsection-label">Width Curve</div>
           <div class="taper-curve-control">
-            <svg class="taper-preview" viewBox="0 0 160 70" role="img" aria-label="Group width curve preview"><path id="groupTaperPreview"></path></svg>
-            <button class="edit-shape-curve" data-curve-key="taperCurve" type="button" title="Edit width curve">Edit</button>
+            <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Group width curve preview"><path id="groupTaperPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="taperCurve" type="button" title="Edit width curve" aria-label="Edit width curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <select class="shape-preset-select" data-shape-preset="taperCurve" aria-label="Group width curve preset"></select>
           </div>
           <div class="subsection-label">Depth Curve</div>
           <div class="taper-curve-control">
-            <svg class="taper-preview" viewBox="0 0 160 70" role="img" aria-label="Group depth curve preview"><path id="groupDepthPreview"></path></svg>
-            <button class="edit-shape-curve" data-curve-key="depthCurve" type="button" title="Edit depth curve">Edit</button>
+            <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Group depth curve preview"><path id="groupDepthPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="depthCurve" type="button" title="Edit depth curve" aria-label="Edit depth curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <select class="shape-preset-select" data-shape-preset="depthCurve" aria-label="Group depth curve preset"></select>
           </div>
+          <label class="topology-control">Width Scale <input id="groupWidthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="groupWidthScaleValue" class="slider-value">1.00</output></label>
+          <label class="topology-control">Depth Scale <input id="groupDepthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="groupDepthScaleValue" class="slider-value">1.00</output></label>
           <label class="topology-control">Root Scalp Offset <input id="groupRootScalpOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="groupRootScalpOffsetValue" class="slider-value">0.00</output></label>
           <div class="subsection-label">Topology</div>
           <label class="topology-control">Radial <input id="groupRadialSegments" type="range" min="4" max="24" step="1" value="10" /><output id="groupRadialSegmentsValue" class="slider-value">10</output></label>
@@ -188,8 +195,8 @@
           <output id="groupTopologyStats" class="topology-readout">0 verts / 0 tris</output>
           <div class="subsection-label">Strand Profile</div>
           <div class="profile-control-row">
-            <svg class="profile-preview" viewBox="0 0 86 52" role="img" aria-label="Group strand profile preview"><path id="groupProfilePreview"></path></svg>
-            <button class="edit-sweep-profile" type="button" title="Edit strand profile">Edit</button>
+            <div class="shape-preview-shell"><svg class="profile-preview" viewBox="0 0 86 86" role="img" aria-label="Group strand profile preview"><g class="profile-preview-reference" aria-hidden="true"><circle cx="43" cy="43" r="30"></circle><line x1="7" y1="43" x2="79" y2="43"></line><line x1="43" y1="7" x2="43" y2="79"></line></g><path id="groupProfilePreview"></path><g class="profile-origin-marker" aria-hidden="true"><line x1="38" y1="43" x2="48" y2="43"></line><line x1="43" y1="38" x2="43" y2="48"></line></g></svg><button class="shape-edit-button edit-sweep-profile" type="button" title="Edit strand profile" aria-label="Edit strand profile"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <div class="profile-preset-stack"><select class="shape-preset-select" data-shape-preset="sweepProfile" aria-label="Group strand profile preset"></select><label class="profile-offset-control">Vertical Offset <input id="groupProfileOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="groupProfileOffsetValue" class="slider-value">0.00</output></label></div>
           </div>
         </div>
 
@@ -233,11 +240,27 @@
           <input id="hairMaterialName" type="text" value="Default Purple" />
           <label for="hairMaterialColor">Color</label>
           <input id="hairMaterialColor" type="color" value="#2c223a" />
+          <label for="hairMaterialShadowColor">Shadow Color</label>
+          <input id="hairMaterialShadowColor" type="color" value="#555a78" />
+          <label for="hairMaterialHighlightColor">Highlight Color</label>
+          <input id="hairMaterialHighlightColor" type="color" value="#e7ebff" />
           <label for="hairMaterialRoughness">Roughness</label>
           <div class="range-value-row">
             <input id="hairMaterialRoughness" type="range" min="0.2" max="1" step="0.01" value="0.72" />
             <output id="roughnessValue" class="slider-value">0.72</output>
           </div>
+          <div class="subsection-label">Shadow</div>
+          <label class="topology-control">Threshold <input id="hairShadowThreshold" type="range" min="-0.35" max="0.65" step="0.01" value="0.12" /><output id="hairShadowThresholdValue" class="slider-value">0.12</output></label>
+          <label class="topology-control">Softness <input id="hairShadowSoftness" type="range" min="0.001" max="0.12" step="0.001" value="0.025" /><output id="hairShadowSoftnessValue" class="slider-value">0.025</output></label>
+          <label class="topology-control">Back Gradient <input id="hairBackGradientStrength" type="range" min="0" max="1" step="0.01" value="0.36" /><output id="hairBackGradientStrengthValue" class="slider-value">0.36</output></label>
+          <label class="topology-control">Gradient Power <input id="hairBackGradientPower" type="range" min="0.2" max="4" step="0.01" value="1.35" /><output id="hairBackGradientPowerValue" class="slider-value">1.35</output></label>
+          <div class="subsection-label">Highlight</div>
+          <label class="topology-control">Width <input id="hairHighlightWidth" type="range" min="0.01" max="0.45" step="0.001" value="0.055" /><output id="hairHighlightWidthValue" class="slider-value">0.055</output></label>
+          <label class="topology-control">Softness <input id="hairHighlightSoftness" type="range" min="0.001" max="0.08" step="0.001" value="0.018" /><output id="hairHighlightSoftnessValue" class="slider-value">0.018</output></label>
+          <label class="topology-control">Strength <input id="hairHighlightStrength" type="range" min="0" max="3" step="0.01" value="0.68" /><output id="hairHighlightStrengthValue" class="slider-value">0.68</output></label>
+          <label class="topology-control">Shift <input id="hairHighlightShift" type="range" min="-0.6" max="0.6" step="0.01" value="0.12" /><output id="hairHighlightShiftValue" class="slider-value">0.12</output></label>
+          <label class="topology-control">Detail <input id="hairHighlightJaggedness" type="range" min="0" max="0.6" step="0.001" value="0.22" /><output id="hairHighlightJaggednessValue" class="slider-value">0.220</output></label>
+          <label class="topology-control">Detail Scale <input id="hairHighlightJaggedFrequency" type="range" min="1" max="28" step="0.1" value="7" /><output id="hairHighlightJaggedFrequencyValue" class="slider-value">7.0</output></label>
         </div>
 
         <div id="strandTopologyPanel" class="panel-section sliders">
@@ -253,6 +276,14 @@
           <div class="section-head">
             <span id="transformToolTitle">Move Tool</span>
           </div>
+          <label id="viewPlaneMoveSetting" class="toggle-row" for="viewPlaneMove" title="Drag curve points freely on the 2D plane that best matches the current camera view.">
+            <span>Contextual 2D Free Translation</span>
+            <input id="viewPlaneMove" type="checkbox" />
+          </label>
+          <label id="viewPlaneMoveSnappedSetting" class="toggle-row view-plane-subsetting" for="viewPlaneMoveSnappedOnly" title="Only use 2D free translation after Shift-dragging into a snapped front, side, top, bottom, or back view.">
+            <span>Snapped Views Only</span>
+            <input id="viewPlaneMoveSnappedOnly" type="checkbox" />
+          </label>
           <div class="transform-space-setting">
             <span>Transform Space</span>
             <div class="segmented-control" role="group" aria-label="Transform space">
@@ -260,6 +291,28 @@
               <button type="button" data-transform-space="object" aria-pressed="false">Object</button>
             </div>
           </div>
+        </div>
+
+        <div id="drawStrandToolPanel" class="panel-section sliders hidden">
+          <div class="section-head">
+            <span>Draw Strand Tool</span>
+          </div>
+          <div class="transform-space-setting">
+            <span>Stroke Output</span>
+            <div class="segmented-control" role="group" aria-label="Draw strand output">
+              <button type="button" data-draw-output="single" class="active" aria-pressed="true">Single</button>
+              <button type="button" data-draw-output="clump" aria-pressed="false">Clump</button>
+            </div>
+          </div>
+          <label class="topology-control" title="Sets the width of newly drawn strands.">Brush Size <input id="drawStrandBrushSize" type="range" min="0.04" max="0.42" step="0.01" value="0.16" /><output id="drawStrandBrushSizeValue" class="slider-value">0.16</output></label>
+          <label class="topology-control" title="Higher values smooth small deviations from the drawn stroke.">Smoothing <input id="drawStrandSmoothing" type="range" min="0" max="1" step="0.01" value="0.45" /><output id="drawStrandSmoothingValue" class="slider-value">0.45</output></label>
+          <label class="topology-control" title="Sets the distance between generated curve points. Larger steps create fewer points.">Curve Step <input id="drawStrandCurveStep" type="range" min="0.12" max="0.6" step="0.01" value="0.38" /><output id="drawStrandCurveStepValue" class="slider-value">0.38</output></label>
+          <label class="topology-control" title="Offsets the entire strand from the live surface for layered hair passes.">Scalp Offset <input id="drawStrandScalpOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="drawStrandScalpOffsetValue" class="slider-value">0.00</output></label>
+          <label for="drawStrandSurface" title="Choose which surface the stroke follows before continuing freely beyond its boundary.">Live Surface</label>
+          <select id="drawStrandSurface">
+            <option value="scalp">Scalp Guide</option>
+            <option value="head">Head Mesh</option>
+          </select>
         </div>
 
         <div id="proportionalPanel" class="panel-section sliders">
@@ -282,24 +335,26 @@
 
         <div id="strandShapePanel" class="panel-section sliders">
           <div class="section-head">
-            <span>Shape</span>
+            <span id="strandShapeTitle">Shape</span>
             <button id="randomize" title="Nudge shape" aria-label="Nudge shape">*</button>
           </div>
           <div class="subsection-label">Strand Profile</div>
           <div class="profile-control-row">
-            <svg class="profile-preview" viewBox="0 0 86 52" role="img" aria-label="Selected strand profile preview"><path id="strandProfilePreview"></path></svg>
-            <button class="edit-sweep-profile" type="button" title="Edit strand profile">Edit</button>
+            <div class="shape-preview-shell"><svg class="profile-preview" viewBox="0 0 86 86" role="img" aria-label="Selected strand profile preview"><g class="profile-preview-reference" aria-hidden="true"><circle cx="43" cy="43" r="30"></circle><line x1="7" y1="43" x2="79" y2="43"></line><line x1="43" y1="7" x2="43" y2="79"></line></g><path id="strandProfilePreview"></path><g class="profile-origin-marker" aria-hidden="true"><line x1="38" y1="43" x2="48" y2="43"></line><line x1="43" y1="38" x2="43" y2="48"></line></g></svg><button class="shape-edit-button edit-sweep-profile" type="button" title="Edit strand profile" aria-label="Edit strand profile"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <div class="profile-preset-stack"><select class="shape-preset-select" data-shape-preset="sweepProfile" aria-label="Selected strand profile preset"></select><label class="profile-offset-control">Vertical Offset <input id="profileOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="profileOffsetValue" class="slider-value">0.00</output></label></div>
           </div>
           <div class="subsection-label">Width Curve</div>
           <div class="taper-curve-control">
-            <svg class="taper-preview" viewBox="0 0 160 70" role="img" aria-label="Selected strand width curve preview"><path id="strandTaperPreview"></path></svg>
-            <button class="edit-shape-curve" data-curve-key="taperCurve" type="button" title="Edit width curve">Edit</button>
+            <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Selected strand width curve preview"><path id="strandTaperPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="taperCurve" type="button" title="Edit width curve" aria-label="Edit width curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <select class="shape-preset-select" data-shape-preset="taperCurve" aria-label="Selected strand width curve preset"></select>
           </div>
           <div class="subsection-label">Depth Curve</div>
           <div class="taper-curve-control">
-            <svg class="taper-preview" viewBox="0 0 160 70" role="img" aria-label="Selected strand depth curve preview"><path id="strandDepthPreview"></path></svg>
-            <button class="edit-shape-curve" data-curve-key="depthCurve" type="button" title="Edit depth curve">Edit</button>
+            <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Selected strand depth curve preview"><path id="strandDepthPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="depthCurve" type="button" title="Edit depth curve" aria-label="Edit depth curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <select class="shape-preset-select" data-shape-preset="depthCurve" aria-label="Selected strand depth curve preset"></select>
           </div>
+          <label class="topology-control">Width Scale <input id="widthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="widthScaleValue" class="slider-value">1.00</output></label>
+          <label class="topology-control">Depth Scale <input id="depthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="depthScaleValue" class="slider-value">1.00</output></label>
           <label class="topology-control">Root Scalp Offset <input id="rootScalpOffset" type="range" min="-1" max="1" step="0.01" /><output id="rootScalpOffsetValue" class="slider-value">0.00</output></label>
           <label class="twist-control">
             <span>Twist</span>
@@ -319,6 +374,15 @@
           </div>
         </div>
 
+        <div id="displayPanel" class="panel-section sliders">
+          <div class="section-head">
+            <span>Display</span>
+          </div>
+          <div class="subsection-label">Light Angle</div>
+          <label class="topology-control">Horizontal <input id="lightAzimuth" type="range" min="-180" max="180" step="1" value="37" /><output id="lightAzimuthValue" class="slider-value">37</output></label>
+          <label class="topology-control">Vertical <input id="lightElevation" type="range" min="-85" max="85" step="1" value="39" /><output id="lightElevationValue" class="slider-value">39</output></label>
+        </div>
+
       </aside>
     </main>
 
@@ -334,7 +398,7 @@
       </div>
     </dialog>
 
-    <dialog id="sweepProfileEditor" class="profile-dialog" aria-labelledby="sweepProfileTitle">
+    <dialog id="sweepProfileEditor" class="profile-dialog sweep-profile-dialog" aria-labelledby="sweepProfileTitle">
       <div class="profile-dialog-shell">
         <div class="profile-dialog-head">
           <div>
@@ -343,11 +407,12 @@
           </div>
           <button id="closeSweepProfile" type="button" title="Close profile editor" aria-label="Close profile editor">X</button>
         </div>
-        <svg id="sweepProfileCanvas" class="profile-canvas" viewBox="0 0 520 320" role="img" aria-label="Editable strand profile curve">
-          <line class="profile-axis" x1="30" y1="270" x2="490" y2="270"></line>
-          <line class="profile-axis" x1="260" y1="24" x2="260" y2="296"></line>
+        <svg id="sweepProfileCanvas" class="profile-canvas" viewBox="0 0 440 440" role="img" aria-label="Editable strand profile curve">
+          <line class="profile-axis" x1="24" y1="220" x2="416" y2="220"></line>
+          <line class="profile-axis" x1="220" y1="24" x2="220" y2="416"></line>
           <path id="sweepProfilePath" class="profile-path"></path>
           <g id="sweepProfilePoints"></g>
+          <g class="profile-origin-marker" aria-hidden="true"><line x1="210" y1="220" x2="230" y2="220"></line><line x1="220" y1="210" x2="220" y2="230"></line></g>
         </svg>
         <div class="profile-dialog-actions">
           <button id="addSweepPoint" type="button">Add point</button>
@@ -373,7 +438,7 @@
           <g id="taperCurvePoints"></g>
         </svg>
         <div class="taper-point-controls">
-          <label>Value <input id="taperPointValue" type="number" min="0" max="2" step="0.01" /></label>
+          <label>Value <input id="taperPointValue" type="number" min="0" max="1.5" step="0.01" /></label>
           <label>Position <input id="taperPointPosition" type="number" min="0" max="1" step="0.01" /></label>
           <label>Interpolation
             <select id="taperPointInterpolation">

@@ -3,22 +3,12 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 const viewport = document.querySelector("#viewport");
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 viewport.appendChild(renderer.domElement);
-const environmentGenerator = new THREE.PMREMGenerator(renderer);
-const hairEnvironment = environmentGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-environmentGenerator.dispose();
-const hairAnisotropyMap = new THREE.TextureLoader().load("./assets/hair-anisotropy-noise.png");
-hairAnisotropyMap.colorSpace = THREE.NoColorSpace;
-hairAnisotropyMap.wrapS = THREE.RepeatWrapping;
-hairAnisotropyMap.wrapT = THREE.RepeatWrapping;
-hairAnisotropyMap.center.set(0.5, 0.5);
-hairAnisotropyMap.rotation = Math.PI * 0.5;
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0x151418, 7, 15);
@@ -74,11 +64,13 @@ transformControls.addEventListener("objectChange", () => {
     lock.width = Math.max(0.04, lock.baseWidth * average(lock.pointWidths));
   }
   updateLockGeometry(lock);
+  syncActiveMirror(lock);
   syncInputs(lock);
 });
 
 const keyLight = new THREE.DirectionalLight(0xffead6, 2.5);
 keyLight.position.set(3, 4, 4);
+const keyLightDistance = keyLight.position.length();
 keyLight.castShadow = true;
 scene.add(keyLight);
 scene.add(new THREE.HemisphereLight(0xdde9ff, 0x271c17, 1.8));
@@ -87,6 +79,36 @@ const hairGroup = new THREE.Group();
 scene.add(hairGroup);
 const curveGroup = new THREE.Group();
 scene.add(curveGroup);
+const VIEW_PLANE_SIZE = 160;
+const viewPlaneFill = new THREE.Mesh(
+  new THREE.PlaneGeometry(VIEW_PLANE_SIZE, VIEW_PLANE_SIZE),
+  new THREE.MeshBasicMaterial({
+    color: 0x2edce8,
+    transparent: true,
+    opacity: 0.025,
+    side: THREE.DoubleSide,
+    depthTest: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1
+  })
+);
+viewPlaneFill.geometry.rotateX(-Math.PI / 2);
+viewPlaneFill.renderOrder = 0;
+viewPlaneFill.visible = false;
+scene.add(viewPlaneFill);
+
+const viewPlaneGrid = new THREE.GridHelper(VIEW_PLANE_SIZE, 640, 0x58f6ff, 0x58f6ff);
+[viewPlaneGrid.material].flat().forEach((material, index) => {
+  material.transparent = true;
+  material.opacity = index === 0 ? 0.085 : 0.045;
+  material.depthTest = true;
+  material.depthWrite = false;
+});
+viewPlaneGrid.renderOrder = 1;
+viewPlaneGrid.visible = false;
+scene.add(viewPlaneGrid);
 const guideSurfaceGroup = new THREE.Group();
 scene.add(guideSurfaceGroup);
 const SCALP_REGIONS = {
@@ -100,13 +122,27 @@ const SCALP_REGIONS = {
 };
 const DEFAULT_HAIR_COLOR = "#2c223a";
 const DEFAULT_HAIR_MATERIAL_ID = "default-purple";
-const HAIR_ANISOTROPY_STRENGTH = 0.32;
 const ROOT_SCALP_OFFSET_DISTANCE = 0.08;
+const DEFAULT_HAIR_MATERIAL_SETTINGS = {
+  color: DEFAULT_HAIR_COLOR,
+  shadowColor: "#555a78",
+  highlightColor: "#e7ebff",
+  roughness: 0.72,
+  shadowThreshold: 0.12,
+  shadowSoftness: 0.025,
+  backGradientStrength: 0.36,
+  backGradientPower: 1.35,
+  highlightWidth: 0.055,
+  highlightSoftness: 0.018,
+  highlightStrength: 0.68,
+  highlightShift: 0.12,
+  highlightJaggedness: 0.22,
+  highlightJaggedFrequency: 7
+};
 const hairMaterialDefinitions = [{
   id: DEFAULT_HAIR_MATERIAL_ID,
   name: "Default Purple",
-  color: DEFAULT_HAIR_COLOR,
-  roughness: 0.72
+  ...DEFAULT_HAIR_MATERIAL_SETTINGS
 }];
 let hairMaterialIndex = 1;
 const STRAND_GROUPS = [
@@ -136,38 +172,123 @@ function nextStrandName(region = "unassigned") {
 }
 
 const DEFAULT_SWEEP_PROFILE = [
-  { x: 1, z: 0.05 },
-  { x: 0.94, z: 0.18 },
-  { x: 0.55, z: 0.5 },
-  { x: 0, z: 0.72 },
-  { x: -0.55, z: 0.5 },
-  { x: -0.94, z: 0.18 },
-  { x: -1, z: 0.05 },
-  { x: -0.7, z: 0 },
-  { x: 0.7, z: 0 }
+  { x: 1, z: -0.31 },
+  { x: 0.94, z: -0.18 },
+  { x: 0.55, z: 0.14 },
+  { x: 0, z: 0.36 },
+  { x: -0.55, z: 0.14 },
+  { x: -0.94, z: -0.18 },
+  { x: -1, z: -0.31 },
+  { x: -0.7, z: -0.36 },
+  { x: 0.7, z: -0.36 }
 ];
 const DEFAULT_TAPER_CURVE = [
-  { position: 0, value: 0.3, interpolation: "linear" },
-  { position: 0.12, value: 0.7, interpolation: "linear" },
-  { position: 0.43, value: 0.95, interpolation: "linear" },
-  { position: 0.76, value: 0.62, interpolation: "linear" },
-  { position: 0.88, value: 0.4, interpolation: "linear" },
-  { position: 1, value: 0, interpolation: "linear" }
+  { position: 0, value: 0.3, interpolation: "smooth" },
+  { position: 0.11, value: 0.6, interpolation: "smooth" },
+  { position: 0.43, value: 0.95, interpolation: "smooth" },
+  { position: 0.68, value: 0.8, interpolation: "smooth" },
+  { position: 0.89, value: 0.4, interpolation: "smooth" },
+  { position: 1, value: 0, interpolation: "smooth" }
 ];
 const DEFAULT_DEPTH_CURVE = [
   { position: 0, value: 0.18, interpolation: "smooth" },
   { position: 0.25, value: 0.66, interpolation: "smooth" },
   { position: 1, value: 0, interpolation: "smooth" }
 ];
-const TAPER_VALUE_MAX = 2;
+const DRAW_CLUMP_TEMPLATE = {
+  baseWidth: 0.16,
+  strands: [
+    {
+      width: 0.16,
+      points: [
+        [-0.0059968, 1.1055072, 0.8644583], [0.0046603, 0.8400218, 1.0761476],
+        [0.0021184, 0.5085847, 1.1661279], [-0.0060136, 0.1663752, 1.1675754],
+        [-0.0027709, -0.1783919, 1.1683911]
+      ]
+    },
+    {
+      width: 0.11,
+      points: [
+        [0.0570277, 1.0950850, 0.8716710], [0.1521222, 0.7779978, 1.0928572],
+        [0.1577654, 0.3969150, 1.1301010], [0.1166098, 0.0842272, 1.1460944],
+        [0.0878968, -0.1030747, 1.1484194]
+      ]
+    },
+    {
+      width: 0.11,
+      points: [
+        [-0.0581465, 1.0934739, 0.8730643], [-0.1365748, 0.8361366, 1.0668734],
+        [-0.1913321, 0.5173142, 1.1480565], [-0.1772792, 0.1955351, 1.1458786],
+        [-0.0859821, -0.1121232, 1.1459633]
+      ]
+    }
+  ]
+};
+const SHAPE_PRESETS = {
+  sweepProfile: [
+    { id: "anime-wedge", name: "Anime Wedge", value: DEFAULT_SWEEP_PROFILE },
+    { id: "flat-ribbon", name: "Flat Ribbon", value: [
+      { x: 1, z: -0.10 }, { x: 0.72, z: 0.04 }, { x: 0, z: 0.16 },
+      { x: -0.72, z: 0.04 }, { x: -1, z: -0.10 }, { x: -0.72, z: -0.16 }, { x: 0.72, z: -0.16 }
+    ] },
+    { id: "rounded", name: "Rounded", value: [
+      { x: 1, z: 0 }, { x: 0.7, z: 0.7 }, { x: 0, z: 1 }, { x: -0.7, z: 0.7 },
+      { x: -1, z: 0 }, { x: -0.7, z: -0.7 }, { x: 0, z: -1 }, { x: 0.7, z: -0.7 }
+    ] }
+  ],
+  taperCurve: [
+    { id: "anime-taper", name: "Anime Taper", value: DEFAULT_TAPER_CURVE },
+    { id: "uniform", name: "Uniform", value: [
+      { position: 0, value: 1, interpolation: "linear" }, { position: 1, value: 1, interpolation: "linear" }
+    ] },
+    { id: "late-taper", name: "Late Taper", value: [
+      { position: 0, value: 0.65, interpolation: "smooth" }, { position: 0.15, value: 1, interpolation: "smooth" },
+      { position: 0.78, value: 0.95, interpolation: "smooth" }, { position: 1, value: 0, interpolation: "smooth" }
+    ] },
+    { id: "root-bulb", name: "Root Bulb", value: [
+      { position: 0, value: 0.45, interpolation: "smooth" }, { position: 0.2, value: 1.15, interpolation: "smooth" },
+      { position: 0.72, value: 0.8, interpolation: "smooth" }, { position: 1, value: 0, interpolation: "smooth" }
+    ] }
+  ],
+  depthCurve: [
+    { id: "soft-depth", name: "Soft Depth", value: DEFAULT_DEPTH_CURVE },
+    { id: "uniform", name: "Uniform", value: [
+      { position: 0, value: 0.55, interpolation: "linear" }, { position: 1, value: 0.55, interpolation: "linear" }
+    ] },
+    { id: "flat", name: "Flat", value: [
+      { position: 0, value: 0.12, interpolation: "linear" }, { position: 1, value: 0.05, interpolation: "linear" }
+    ] },
+    { id: "rounded", name: "Rounded", value: [
+      { position: 0, value: 0.25, interpolation: "smooth" }, { position: 0.35, value: 0.8, interpolation: "smooth" },
+      { position: 0.72, value: 0.55, interpolation: "smooth" }, { position: 1, value: 0, interpolation: "smooth" }
+    ] }
+  ]
+};
+const TAPER_VALUE_MAX = 1.5;
 const strandGroupDefaults = Object.fromEntries(STRAND_GROUPS.map((group) => [group.id, {
   taperCurve: DEFAULT_TAPER_CURVE.map((point) => ({ ...point })),
   depthCurve: DEFAULT_DEPTH_CURVE.map((point) => ({ ...point })),
+  widthScale: 1,
+  depthScale: 1,
+  profileOffset: 0,
   rootScalpOffset: 0,
   radialSegments: 10,
   lengthSegments: 26,
   sweepProfile: DEFAULT_SWEEP_PROFILE.map((point) => ({ ...point }))
 }]));
+const strandCreationDefaults = {
+  taperCurve: DEFAULT_TAPER_CURVE.map((point) => ({ ...point })),
+  depthCurve: DEFAULT_DEPTH_CURVE.map((point) => ({ ...point })),
+  widthScale: 1,
+  depthScale: 1,
+  profileOffset: 0,
+  rootScalpOffset: 0,
+  twist: 0,
+  splitEnabled: false,
+  splitPosition: 0.62,
+  splitSpread: 0.28,
+  sweepProfile: DEFAULT_SWEEP_PROFILE.map((point) => ({ ...point }))
+};
 const SCALP_SEGMENTS = 18;
 
 function createQuadSphereGeometry(segments = 18) {
@@ -421,6 +542,74 @@ const scalpBrushCursor = new THREE.Mesh(
 scalpBrushCursor.visible = false;
 scalpBrushCursor.renderOrder = 9;
 scene.add(scalpBrushCursor);
+const drawStrandBrushCursor = new THREE.Mesh(
+  new THREE.RingGeometry(0.82, 1, 48),
+  new THREE.MeshBasicMaterial({
+    color: 0x58f6ff,
+    transparent: true,
+    opacity: 0.72,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  })
+);
+drawStrandBrushCursor.visible = false;
+drawStrandBrushCursor.renderOrder = 12;
+scene.add(drawStrandBrushCursor);
+const drawStrandPreview = new THREE.Line(
+  new THREE.BufferGeometry(),
+  new THREE.LineBasicMaterial({
+    color: 0x58f6ff,
+    transparent: true,
+    opacity: 0.9,
+    depthTest: false,
+    depthWrite: false
+  })
+);
+drawStrandPreview.visible = false;
+drawStrandPreview.renderOrder = 12;
+scene.add(drawStrandPreview);
+const drawStrandMirrorPreview = drawStrandPreview.clone();
+drawStrandMirrorPreview.geometry = new THREE.BufferGeometry();
+drawStrandMirrorPreview.material = drawStrandPreview.material.clone();
+drawStrandMirrorPreview.visible = false;
+scene.add(drawStrandMirrorPreview);
+const drawStrandVolumePreview = new THREE.Mesh(
+  new THREE.BufferGeometry(),
+  new THREE.MeshLambertMaterial({
+    color: DEFAULT_HAIR_COLOR,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.82,
+    depthTest: true,
+    depthWrite: false,
+    side: THREE.FrontSide
+  })
+);
+drawStrandVolumePreview.visible = false;
+drawStrandVolumePreview.renderOrder = 11;
+scene.add(drawStrandVolumePreview);
+const drawStrandMirrorVolumePreview = drawStrandVolumePreview.clone();
+drawStrandMirrorVolumePreview.geometry = new THREE.BufferGeometry();
+drawStrandMirrorVolumePreview.material = drawStrandVolumePreview.material.clone();
+drawStrandMirrorVolumePreview.visible = false;
+scene.add(drawStrandMirrorVolumePreview);
+const drawStrandClumpVolumePreviews = DRAW_CLUMP_TEMPLATE.strands.slice(1).map(() => {
+  const mesh = drawStrandVolumePreview.clone();
+  mesh.geometry = new THREE.BufferGeometry();
+  mesh.material = drawStrandVolumePreview.material.clone();
+  mesh.visible = false;
+  scene.add(mesh);
+  return mesh;
+});
+const drawStrandClumpMirrorPreviews = DRAW_CLUMP_TEMPLATE.strands.slice(1).map(() => {
+  const mesh = drawStrandVolumePreview.clone();
+  mesh.geometry = new THREE.BufferGeometry();
+  mesh.material = drawStrandVolumePreview.material.clone();
+  mesh.visible = false;
+  scene.add(mesh);
+  return mesh;
+});
 const scalpLatticeGroup = new THREE.Group();
 const scalpLatticeLine = new THREE.LineSegments(
   new THREE.BufferGeometry(),
@@ -440,6 +629,7 @@ const pointer = new THREE.Vector2();
 let guideModel;
 let hairTopologyVisible = false;
 let showGroupColors = false;
+let scalpGuideVisible = true;
 let selectedId;
 let selectedGuideId;
 let lockIndex = 1;
@@ -448,6 +638,7 @@ let activeHandleEdit = null;
 let transformDragging = false;
 let objectSpaceEditing = false;
 let hierarchyEditing = false;
+let mirrorXEditing = false;
 let recursiveHierarchyTransforms = false;
 let proportionalEditing = false;
 let scalpShapeEditing = false;
@@ -461,10 +652,21 @@ let selectedPoint = null;
 let selectedStrandGroup = null;
 let relaxEdit = null;
 let placeEdit = null;
+let drawStrandStroke = null;
+let drawStrandMode = "single";
 let placementPointer = null;
 let emptySelectionPointer = null;
 let proportionalSizeEdit = null;
 let proportionalHotkeyPress = null;
+let viewSnapDrag = null;
+let activeViewportPointer = null;
+let shiftSnappedViewActive = false;
+let viewPlaneMoveEnabled = false;
+let viewPlaneMoveSnappedOnly = false;
+let viewPlaneMoveDrag = null;
+let lastHorizontalViewAxis = new THREE.Vector3(0, 0, 1);
+const CARDINAL_VIEW_DRAG_STEP = 72;
+const CARDINAL_VIEW_DRAG_GRACE = 48;
 let sweepProfileEdit = null;
 let taperCurveEdit = null;
 const lastPointer = { x: 0, y: 0 };
@@ -477,6 +679,9 @@ let restoringHistory = false;
 let inputUndoCaptured = false;
 const inputs = {
   name: document.querySelector("#lockName"),
+  widthScale: document.querySelector("#widthScale"),
+  depthScale: document.querySelector("#depthScale"),
+  profileOffset: document.querySelector("#profileOffset"),
   rootScalpOffset: document.querySelector("#rootScalpOffset"),
   twist: document.querySelector("#twist"),
   splitPosition: document.querySelector("#splitPosition"),
@@ -485,19 +690,54 @@ const inputs = {
   lengthSegments: document.querySelector("#strandLengthSegments")
 };
 const splitEnabledInput = document.querySelector("#splitEnabled");
+const mirrorXToggle = document.querySelector("#mirrorXToggle");
 const splitControls = document.querySelector("#splitControls");
 const twistNumberInput = document.querySelector("#twistNumber");
 const hairMaterialSelect = document.querySelector("#hairMaterialSelect");
 const newHairMaterialButton = document.querySelector("#newHairMaterial");
 const hairMaterialNameInput = document.querySelector("#hairMaterialName");
 const hairMaterialColorInput = document.querySelector("#hairMaterialColor");
+const hairMaterialShadowColorInput = document.querySelector("#hairMaterialShadowColor");
+const hairMaterialHighlightColorInput = document.querySelector("#hairMaterialHighlightColor");
 const hairMaterialRoughnessInput = document.querySelector("#hairMaterialRoughness");
 const roughnessValue = document.querySelector("#roughnessValue");
+const hairShaderInputs = {
+  shadowThreshold: document.querySelector("#hairShadowThreshold"),
+  shadowSoftness: document.querySelector("#hairShadowSoftness"),
+  backGradientStrength: document.querySelector("#hairBackGradientStrength"),
+  backGradientPower: document.querySelector("#hairBackGradientPower"),
+  highlightWidth: document.querySelector("#hairHighlightWidth"),
+  highlightSoftness: document.querySelector("#hairHighlightSoftness"),
+  highlightStrength: document.querySelector("#hairHighlightStrength"),
+  highlightShift: document.querySelector("#hairHighlightShift"),
+  highlightJaggedness: document.querySelector("#hairHighlightJaggedness"),
+  highlightJaggedFrequency: document.querySelector("#hairHighlightJaggedFrequency")
+};
+const hairShaderValues = Object.fromEntries(Object.entries(hairShaderInputs).map(([key, input]) => [
+  key,
+  document.querySelector(`#${input.id}Value`)
+]));
+const hairShaderValuePrecision = {
+  shadowSoftness: 3,
+  highlightWidth: 3,
+  highlightSoftness: 3,
+  highlightJaggedness: 3,
+  highlightJaggedFrequency: 1
+};
 function syncRoughnessValue() {
   roughnessValue.textContent = Number(hairMaterialRoughnessInput.value).toFixed(2);
 }
 hairMaterialRoughnessInput.addEventListener("input", syncRoughnessValue);
 hairMaterialRoughnessInput.addEventListener("change", syncRoughnessValue);
+function syncHairShaderValue(key) {
+  const output = hairShaderValues[key];
+  const input = hairShaderInputs[key];
+  if (!output || !input) return;
+  output.textContent = Number(input.value).toFixed(hairShaderValuePrecision[key] ?? 2);
+}
+function syncHairShaderValues() {
+  Object.keys(hairShaderInputs).forEach(syncHairShaderValue);
+}
 const guideInputs = {
   x: document.querySelector("#guideX"),
   y: document.querySelector("#guideY"),
@@ -519,7 +759,12 @@ const hierarchyToggle = document.querySelector("#hierarchyToggle");
 const proportionalToggle = document.querySelector("#proportionalToggle");
 const latticeToggle = document.querySelector("#latticeToggle");
 const scalpPaintToggle = document.querySelector("#scalpPaintToggle");
+const scalpGuideVisibilityToggle = document.querySelector("#scalpGuideVisibilityToggle");
 const groupColorToggle = document.querySelector("#groupColorToggle");
+const lightAzimuthInput = document.querySelector("#lightAzimuth");
+const lightElevationInput = document.querySelector("#lightElevation");
+const lightAzimuthValue = document.querySelector("#lightAzimuthValue");
+const lightElevationValue = document.querySelector("#lightElevationValue");
 const presetLibraryToggle = document.querySelector("#presetLibraryToggle");
 const presetLibrary = document.querySelector("#presetLibrary");
 const presetLibraryGrid = document.querySelector("#presetLibraryGrid");
@@ -547,9 +792,29 @@ const hierarchyPanel = document.querySelector("#hierarchyPanel");
 const hierarchyRecursiveTransformInput = document.querySelector("#hierarchyRecursiveTransform");
 const transformToolPanel = document.querySelector("#transformToolPanel");
 const transformToolTitle = document.querySelector("#transformToolTitle");
+const viewPlaneMoveSetting = document.querySelector("#viewPlaneMoveSetting");
+const viewPlaneMoveInput = document.querySelector("#viewPlaneMove");
+const viewPlaneMoveSnappedSetting = document.querySelector("#viewPlaneMoveSnappedSetting");
+const viewPlaneMoveSnappedOnlyInput = document.querySelector("#viewPlaneMoveSnappedOnly");
+const drawStrandToolPanel = document.querySelector("#drawStrandToolPanel");
+const drawStrandBrushSizeInput = document.querySelector("#drawStrandBrushSize");
+const drawStrandBrushSizeValue = document.querySelector("#drawStrandBrushSizeValue");
+const drawStrandSmoothingInput = document.querySelector("#drawStrandSmoothing");
+const drawStrandSmoothingValue = document.querySelector("#drawStrandSmoothingValue");
+const drawStrandCurveStepInput = document.querySelector("#drawStrandCurveStep");
+const drawStrandCurveStepValue = document.querySelector("#drawStrandCurveStepValue");
+const drawStrandScalpOffsetInput = document.querySelector("#drawStrandScalpOffset");
+const drawStrandScalpOffsetValue = document.querySelector("#drawStrandScalpOffsetValue");
+const drawStrandSurfaceInput = document.querySelector("#drawStrandSurface");
+const drawStrandOutputButtons = [...document.querySelectorAll("[data-draw-output]")];
 const transformSpaceButtons = [...document.querySelectorAll("[data-transform-space]")];
 const strandShapePanel = document.querySelector("#strandShapePanel");
+const strandShapeTitle = document.querySelector("#strandShapeTitle");
+const randomizeShapeButton = document.querySelector("#randomize");
 const groupInputs = {
+  widthScale: document.querySelector("#groupWidthScale"),
+  depthScale: document.querySelector("#groupDepthScale"),
+  profileOffset: document.querySelector("#groupProfileOffset"),
   rootScalpOffset: document.querySelector("#groupRootScalpOffset"),
   radialSegments: document.querySelector("#groupRadialSegments"),
   lengthSegments: document.querySelector("#groupLengthSegments")
@@ -592,6 +857,7 @@ const taperPointValue = document.querySelector("#taperPointValue");
 const taperPointPosition = document.querySelector("#taperPointPosition");
 const taperPointInterpolation = document.querySelector("#taperPointInterpolation");
 const editTaperCurveButtons = [...document.querySelectorAll(".edit-shape-curve")];
+const shapePresetSelects = [...document.querySelectorAll(".shape-preset-select")];
 const groupDefaultsWarning = document.querySelector("#groupDefaultsWarning");
 const hideGroupDefaultsWarning = document.querySelector("#hideGroupDefaultsWarning");
 const confirmGroupDefaultsChange = document.querySelector("#confirmGroupDefaultsChange");
@@ -647,7 +913,8 @@ const toolModes = {
   rotate: "rotate",
   scale: "scale",
   relax: "translate",
-  place: "translate"
+  place: "translate",
+  draw: "translate"
 };
 const shortcutTools = {
   q: "select",
@@ -655,7 +922,8 @@ const shortcutTools = {
   e: "rotate",
   r: "scale",
   t: "relax",
-  a: "place"
+  a: "place",
+  d: "draw"
 };
 
 const presets = {
@@ -679,6 +947,7 @@ const presetCatalog = [
 const customPresetCatalog = [];
 let activePresetFilter = "full";
 let currentProjectName = "Untitled Hair Project";
+let projectSaveInProgress = false;
 
 new OBJLoader().load("./assets/animefacesymmetrical.obj", (obj) => {
   guideModel = obj;
@@ -722,6 +991,7 @@ function frameGuideModel() {
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const radius = Math.max(size.x, size.y, size.z) * 0.62;
+  camera.up.set(0, 1, 0);
   controls.target.copy(center);
   controls.target.y += 0.18;
   camera.position.set(center.x, center.y + 0.28, center.z + Math.max(4.2, radius * 2.8));
@@ -1132,17 +1402,27 @@ function setHeadReferenceTransparency(enabled) {
 }
 
 function updateScalpEditingVisibility() {
-  const visible = activeTool === "place" || scalpShapeEditing || scalpPaintEditing;
+  const visible = activeTool === "place" || (activeTool === "draw" && drawStrandSurfaceInput.value === "scalp") || scalpShapeEditing || scalpPaintEditing;
   scalpSurfaceGroup.visible = visible;
   scalpPanel.classList.toggle("hidden", !scalpShapeEditing || scalpPaintEditing);
   scalpPaintPanel.classList.toggle("hidden", !scalpPaintEditing);
   scalpLatticeGroup.visible = scalpShapeEditing && scalpLatticeEditing;
-  scalpSurfaceMesh.material.opacity = scalpPaintEditing ? 0.46 : activeTool === "place" ? 0.28 : 0.12;
-  scalpSurfaceWire.material.opacity = scalpPaintEditing ? 0.12 : 0.14;
+  const surfaceOpacity = scalpPaintEditing ? 0.46 : ["place", "draw"].includes(activeTool) ? 0.28 : 0.12;
+  scalpSurfaceMesh.material.opacity = scalpGuideVisible ? surfaceOpacity : 0;
+  scalpSurfaceWire.material.opacity = scalpGuideVisible ? (scalpPaintEditing ? 0.12 : 0.14) : 0;
   scalpSurfaceMesh.material.depthTest = !scalpPaintEditing;
   scalpSurfaceWire.material.depthTest = !scalpPaintEditing;
   scalpSurfaceMesh.material.needsUpdate = true;
   scalpSurfaceWire.material.needsUpdate = true;
+}
+
+function setScalpGuideVisibility(visible) {
+  scalpGuideVisible = Boolean(visible);
+  scalpGuideVisibilityToggle.classList.toggle("active", scalpGuideVisible);
+  scalpGuideVisibilityToggle.setAttribute("aria-pressed", String(scalpGuideVisible));
+  scalpGuideVisibilityToggle.title = scalpGuideVisible ? "Hide scalp guide" : "Show scalp guide";
+  scalpGuideVisibilityToggle.setAttribute("aria-label", scalpGuideVisibilityToggle.title);
+  updateScalpEditingVisibility();
 }
 
 function setScalpLatticeEditing(enabled) {
@@ -1358,16 +1638,32 @@ function updateGuideGeometry(guide) {
 
 function setActiveTool(tool) {
   if (tool !== "place") finishPlacementFlow();
-  if (tool === "place" && scalpShapeEditing) setScalpShapeEditing(false);
+  if (tool !== "draw") finishDrawStrandStroke(null, { cancel: true });
+  if (tool !== "draw") drawStrandBrushCursor.visible = false;
+  if (["place", "draw"].includes(tool) && scalpShapeEditing) setScalpShapeEditing(false);
+  if (tool !== "move") endViewPlaneMove();
   activeTool = tool;
   updateScalpEditingVisibility();
   modeToolButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.tool === tool);
   });
   transformControls.detach();
-  if (tool !== "relax" && tool !== "place") configureTransformControls(tool);
+  if (!["relax", "place", "draw"].includes(tool)) configureTransformControls(tool);
   locks.forEach((lock) => updateCurveObjects(lock, { visible: lock.id === selectedId }));
   updateAttributeEditorMode();
+  updateViewPlaneGrid();
+  updatePlacementStatus();
+}
+
+function setDrawStrandMode(mode) {
+  if (!["single", "clump"].includes(mode)) return;
+  finishDrawStrandStroke(null, { cancel: true });
+  drawStrandMode = mode;
+  drawStrandOutputButtons.forEach((button) => {
+    const active = button.dataset.drawOutput === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
   updatePlacementStatus();
 }
 
@@ -1451,8 +1747,8 @@ function refreshProportionalPreview() {
 }
 
 function updateInteractionLocks() {
-  controls.enabled = !transformDragging && !relaxEdit && !proportionalSizeEdit && !proportionalHotkeyPress && !scalpLatticeDrag && !scalpPaintDrag;
-  transformControls.enabled = !proportionalSizeEdit && !proportionalHotkeyPress;
+  controls.enabled = !transformDragging && !relaxEdit && !proportionalSizeEdit && !proportionalHotkeyPress && !scalpLatticeDrag && !scalpPaintDrag && !viewSnapDrag && !viewPlaneMoveDrag && !drawStrandStroke;
+  transformControls.enabled = !proportionalSizeEdit && !proportionalHotkeyPress && !viewSnapDrag && !viewPlaneMoveDrag && !drawStrandStroke;
 }
 
 function configureTransformControls(tool) {
@@ -1463,11 +1759,12 @@ function configureTransformControls(tool) {
   transformControls.showZ = true;
 }
 
-function beginHandleEdit() {
-  const handle = transformControls.object;
+function beginHandleEdit(handle = transformControls.object) {
   if (!handle?.userData?.lockId) return;
   const lock = locks.find((item) => item.id === handle.userData.lockId);
   if (!lock) return;
+  const hadMirrorPartner = Boolean(mirrorPartnerFor(lock));
+  syncActiveMirror(lock, { refreshUi: !hadMirrorPartner });
   activeHandleEdit = {
     lockId: lock.id,
     pointIndex: handle.userData.pointIndex,
@@ -1502,6 +1799,152 @@ function applyProportionalMove(lock, pointIndex, handle) {
     if (weight <= 0) continue;
     lock.points[i].copy(edit.points[i]).add(delta.clone().multiplyScalar(weight));
   }
+}
+
+function viewPlaneNormal() {
+  return nearestCardinalAxis(camera.position.clone().sub(controls.target));
+}
+
+function isCameraInSnappedView() {
+  if (!shiftSnappedViewActive) return false;
+  const direction = camera.position.clone().sub(controls.target).normalize();
+  const stillSnapped = direction.dot(nearestCardinalAxis(direction)) >= 0.9995;
+  if (!stillSnapped) shiftSnappedViewActive = false;
+  return stillSnapped;
+}
+
+function viewPlaneMoveActiveForView() {
+  return viewPlaneMoveEnabled && (!viewPlaneMoveSnappedOnly || isCameraInSnappedView());
+}
+
+function updateViewPlaneGrid() {
+  const lock = selectedPoint
+    ? locks.find((item) => item.id === selectedPoint.lockId)
+    : null;
+  const point = lock?.points[selectedPoint?.pointIndex];
+  const directMoveActive = viewPlaneMoveActiveForView() && activeTool === "move";
+  const freeDrawActive = activeTool === "draw" && Boolean(drawStrandStroke?.freePlane);
+  const visible = freeDrawActive || (directMoveActive && Boolean(point) && lock.id === selectedId);
+  viewPlaneFill.visible = visible;
+  viewPlaneGrid.visible = visible;
+  if (!visible) {
+    if (
+      activeTool === "move" &&
+      point &&
+      lock.id === selectedId &&
+      !viewPlaneMoveDrag &&
+      transformControls.object !== lock.curveObjects?.handles[selectedPoint.pointIndex]
+    ) {
+      const handle = lock.curveObjects?.handles[selectedPoint.pointIndex];
+      if (handle) {
+        configureTransformControls("move");
+        transformControls.attach(handle);
+      }
+    }
+    return;
+  }
+  if (!viewPlaneMoveDrag && transformControls.object) transformControls.detach();
+  const normal = drawStrandStroke?.freePlane?.normal || viewPlaneMoveDrag?.normal || viewPlaneNormal();
+  const origin = drawStrandStroke?.freePlane?.origin || viewPlaneMoveDrag?.planeOrigin || point;
+  viewPlaneGrid.position.copy(origin);
+  viewPlaneGrid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), normal);
+  viewPlaneFill.position.copy(origin);
+  viewPlaneFill.quaternion.copy(viewPlaneGrid.quaternion);
+}
+
+function setViewPlaneMove(enabled) {
+  endViewPlaneMove();
+  viewPlaneMoveEnabled = Boolean(enabled);
+  viewPlaneMoveInput.checked = viewPlaneMoveEnabled;
+  viewPlaneMoveSnappedOnlyInput.disabled = !viewPlaneMoveEnabled;
+  viewPlaneMoveSnappedSetting.classList.toggle("disabled", !viewPlaneMoveEnabled);
+  if (viewPlaneMoveEnabled) transformControls.detach();
+  updateViewPlaneGrid();
+  updateInteractionLocks();
+}
+
+function setViewPlaneMoveSnappedOnly(enabled) {
+  endViewPlaneMove();
+  viewPlaneMoveSnappedOnly = Boolean(enabled);
+  viewPlaneMoveSnappedOnlyInput.checked = viewPlaneMoveSnappedOnly;
+  updateViewPlaneGrid();
+  updateInteractionLocks();
+}
+
+function rayFromViewportEvent(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  return raycaster.ray;
+}
+
+function beginViewPlaneMove(lock, handle, event) {
+  if (!viewPlaneMoveActiveForView() || activeTool !== "move" || event.button !== 0) return false;
+  if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return false;
+  const normal = viewPlaneNormal();
+  const planeOrigin = handle.position.clone();
+  const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, planeOrigin);
+  const startIntersection = rayFromViewportEvent(event).intersectPlane(plane, new THREE.Vector3());
+  if (!startIntersection) return false;
+
+  pushUndoState();
+  transformControls.detach();
+  beginHandleEdit(handle);
+  viewPlaneMoveDrag = {
+    pointerId: event.pointerId,
+    lockId: lock.id,
+    pointIndex: handle.userData.pointIndex,
+    handle,
+    normal,
+    planeOrigin,
+    plane,
+    startIntersection
+  };
+  renderer.domElement.setPointerCapture?.(event.pointerId);
+  renderer.domElement.style.cursor = "move";
+  updateViewPlaneGrid();
+  updateInteractionLocks();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  return true;
+}
+
+function updateViewPlaneMove(event) {
+  if (!viewPlaneMoveDrag || event.pointerId !== viewPlaneMoveDrag.pointerId) return;
+  const lock = locks.find((item) => item.id === viewPlaneMoveDrag.lockId);
+  if (!lock || !activeHandleEdit) {
+    endViewPlaneMove(event);
+    return;
+  }
+  const intersection = rayFromViewportEvent(event).intersectPlane(viewPlaneMoveDrag.plane, new THREE.Vector3());
+  if (!intersection) return;
+  viewPlaneMoveDrag.handle.position
+    .copy(activeHandleEdit.handlePosition)
+    .add(intersection.sub(viewPlaneMoveDrag.startIntersection));
+
+  if (hierarchyEditing) applyHierarchicalMove(lock, viewPlaneMoveDrag.pointIndex, viewPlaneMoveDrag.handle);
+  else if (proportionalEditing) applyProportionalMove(lock, viewPlaneMoveDrag.pointIndex, viewPlaneMoveDrag.handle);
+  else applySingleMove(lock, viewPlaneMoveDrag.pointIndex, viewPlaneMoveDrag.handle);
+  syncLockFromCurve(lock);
+  updateLockGeometry(lock);
+  syncActiveMirror(lock);
+  syncInputs(lock);
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function endViewPlaneMove(event) {
+  if (!viewPlaneMoveDrag || (event?.pointerId !== undefined && event.pointerId !== viewPlaneMoveDrag.pointerId)) return;
+  const pointerId = viewPlaneMoveDrag.pointerId;
+  viewPlaneMoveDrag = null;
+  activeHandleEdit = null;
+  if (renderer.domElement.hasPointerCapture?.(pointerId)) renderer.domElement.releasePointerCapture(pointerId);
+  renderer.domElement.style.cursor = "";
+  updateViewPlaneGrid();
+  updateInteractionLocks();
+  event?.preventDefault();
+  event?.stopImmediatePropagation();
 }
 
 function applyHierarchicalRotate(lock, pointIndex, handle) {
@@ -1633,6 +2076,8 @@ function strandInfluenceColor(lock, t) {
 function beginRelaxEdit(lock, pointIndex, event) {
   if (pointIndex <= 0 || pointIndex >= lock.points.length - 1) return false;
   pushUndoState();
+  const hadMirrorPartner = Boolean(mirrorPartnerFor(lock));
+  syncActiveMirror(lock, { refreshUi: !hadMirrorPartner });
   const originalPoints = lock.points.map((point) => point.clone());
   const originalScales = lock.pointScales.map((scale) => ({ x: scale.x, z: scale.z }));
   relaxEdit = {
@@ -1678,6 +2123,7 @@ function updateRelaxEdit(event) {
   lock.width = Math.max(0.04, lock.baseWidth * average(lock.pointWidths));
   syncLockFromCurve(lock);
   updateLockGeometry(lock);
+  syncActiveMirror(lock);
   syncInputs(lock);
 }
 
@@ -1719,6 +2165,28 @@ function normalizeTaperCurve(curve, fallback = {}) {
   return points;
 }
 
+const taperTangentCache = new WeakMap();
+
+function smoothTaperTangents(curve) {
+  const signature = curve.map((point) => `${point.position}:${point.value}`).join("|");
+  const cached = taperTangentCache.get(curve);
+  if (cached?.signature === signature) return cached.tangents;
+  const intervals = curve.slice(0, -1).map((point, index) => Math.max(0.0001, curve[index + 1].position - point.position));
+  const slopes = intervals.map((interval, index) => (curve[index + 1].value - curve[index].value) / interval);
+  const tangents = curve.map((point, index) => {
+    if (index === 0) return slopes[0] || 0;
+    if (index === curve.length - 1) return slopes.at(-1) || 0;
+    const before = slopes[index - 1];
+    const after = slopes[index];
+    if (!before || !after || Math.sign(before) !== Math.sign(after)) return 0;
+    const beforeWeight = 2 * intervals[index] + intervals[index - 1];
+    const afterWeight = intervals[index] + 2 * intervals[index - 1];
+    return (beforeWeight + afterWeight) / (beforeWeight / before + afterWeight / after);
+  });
+  taperTangentCache.set(curve, { signature, tangents });
+  return tangents;
+}
+
 function sampleTaperCurve(curve, t) {
   if (!curve?.length) return 1;
   const clampedT = THREE.MathUtils.clamp(t, 0, 1);
@@ -1730,19 +2198,29 @@ function sampleTaperCurve(curve, t) {
   const span = Math.max(0.0001, right.position - left.position);
   let amount = THREE.MathUtils.clamp((clampedT - left.position) / span, 0, 1);
   if (left.interpolation === "constant") amount = 0;
-  if (left.interpolation === "smooth") amount = amount * amount * (3 - 2 * amount);
+  if (left.interpolation === "smooth") {
+    const tangents = smoothTaperTangents(curve);
+    const amount2 = amount * amount;
+    const amount3 = amount2 * amount;
+    const value = (2 * amount3 - 3 * amount2 + 1) * left.value
+      + (amount3 - 2 * amount2 + amount) * span * tangents[rightIndex - 1]
+      + (-2 * amount3 + 3 * amount2) * right.value
+      + (amount3 - amount2) * span * tangents[rightIndex];
+    return THREE.MathUtils.clamp(value, Math.min(left.value, right.value), Math.max(left.value, right.value));
+  }
   return THREE.MathUtils.lerp(left.value, right.value, amount);
 }
 
 function strandRadiusAt(lock, t, axis, radiusScale = 1) {
   const shapeCurve = axis === "z" ? lock.depthCurve : lock.taperCurve;
-  return Math.max(0, lock.baseWidth * sampleTaperCurve(shapeCurve, t) * radiusScale);
+  const axisScale = axis === "z" ? Number(lock.depthScale ?? 1) : Number(lock.widthScale ?? 1);
+  return Math.max(0, lock.baseWidth * sampleTaperCurve(shapeCurve, t) * axisScale * radiusScale);
 }
 
 function createSplitHairGeometry(lock) {
   const curve = new THREE.CatmullRomCurve3(lock.points);
   const profilePoints = (lock.sweepProfile?.length >= 4 ? lock.sweepProfile : DEFAULT_SWEEP_PROFILE)
-    .map((point) => new THREE.Vector3(point.x, 0, point.z));
+    .map((point) => new THREE.Vector3(point.x, 0, point.z + Number(lock.profileOffset || 0)));
   const profileCurve = new THREE.CatmullRomCurve3(profilePoints, true, "centripetal", 0.5);
   const radialSegments = THREE.MathUtils.clamp(Math.round(lock.radialSegments || 10), 4, 24);
   const lengthSegments = THREE.MathUtils.clamp(Math.round(lock.lengthSegments || 26), 6, 64);
@@ -1883,7 +2361,7 @@ function createHairGeometry(lock) {
   if (lock.splitEnabled) return createSplitHairGeometry(lock);
   const curve = new THREE.CatmullRomCurve3(lock.points);
   const profilePoints = (lock.sweepProfile?.length >= 4 ? lock.sweepProfile : DEFAULT_SWEEP_PROFILE)
-    .map((point) => new THREE.Vector3(point.x, 0, point.z));
+    .map((point) => new THREE.Vector3(point.x, 0, point.z + Number(lock.profileOffset || 0)));
   const profileCurve = new THREE.CatmullRomCurve3(profilePoints, true, "centripetal", 0.5);
   const radialSegments = THREE.MathUtils.clamp(Math.round(lock.radialSegments || 10), 4, 24);
   const lengthSegments = THREE.MathUtils.clamp(Math.round(lock.lengthSegments || 26), 4, 64);
@@ -1966,8 +2444,15 @@ function createHairGeometry(lock) {
   return geometry;
 }
 
+function normalizeHairMaterialDefinition(material = {}) {
+  return Object.assign(material, {
+    ...DEFAULT_HAIR_MATERIAL_SETTINGS,
+    ...material
+  });
+}
+
 function hairMaterialDefinition(materialId) {
-  return hairMaterialDefinitions.find((material) => material.id === materialId) || hairMaterialDefinitions[0];
+  return normalizeHairMaterialDefinition(hairMaterialDefinitions.find((material) => material.id === materialId) || hairMaterialDefinitions[0]);
 }
 
 function materialForLock(lock) {
@@ -1989,36 +2474,187 @@ function hairGlossAmount(value) {
   return 1 - THREE.MathUtils.smoothstep(roughness, 0.2, 1);
 }
 
+const animeHairVertexShader = /* glsl */`
+  attribute vec3 color;
+  attribute vec4 tangent;
+  varying vec2 vUv;
+  varying vec3 vVertexColor;
+  varying vec3 vObjectPosition;
+  varying vec3 vWorldPosition;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldTangent;
+
+  void main() {
+    vUv = uv;
+    vVertexColor = color;
+    vObjectPosition = position;
+    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = worldPosition.xyz;
+    vWorldNormal = normalize(mat3(modelMatrix) * normal);
+    vWorldTangent = normalize(mat3(modelMatrix) * tangent.xyz);
+    gl_Position = projectionMatrix * viewMatrix * worldPosition;
+  }
+`;
+
+const animeHairFragmentShader = /* glsl */`
+  precision highp float;
+
+  uniform vec3 uBaseColor;
+  uniform vec3 uShadowColor;
+  uniform vec3 uHighlightColor;
+  uniform vec3 uLightDirection;
+  uniform vec3 uCameraPosition;
+
+  uniform float uShadowThreshold;
+  uniform float uShadowSoftness;
+  uniform float uBackGradientStrength;
+  uniform float uBackGradientPower;
+  uniform float uHighlightWidth;
+  uniform float uHighlightSoftness;
+  uniform float uHighlightStrength;
+  uniform float uHighlightShift;
+  uniform float uHighlightJaggedness;
+  uniform float uHighlightJaggedFrequency;
+
+  varying vec2 vUv;
+  varying vec3 vVertexColor;
+  varying vec3 vObjectPosition;
+  varying vec3 vWorldPosition;
+  varying vec3 vWorldNormal;
+  varying vec3 vWorldTangent;
+
+  float saturate(float value) {
+    return clamp(value, 0.0, 1.0);
+  }
+
+  float hash11(float value) {
+    return fract(sin(value * 127.1) * 43758.5453);
+  }
+
+  float angularNoise(float value) {
+    float cell = floor(value);
+    float local = fract(value);
+    local = local * local * (3.0 - 2.0 * local);
+    return mix(hash11(cell), hash11(cell + 1.0), local);
+  }
+
+  float band(float value, float center, float width, float softness) {
+    float distanceToCenter = abs(value - center);
+    return 1.0 - smoothstep(width, width + softness, distanceToCenter);
+  }
+
+  void main() {
+    vec3 N = normalize(vWorldNormal);
+    if (!gl_FrontFacing) N = -N;
+
+    vec3 L = normalize(uLightDirection);
+    vec3 V = normalize(uCameraPosition - vWorldPosition);
+    float NdotL = dot(N, L);
+
+    float coreLight = smoothstep(
+      uShadowThreshold - uShadowSoftness,
+      uShadowThreshold + uShadowSoftness,
+      NdotL
+    );
+
+    float backFacing = pow(saturate(-NdotL), uBackGradientPower);
+    float ambientGradient = 1.0 - backFacing * uBackGradientStrength;
+
+    vec3 baseColor = uBaseColor * vVertexColor;
+    vec3 shadowedBase = baseColor * uShadowColor;
+    vec3 color = mix(shadowedBase, baseColor, coreLight) * ambientGradient;
+    color = max(color, baseColor * 0.34);
+
+    vec3 T = normalize(vWorldTangent);
+    if (dot(T, T) < 0.0001) {
+      vec3 flow = vec3(0.0, 1.0, 0.0);
+      T = flow - N * dot(flow, N);
+      if (dot(T, T) < 0.0001) T = cross(N, vec3(1.0, 0.0, 0.0));
+      T = normalize(T);
+    }
+
+    vec3 shiftedT = normalize(T + N * uHighlightShift);
+    vec3 H = normalize(L + V);
+    float TdotH = dot(shiftedT, H);
+    float dynamicHighlight = band(TdotH, 0.0, uHighlightWidth, uHighlightSoftness);
+
+    float objectSeed = hash11(floor((vObjectPosition.x + vObjectPosition.z) * 19.0));
+    float strandFlow = vUv.y;
+    float side = vUv.x;
+    float slowWave = sin(strandFlow * 7.2 + objectSeed * 6.2831853) * 0.045;
+    float staticCenter = 0.28 + slowWave + uHighlightShift * 0.12;
+    float staticHighlight = band(side, staticCenter, uHighlightWidth * 0.72, uHighlightSoftness * 4.0);
+    staticHighlight += band(side, 0.68 - slowWave * 0.55, uHighlightWidth * 0.38, uHighlightSoftness * 3.2) * 0.45;
+    staticHighlight = saturate(staticHighlight);
+
+    float streakNoise = angularNoise(strandFlow * uHighlightJaggedFrequency + objectSeed * 17.0);
+    float fineNoise = angularNoise(strandFlow * uHighlightJaggedFrequency * 2.7 + side * 3.0);
+    float detailMask = mix(1.0, 0.72 + 0.38 * streakNoise + 0.12 * fineNoise, uHighlightJaggedness);
+    float lightMask = smoothstep(-0.12, 0.22, NdotL);
+    float fresnel = pow(1.0 - saturate(dot(N, V)), 2.2);
+    float dynamicLayer = dynamicHighlight * detailMask * lightMask;
+    float staticLayer = staticHighlight * (0.42 + 0.58 * lightMask) * detailMask;
+    float rimLayer = fresnel * smoothstep(-0.25, 0.45, NdotL);
+    float highlightAmount = saturate((dynamicLayer * 0.46 + staticLayer * 0.055 + rimLayer * 0.12) * uHighlightStrength);
+    vec3 highlightTint = mix(color, uHighlightColor, 0.55);
+    color = mix(color, highlightTint, highlightAmount);
+
+    gl_FragColor = vec4(color, 1.0);
+  }
+`;
+
+function animeHairLightDirection() {
+  return keyLight.position.clone().normalize();
+}
+
+function setAnimeHairBaseColor(material, color) {
+  material.color.set(color);
+}
+
+function applyHairShaderUniforms(material, roughness) {
+  if (!material?.uniforms?.uHighlightWidth) return;
+  const definition = material.userData.definition || DEFAULT_HAIR_MATERIAL_SETTINGS;
+  const clampedRoughness = hairMaterialRoughness(roughness ?? definition.roughness);
+  const roughnessStrength = THREE.MathUtils.lerp(0.9, 0.46, clampedRoughness);
+  material.uniforms.uShadowColor.value.set(definition.shadowColor || DEFAULT_HAIR_MATERIAL_SETTINGS.shadowColor);
+  material.uniforms.uHighlightColor.value.set(definition.highlightColor || DEFAULT_HAIR_MATERIAL_SETTINGS.highlightColor);
+  material.uniforms.uShadowThreshold.value = Number(definition.shadowThreshold ?? DEFAULT_HAIR_MATERIAL_SETTINGS.shadowThreshold);
+  material.uniforms.uShadowSoftness.value = Number(definition.shadowSoftness ?? DEFAULT_HAIR_MATERIAL_SETTINGS.shadowSoftness);
+  material.uniforms.uBackGradientStrength.value = Number(definition.backGradientStrength ?? DEFAULT_HAIR_MATERIAL_SETTINGS.backGradientStrength);
+  material.uniforms.uBackGradientPower.value = Number(definition.backGradientPower ?? DEFAULT_HAIR_MATERIAL_SETTINGS.backGradientPower);
+  material.uniforms.uHighlightWidth.value = Number(definition.highlightWidth ?? DEFAULT_HAIR_MATERIAL_SETTINGS.highlightWidth) * THREE.MathUtils.lerp(0.9, 1.55, clampedRoughness);
+  material.uniforms.uHighlightSoftness.value = Number(definition.highlightSoftness ?? DEFAULT_HAIR_MATERIAL_SETTINGS.highlightSoftness) * THREE.MathUtils.lerp(0.9, 2.4, clampedRoughness);
+  material.uniforms.uHighlightStrength.value = Number(definition.highlightStrength ?? DEFAULT_HAIR_MATERIAL_SETTINGS.highlightStrength) * roughnessStrength;
+  material.uniforms.uHighlightShift.value = Number(definition.highlightShift ?? DEFAULT_HAIR_MATERIAL_SETTINGS.highlightShift);
+  material.uniforms.uHighlightJaggedness.value = Number(definition.highlightJaggedness ?? DEFAULT_HAIR_MATERIAL_SETTINGS.highlightJaggedness);
+  material.uniforms.uHighlightJaggedFrequency.value = Number(definition.highlightJaggedFrequency ?? DEFAULT_HAIR_MATERIAL_SETTINGS.highlightJaggedFrequency);
+  material.uniforms.uLightDirection.value.copy(animeHairLightDirection());
+}
+
 function updateHairMaterialResponse(material, roughness) {
-  const gloss = hairGlossAmount(roughness);
-  material.roughness = hairMaterialRoughness(roughness);
-  material.specularIntensity = gloss;
-  material.envMapIntensity = 0.42 * gloss * gloss;
+  // Lambert materials have no stylized highlight response to update.
 }
 
 function createHairMaterial(lock) {
   const definition = materialForLock(lock);
-  const gloss = hairGlossAmount(definition.roughness);
-  const material = new THREE.MeshPhysicalMaterial({
+  const material = new THREE.MeshLambertMaterial({
+    name: "HairLambertMaterial",
     color: strandDisplayColor(lock),
-    roughness: hairMaterialRoughness(definition.roughness),
-    metalness: 0,
-    anisotropy: HAIR_ANISOTROPY_STRENGTH,
-    anisotropyRotation: 0,
-    anisotropyMap: hairAnisotropyMap,
-    specularColor: 0xd8cbed,
-    specularIntensity: gloss,
-    envMap: hairEnvironment,
-    envMapIntensity: 0.42 * gloss * gloss,
-    vertexColors: true
+    vertexColors: true,
+    side: THREE.FrontSide,
+    transparent: false,
+    depthWrite: true,
+    depthTest: true
   });
+  material.userData.definition = definition;
   return material;
 }
 
 function applyMaterialDefinitionToLock(lock) {
   const definition = materialForLock(lock);
   const showingProportionalRamp = proportionalEditing && selectedPoint?.lockId === lock.id;
-  lock.mesh.material.color.set(showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
+  lock.mesh.material.userData.definition = definition;
+  setAnimeHairBaseColor(lock.mesh.material, showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
   updateHairMaterialResponse(lock.mesh.material, definition.roughness);
 }
 
@@ -2044,8 +2680,14 @@ function syncHairMaterialEditor(lock) {
   renderHairMaterialOptions(definition.id);
   hairMaterialNameInput.value = definition.name;
   hairMaterialColorInput.value = definition.color;
+  hairMaterialShadowColorInput.value = definition.shadowColor;
+  hairMaterialHighlightColorInput.value = definition.highlightColor;
   hairMaterialRoughnessInput.value = definition.roughness;
+  Object.entries(hairShaderInputs).forEach(([key, input]) => {
+    input.value = definition[key] ?? DEFAULT_HAIR_MATERIAL_SETTINGS[key];
+  });
   syncRoughnessValue();
+  syncHairShaderValues();
 }
 
 function createHairTopologyGeometry(sourceGeometry) {
@@ -2118,12 +2760,23 @@ function groupDefaultsFor(region) {
   return strandGroupDefaults[region] || strandGroupDefaults.unassigned;
 }
 
+function creationToolActive() {
+  return activeTool === "place" || activeTool === "draw";
+}
+
+function activeStrandShapeTarget() {
+  return creationToolActive() ? strandCreationDefaults : getSelectedLock();
+}
+
 function applyGroupDefaultsToExistingStrands(region) {
   const defaults = groupDefaultsFor(region);
   locks.forEach((lock) => {
     if ((lock.scalpRegion || "unassigned") !== region) return;
     lock.taperCurve = defaults.taperCurve.map((point) => ({ ...point }));
     lock.depthCurve = defaults.depthCurve.map((point) => ({ ...point }));
+    lock.widthScale = Number(defaults.widthScale ?? 1);
+    lock.depthScale = Number(defaults.depthScale ?? 1);
+    lock.profileOffset = Number(defaults.profileOffset ?? 0);
     lock.rootScalpOffset = defaults.rootScalpOffset;
     lock.radialSegments = Math.round(defaults.radialSegments);
     lock.lengthSegments = Math.round(defaults.lengthSegments);
@@ -2148,14 +2801,22 @@ function requestGroupDefaultsWarning(event) {
 function activeSweepProfile() {
   if (!sweepProfileEdit) return null;
   if (sweepProfileEdit.type === "group") return strandGroupDefaults[sweepProfileEdit.id]?.sweepProfile || null;
+  if (sweepProfileEdit.type === "creation") return strandCreationDefaults.sweepProfile;
   return locks.find((lock) => lock.id === sweepProfileEdit.id)?.sweepProfile || null;
 }
 
-function profileToCanvas(point) {
-  return { x: 260 + point.x * 190, y: 270 - point.z * 200 };
+function activeProfileOffset() {
+  if (!sweepProfileEdit) return 0;
+  if (sweepProfileEdit.type === "group") return Number(strandGroupDefaults[sweepProfileEdit.id]?.profileOffset || 0);
+  if (sweepProfileEdit.type === "creation") return Number(strandCreationDefaults.profileOffset || 0);
+  return Number(locks.find((lock) => lock.id === sweepProfileEdit.id)?.profileOffset || 0);
 }
 
-function renderProfilePreview(path, profile) {
+function profileToCanvas(point, offset = activeProfileOffset()) {
+  return { x: 220 + point.x * 156, y: 220 - (point.z + offset) * 156 };
+}
+
+function renderProfilePreview(path, profile, offset = 0) {
   if (!path || !profile?.length) return;
   const curve = new THREE.CatmullRomCurve3(
     profile.map((point) => new THREE.Vector3(point.x, 0, point.z)),
@@ -2164,8 +2825,8 @@ function renderProfilePreview(path, profile) {
     0.5
   );
   const sampled = curve.getPoints(48).map((point) => ({
-    x: 43 + point.x * 32,
-    y: 45 - point.z * 34
+    x: 43 + point.x * 30,
+    y: 43 - (point.z + offset) * 30
   }));
   path.setAttribute("d", `${sampled.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ")} Z`);
 }
@@ -2173,6 +2834,7 @@ function renderProfilePreview(path, profile) {
 function activeTaperCurve() {
   if (!taperCurveEdit) return null;
   if (taperCurveEdit.type === "group") return strandGroupDefaults[taperCurveEdit.id]?.[taperCurveEdit.curveKey] || null;
+  if (taperCurveEdit.type === "creation") return strandCreationDefaults[taperCurveEdit.curveKey];
   return locks.find((lock) => lock.id === taperCurveEdit.id)?.[taperCurveEdit.curveKey] || null;
 }
 
@@ -2186,12 +2848,79 @@ function taperSamples(curve, count = 80) {
 function renderTaperPreview(path, curve) {
   if (!path || !curve?.length) return;
   const sampled = taperSamples(curve, 48).map((point) => ({
-    x: 8 + point.position * 144,
-    y: 62 - (point.value / TAPER_VALUE_MAX) * 52
+    x: 9 + point.position * 142,
+    y: 63 - (point.value / TAPER_VALUE_MAX) * 54
   }));
   const line = sampled.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ");
-  path.setAttribute("d", `${line} L152,62 L8,62 Z`);
+  path.setAttribute("d", `${line} L151,63 L9,63 Z`);
 }
+
+function cloneShapePresetValue(value) {
+  return value.map((point) => ({ ...point }));
+}
+
+function shapeValuesMatch(left, right) {
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((point, index) => Object.keys(point).every((key) => {
+    const other = right[index]?.[key];
+    return typeof point[key] === "number" ? Math.abs(point[key] - other) < 0.0001 : point[key] === other;
+  }));
+}
+
+function shapeTargetForSelect(select) {
+  if (select.closest("#groupSettingsPanel")) return selectedStrandGroup ? strandGroupDefaults[selectedStrandGroup] : null;
+  return activeStrandShapeTarget();
+}
+
+function syncShapePresetSelects() {
+  shapePresetSelects.forEach((select) => {
+    const key = select.dataset.shapePreset;
+    const value = shapeTargetForSelect(select)?.[key];
+    const match = SHAPE_PRESETS[key].find((preset) => shapeValuesMatch(value, preset.value));
+    select.value = match?.id || "custom";
+  });
+}
+
+function populateShapePresetSelects() {
+  shapePresetSelects.forEach((select) => {
+    const presetsForShape = SHAPE_PRESETS[select.dataset.shapePreset];
+    const options = presetsForShape.map((preset) => {
+      const option = document.createElement("option");
+      option.value = preset.id;
+      option.textContent = preset.name;
+      return option;
+    });
+    const custom = document.createElement("option");
+    custom.value = "custom";
+    custom.textContent = "Custom";
+    custom.disabled = true;
+    select.replaceChildren(...options, custom);
+  });
+  syncShapePresetSelects();
+}
+
+function applyShapePreset(select) {
+  const key = select.dataset.shapePreset;
+  const preset = SHAPE_PRESETS[key].find((item) => item.id === select.value);
+  const target = shapeTargetForSelect(select);
+  if (!preset || !target) return;
+  pushUndoState();
+  target[key] = cloneShapePresetValue(preset.value);
+  if (select.closest("#groupSettingsPanel")) {
+    applyGroupDefaultsToExistingStrands(selectedStrandGroup);
+    syncGroupInputs();
+  } else if (creationToolActive()) {
+    syncCreationShapeInputs();
+  } else {
+    updateLockGeometry(target);
+    syncActiveMirror(target, { refreshUi: true });
+    syncInputs(target);
+  }
+  syncShapePresetSelects();
+}
+
+populateShapePresetSelects();
+shapePresetSelects.forEach((select) => select.addEventListener("change", () => applyShapePreset(select)));
 
 function taperPointToCanvas(point) {
   return { x: 30 + point.position * 460, y: 190 - (point.value / TAPER_VALUE_MAX) * 170 };
@@ -2239,18 +2968,25 @@ function applyTaperCurveEdit() {
   if (taperCurveEdit.type === "group") {
     applyGroupDefaultsToExistingStrands(taperCurveEdit.id);
     renderTaperPreview(taperCurveEdit.curveKey === "depthCurve" ? taperPreviewPaths.groupDepth : taperPreviewPaths.group, activeTaperCurve());
+  } else if (taperCurveEdit.type === "creation") {
+    renderTaperPreview(taperCurveEdit.curveKey === "depthCurve" ? taperPreviewPaths.strandDepth : taperPreviewPaths.strand, activeTaperCurve());
   } else {
     const lock = locks.find((item) => item.id === taperCurveEdit.id);
-    if (lock) updateLockGeometry(lock);
+    if (lock) {
+      updateLockGeometry(lock);
+      syncActiveMirror(lock, { refreshUi: true });
+    }
     renderTaperPreview(taperCurveEdit.curveKey === "depthCurve" ? taperPreviewPaths.strandDepth : taperPreviewPaths.strand, activeTaperCurve());
     updateTopologyStats();
   }
   renderTaperCurveEditor();
+  syncShapePresetSelects();
 }
 
 function openTaperCurveEditor(curveKey = "taperCurve") {
   let nextEdit = null;
-  if (selectedStrandGroup) nextEdit = { type: "group", id: selectedStrandGroup, curveKey, selectedIndex: 0, dragPointerId: null };
+  if (creationToolActive()) nextEdit = { type: "creation", id: "new-strand", curveKey, selectedIndex: 0, dragPointerId: null };
+  else if (selectedStrandGroup) nextEdit = { type: "group", id: selectedStrandGroup, curveKey, selectedIndex: 0, dragPointerId: null };
   else {
     const lock = getSelectedLock();
     if (lock) nextEdit = { type: "strand", id: lock.id, curveKey, selectedIndex: 0, dragPointerId: null };
@@ -2269,7 +3005,9 @@ function openTaperCurveEditor(curveKey = "taperCurve") {
   const group = STRAND_GROUPS.find((item) => item.id === nextEdit.id);
   const lock = locks.find((item) => item.id === nextEdit.id);
   document.querySelector("#taperCurveTitle").textContent = curveKey === "depthCurve" ? "Depth Curve" : "Width Curve";
-  taperCurveTarget.textContent = nextEdit.type === "group" ? `${group?.label || "Group"} defaults` : lock?.name || "Selected strand";
+  taperCurveTarget.textContent = nextEdit.type === "creation"
+    ? "New strand defaults"
+    : nextEdit.type === "group" ? `${group?.label || "Group"} defaults` : lock?.name || "Selected strand";
   renderTaperCurveEditor();
   taperCurveEditor.show();
   updateViewportStatsVisibility();
@@ -2290,11 +3028,11 @@ function updateViewportStatsVisibility() {
 
 function canvasToProfile(event) {
   const rect = sweepProfileCanvas.getBoundingClientRect();
-  const canvasX = (event.clientX - rect.left) * (520 / rect.width);
-  const canvasY = (event.clientY - rect.top) * (320 / rect.height);
+  const canvasX = (event.clientX - rect.left) * (440 / rect.width);
+  const canvasY = (event.clientY - rect.top) * (440 / rect.height);
   return {
-    x: THREE.MathUtils.clamp((canvasX - 260) / 190, -1.25, 1.25),
-    z: THREE.MathUtils.clamp((270 - canvasY) / 200, -0.2, 1.35)
+    x: THREE.MathUtils.clamp((canvasX - 220) / 156, -1.25, 1.25),
+    z: THREE.MathUtils.clamp((220 - canvasY) / 156 - activeProfileOffset(), -1.25, 1.25)
   };
 }
 
@@ -2326,21 +3064,27 @@ function applySweepProfileEdit() {
   if (!sweepProfileEdit) return;
   if (sweepProfileEdit.type === "group") {
     applyGroupDefaultsToExistingStrands(sweepProfileEdit.id);
+  } else if (sweepProfileEdit.type === "creation") {
+    // The preview below is the only live geometry needed for creation defaults.
   } else {
     const lock = locks.find((item) => item.id === sweepProfileEdit.id);
     if (lock) {
       updateLockGeometry(lock);
+      syncActiveMirror(lock, { refreshUi: true });
       updateTopologyStats();
     }
   }
   const previewPath = sweepProfileEdit.type === "group" ? profilePreviewPaths.group : profilePreviewPaths.strand;
-  renderProfilePreview(previewPath, activeSweepProfile());
+  renderProfilePreview(previewPath, activeSweepProfile(), activeProfileOffset());
   renderSweepProfileEditor();
+  syncShapePresetSelects();
 }
 
 function openSweepProfileEditor() {
   let nextEdit = null;
-  if (selectedStrandGroup) {
+  if (creationToolActive()) {
+    nextEdit = { type: "creation", id: "new-strand", selectedIndex: 0, dragPointerId: null };
+  } else if (selectedStrandGroup) {
     nextEdit = { type: "group", id: selectedStrandGroup, selectedIndex: 0, dragPointerId: null };
   } else {
     const lock = getSelectedLock();
@@ -2361,7 +3105,9 @@ function openSweepProfileEditor() {
   sweepProfileEdit = nextEdit;
   const group = STRAND_GROUPS.find((item) => item.id === nextEdit.id);
   const lock = locks.find((item) => item.id === nextEdit.id);
-  sweepProfileTarget.textContent = nextEdit.type === "group" ? `${group?.label || "Group"} defaults` : lock?.name || "Selected strand";
+  sweepProfileTarget.textContent = nextEdit.type === "creation"
+    ? "New strand defaults"
+    : nextEdit.type === "group" ? `${group?.label || "Group"} defaults` : lock?.name || "Selected strand";
   renderSweepProfileEditor();
   sweepProfileEditor.show();
   updateViewportStatsVisibility();
@@ -2392,6 +3138,9 @@ function addLock(presetName, overrides = {}, options = {}) {
   lock.lengthSegments = Math.round(base.lengthSegments ?? topologyDefaults.lengthSegments);
   lock.taperCurve = normalizeTaperCurve(base.taperCurve || topologyDefaults.taperCurve, base);
   lock.depthCurve = normalizeTaperCurve(base.depthCurve || topologyDefaults.depthCurve, base);
+  lock.widthScale = Number(base.widthScale ?? topologyDefaults.widthScale ?? 1);
+  lock.depthScale = Number(base.depthScale ?? topologyDefaults.depthScale ?? 1);
+  lock.profileOffset = Number(base.profileOffset ?? topologyDefaults.profileOffset ?? 0);
   lock.splitEnabled = Boolean(base.splitEnabled);
   lock.splitPosition = Number(base.splitPosition ?? 0.62);
   lock.splitSpread = Number(base.splitSpread ?? 0.28);
@@ -2424,6 +3173,131 @@ function addLock(presetName, overrides = {}, options = {}) {
   return lock;
 }
 
+function mirroredScalpRegion(region) {
+  return ({
+    "side-bangs-left": "side-bangs-right",
+    "side-bangs-right": "side-bangs-left",
+    "side-left": "side-right",
+    "side-right": "side-left"
+  })[region] || region || "unassigned";
+}
+
+function mirroredVector(vector) {
+  return vector ? new THREE.Vector3(-vector.x, vector.y, vector.z) : null;
+}
+
+function mirroredPlacementFrame(frame) {
+  if (!frame) return null;
+  return {
+    root: mirroredVector(frame.root),
+    normal: mirroredVector(frame.normal).normalize(),
+    flow: mirroredVector(frame.flow).normalize(),
+    side: mirroredVector(frame.side).normalize(),
+    sideSign: -Number(frame.sideSign || 1),
+    gravity: mirroredVector(frame.gravity || new THREE.Vector3(0, -1, 0)).normalize(),
+    orientationStrength: Number(frame.orientationStrength || 0)
+  };
+}
+
+function mirrorPartnerFor(lock) {
+  return lock?.mirrorPartnerId ? locks.find((item) => item.id === lock.mirrorPartnerId) : null;
+}
+
+function createMirrorPartner(lock, options = {}) {
+  if (!lock) return null;
+  const existing = mirrorPartnerFor(lock);
+  if (existing) return existing;
+  const mirrored = addLock("front", {
+    materialId: lock.materialId || DEFAULT_HAIR_MATERIAL_ID,
+    scalpRegion: mirroredScalpRegion(lock.scalpRegion),
+    x: -lock.x,
+    y: lock.y,
+    z: lock.z,
+    length: lock.length,
+    curve: -lock.curve,
+    width: lock.width,
+    widthScale: lock.widthScale,
+    depthScale: lock.depthScale,
+    taperCurve: lock.taperCurve.map((point) => ({ ...point })),
+    depthCurve: lock.depthCurve.map((point) => ({ ...point })),
+    splitEnabled: lock.splitEnabled,
+    splitPosition: lock.splitPosition,
+    splitSpread: lock.splitSpread,
+    rootScalpOffset: lock.rootScalpOffset,
+    rootSurfacePoint: mirroredVector(lock.rootSurfacePoint),
+    rootSurfaceNormal: mirroredVector(lock.rootSurfaceNormal),
+    twist: -lock.twist,
+    radialSegments: lock.radialSegments,
+    lengthSegments: lock.lengthSegments,
+    profileOffset: lock.profileOffset,
+    sweepProfile: lock.sweepProfile.map((point) => ({ ...point })),
+    points: lock.points.map(mirroredVector)
+  }, { deferUi: true });
+  lock.mirrorPartnerId = mirrored.id;
+  mirrored.mirrorPartnerId = lock.id;
+  syncMirrorPartnerFromLock(lock, mirrored);
+  if (!options.deferUi) {
+    renderLockList();
+    updateCount();
+  }
+  return mirrored;
+}
+
+function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock)) {
+  if (!lock || !partner || partner === lock) return null;
+  partner.materialId = lock.materialId || DEFAULT_HAIR_MATERIAL_ID;
+  partner.scalpRegion = mirroredScalpRegion(lock.scalpRegion);
+  partner.width = lock.width;
+  partner.baseWidth = lock.baseWidth;
+  partner.widthScale = Number(lock.widthScale ?? 1);
+  partner.depthScale = Number(lock.depthScale ?? 1);
+  partner.twist = -Number(lock.twist || 0);
+  partner.taperCurve = lock.taperCurve.map((point) => ({ ...point }));
+  partner.depthCurve = lock.depthCurve.map((point) => ({ ...point }));
+  partner.sweepProfile = lock.sweepProfile.map((point) => ({ ...point }));
+  partner.profileOffset = Number(lock.profileOffset || 0);
+  partner.splitEnabled = Boolean(lock.splitEnabled);
+  partner.splitPosition = Number(lock.splitPosition ?? 0.62);
+  partner.splitSpread = Number(lock.splitSpread ?? 0.28);
+  partner.rootScalpOffset = Number(lock.rootScalpOffset || 0);
+  partner.rootSurfacePoint = mirroredVector(lock.rootSurfacePoint);
+  partner.rootSurfaceNormal = mirroredVector(lock.rootSurfaceNormal)?.normalize() || null;
+  partner.radialSegments = lock.radialSegments;
+  partner.lengthSegments = lock.lengthSegments;
+  partner.points = lock.points.map(mirroredVector);
+  partner.pointScales = lock.pointScales.map((scale) => ({ x: scale.x, z: scale.z }));
+  partner.pointWidths = [...lock.pointWidths];
+  partner.pointTwists = lock.pointTwists.map((twist) => -twist);
+  partner.placementFrame = mirroredPlacementFrame(lock.placementFrame);
+  fitPointAttributes(partner, partner.points.length);
+  if (partner.curveObjects.handles.length !== partner.points.length) rebuildCurveObjects(partner);
+  syncLockFromCurve(partner);
+  applyMaterialDefinitionToLock(partner);
+  updateLockGeometry(partner);
+  return partner;
+}
+
+function syncActiveMirror(lock, options = {}) {
+  if (!mirrorXEditing || !lock) return null;
+  const partner = mirrorPartnerFor(lock) || createMirrorPartner(lock, { deferUi: true });
+  const result = syncMirrorPartnerFromLock(lock, partner);
+  if (result && options.refreshUi) {
+    renderLockList();
+    updateCount();
+  }
+  return result;
+}
+
+function setMirrorXEditing(enabled) {
+  mirrorXEditing = Boolean(enabled);
+  mirrorXToggle.classList.toggle("active", mirrorXEditing);
+  mirrorXToggle.setAttribute("aria-pressed", String(mirrorXEditing));
+  mirrorXToggle.title = mirrorXEditing
+    ? "X axis mirror is active"
+    : "Mirror edits and new strands across the X axis";
+  if (drawStrandStroke) updateDrawStrandPreview();
+}
+
 function snapshotState() {
   return {
     lockIndex,
@@ -2434,6 +3308,7 @@ function snapshotState() {
     selectedStrandGroup,
     selectedPoint: selectedPoint ? { ...selectedPoint } : null,
     pendingPlacedLockId,
+    mirrorXEditing,
     scalpSurface: { ...scalpSurface },
     scalpArtistShape: { ...scalpArtistShape },
     scalpLatticePoints: scalpLatticePoints.map(vectorToData),
@@ -2447,6 +3322,7 @@ function snapshotState() {
     }])),
     locks: locks.map((lock) => ({
       id: lock.id,
+      mirrorPartnerId: lock.mirrorPartnerId || null,
       name: lock.name,
       materialId: lock.materialId || DEFAULT_HAIR_MATERIAL_ID,
       x: lock.x,
@@ -2456,8 +3332,11 @@ function snapshotState() {
       curve: lock.curve,
       width: lock.width,
       baseWidth: lock.baseWidth,
+      widthScale: Number(lock.widthScale ?? 1),
+      depthScale: Number(lock.depthScale ?? 1),
       taperCurve: lock.taperCurve.map((point) => ({ ...point })),
       depthCurve: lock.depthCurve.map((point) => ({ ...point })),
+      profileOffset: Number(lock.profileOffset ?? 0),
       splitEnabled: Boolean(lock.splitEnabled),
       splitPosition: Number(lock.splitPosition ?? 0.62),
       splitSpread: Number(lock.splitSpread ?? 0.28),
@@ -2521,42 +3400,65 @@ function buildHairProjectFile(name) {
   };
 }
 
-async function saveHairProjectThroughLocalDialog() {
-  const project = buildHairProjectFile(currentProjectName);
-  const response = await fetch("/api/save-project", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      suggestedName: projectFileName(currentProjectName),
-      content: `${JSON.stringify(project, null, 2)}\n`
-    })
-  });
-  const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Could not save project");
-  if (result.saved && result.fileName) {
-    currentProjectName = result.fileName.replace(/\.animehair\.json$/i, "").replace(/\.json$/i, "") || currentProjectName;
+async function saveHairProjectThroughLocalDialog(content, suggestedName) {
+  const payload = JSON.stringify({ suggestedName, content });
+  if (location.protocol === "file:") {
+    try {
+      await fetch("http://127.0.0.1:5173/api/save-project", {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        body: payload
+      });
+      return { submitted: true };
+    } catch (error) {
+      console.warn("Primary Save As helper unavailable.", error);
+    }
   }
+  const origins = [
+    location.protocol === "http:" && ["127.0.0.1", "localhost"].includes(location.hostname) ? location.origin : null,
+    "http://127.0.0.1:5174",
+    "http://127.0.0.1:5173"
+  ].filter((origin, index, all) => origin && all.indexOf(origin) === index);
+  let lastError = null;
+  for (const origin of origins) {
+    try {
+      const response = await fetch(`${origin}/api/save-project`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Could not save project");
+      if (result.saved && result.fileName) {
+        currentProjectName = result.fileName.replace(/\.animehair\.json$/i, "").replace(/\.json$/i, "") || currentProjectName;
+      }
+      return result;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("Local Save As dialog is unavailable");
 }
 
 async function saveHairProjectFile() {
+  if (projectSaveInProgress) return;
+  const saveButton = document.querySelector("#saveCurrentPreset");
+  projectSaveInProgress = true;
+  saveButton.disabled = true;
   try {
-    if (!("showSaveFilePicker" in window)) {
-      await saveHairProjectThroughLocalDialog();
-      return;
-    }
-    const handle = await window.showSaveFilePicker({
-      suggestedName: projectFileName(currentProjectName),
-      types: [{
-        description: "Anime Hair Studio Project",
-        accept: { "application/json": [".json"] }
-      }]
-    });
-    currentProjectName = handle.name.replace(/\.animehair\.json$/i, "").replace(/\.json$/i, "") || currentProjectName;
-    const writable = await handle.createWritable();
-    await writable.write(`${JSON.stringify(buildHairProjectFile(currentProjectName), null, 2)}\n`);
-    await writable.close();
+    const suggestedName = projectFileName(currentProjectName);
+    const content = `${JSON.stringify(buildHairProjectFile(currentProjectName))}\n`;
+
+    await saveHairProjectThroughLocalDialog(content, suggestedName);
   } catch (error) {
-    if (error?.name !== "AbortError") console.error(error);
+    if (error?.name !== "AbortError") {
+      console.error(error);
+      window.alert("Save As could not be opened. Your project was not downloaded or overwritten. Please open Anime Hair Studio from its local app URL and try again.");
+    }
+  } finally {
+    projectSaveInProgress = false;
+    saveButton.disabled = false;
   }
 }
 
@@ -2618,15 +3520,15 @@ function restoreState(state) {
     ...(state.hairMaterials?.length ? state.hairMaterials : [{
       id: DEFAULT_HAIR_MATERIAL_ID,
       name: "Default Purple",
-      color: DEFAULT_HAIR_COLOR,
-      roughness: 0.72
-    }]).map((material) => ({ ...material }))
+      ...DEFAULT_HAIR_MATERIAL_SETTINGS
+    }]).map((material) => normalizeHairMaterialDefinition({ ...material }))
   );
   selectedId = state.selectedId;
   selectedGuideId = state.selectedGuideId;
   selectedStrandGroup = state.selectedStrandGroup || null;
   selectedPoint = state.selectedPoint ? { ...state.selectedPoint } : null;
   pendingPlacedLockId = state.pendingPlacedLockId;
+  setMirrorXEditing(Boolean(state.mirrorXEditing));
   if (state.scalpSurface) Object.assign(scalpSurface, state.scalpSurface);
   if (state.scalpArtistShape) Object.assign(scalpArtistShape, state.scalpArtistShape);
   if (state.strandGroupDefaults) {
@@ -2704,6 +3606,9 @@ function restoreLock(snapshot) {
     sweepProfile: (snapshot.sweepProfile || DEFAULT_SWEEP_PROFILE).map((point) => ({ ...point })),
     taperCurve: normalizeTaperCurve(snapshot.taperCurve, snapshot),
     depthCurve: normalizeTaperCurve(snapshot.depthCurve, snapshot),
+    widthScale: Number(snapshot.widthScale ?? 1),
+    depthScale: Number(snapshot.depthScale ?? 1),
+    profileOffset: Number(snapshot.profileOffset ?? 0),
     splitEnabled: Boolean(snapshot.splitEnabled),
     splitPosition: Number(snapshot.splitPosition ?? 0.62),
     splitSpread: Number(snapshot.splitSpread ?? 0.28),
@@ -3238,6 +4143,438 @@ function scalpRegionAtHit(hit) {
   return scalpRegionAssignments[quadId] || "unassigned";
 }
 
+function drawSurfaceHitFromEvent(event) {
+  rayFromViewportEvent(event);
+  if (drawStrandSurfaceInput.value === "head") {
+    return raycaster.intersectObjects(headMeshes(), false)[0] || null;
+  }
+  return raycaster.intersectObject(scalpSurfaceMesh, false)[0] || null;
+}
+
+function worldNormalAtHit(hit) {
+  const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
+  const normal = hit.face.normal.clone().applyMatrix3(normalMatrix).normalize();
+  if (normal.dot(raycaster.ray.direction) > 0) normal.negate();
+  return normal;
+}
+
+function drawScalpRegionAtEvent(event, surfaceHit) {
+  if (surfaceHit?.object === scalpSurfaceMesh) return scalpRegionAtHit(surfaceHit);
+  rayFromViewportEvent(event);
+  const scalpHit = raycaster.intersectObject(scalpSurfaceMesh, false)[0];
+  return scalpHit ? scalpRegionAtHit(scalpHit) : "unassigned";
+}
+
+function drawSampleFromHit(hit, root = false, scalpRegion = "unassigned", scalpOffset = Number(drawStrandScalpOffsetInput.value)) {
+  const normal = worldNormalAtHit(hit);
+  const drawOffsetDistance = scalpOffset * ROOT_SCALP_OFFSET_DISTANCE;
+  const offset = root
+    ? rootScalpOffsetDistance(THREE.MathUtils.clamp(strandCreationDefaults.rootScalpOffset + scalpOffset, -1, 1))
+    : Math.max(0.018, Number(drawStrandBrushSizeInput.value) * 0.12) + drawOffsetDistance;
+  return {
+    point: hit.point.clone().addScaledVector(normal, offset),
+    surfacePoint: hit.point.clone(),
+    normal,
+    onSurface: true
+  };
+}
+
+function updateDrawStrandBrushCursor(event) {
+  if (activeTool !== "draw" || drawStrandStroke?.freePlane) {
+    drawStrandBrushCursor.visible = false;
+    return;
+  }
+  const hit = drawSurfaceHitFromEvent(event);
+  if (!hit) {
+    drawStrandBrushCursor.visible = false;
+    return;
+  }
+  const normal = worldNormalAtHit(hit);
+  drawStrandBrushCursor.visible = true;
+  drawStrandBrushCursor.position.copy(hit.point).addScaledVector(
+    normal,
+    0.006 + Number(drawStrandScalpOffsetInput.value) * ROOT_SCALP_OFFSET_DISTANCE
+  );
+  drawStrandBrushCursor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+  drawStrandBrushCursor.scale.setScalar(Number(drawStrandBrushSizeInput.value));
+}
+
+function strokeLength(samples) {
+  let length = 0;
+  for (let i = 1; i < samples.length; i += 1) length += samples[i - 1].point.distanceTo(samples[i].point);
+  return length;
+}
+
+function resampleDrawStroke(samples, count) {
+  if (samples.length < 2) return samples.map((sample) => ({ ...sample, point: sample.point.clone() }));
+  const distances = [0];
+  for (let i = 1; i < samples.length; i += 1) {
+    distances.push(distances[i - 1] + samples[i - 1].point.distanceTo(samples[i].point));
+  }
+  const total = distances.at(-1);
+  if (total < 0.0001) return samples.slice(0, 1).map((sample) => ({ ...sample, point: sample.point.clone() }));
+  const result = [];
+  let segment = 1;
+  for (let i = 0; i < count; i += 1) {
+    const target = total * (i / Math.max(1, count - 1));
+    while (segment < distances.length - 1 && distances[segment] < target) segment += 1;
+    const before = samples[segment - 1];
+    const after = samples[segment];
+    const span = Math.max(0.0001, distances[segment] - distances[segment - 1]);
+    const alpha = THREE.MathUtils.clamp((target - distances[segment - 1]) / span, 0, 1);
+    const normal = before.normal && after.normal
+      ? before.normal.clone().lerp(after.normal, alpha).normalize()
+      : before.normal?.clone() || after.normal?.clone() || null;
+    result.push({
+      point: before.point.clone().lerp(after.point, alpha),
+      surfacePoint: before.surfacePoint && after.surfacePoint
+        ? before.surfacePoint.clone().lerp(after.surfacePoint, alpha)
+        : null,
+      normal,
+      onSurface: before.onSurface && after.onSurface
+    });
+  }
+  return result;
+}
+
+function processedDrawStroke(
+  samples,
+  smoothing = Number(drawStrandSmoothingInput.value),
+  curveStep = Number(drawStrandCurveStepInput.value)
+) {
+  const length = strokeLength(samples);
+  const spacing = THREE.MathUtils.clamp(Number(curveStep), 0.12, 0.6);
+  const count = THREE.MathUtils.clamp(Math.round(length / spacing) + 1, 3, 18);
+  const result = resampleDrawStroke(samples, count);
+  if (result.length < 3 && result.length === 2) {
+    result.splice(1, 0, {
+      ...result[0],
+      point: result[0].point.clone().lerp(result[1].point, 0.5)
+    });
+  }
+  const passes = Math.round(smoothing * 4);
+  const strength = THREE.MathUtils.lerp(0.18, 0.62, smoothing);
+  for (let pass = 0; pass < passes; pass += 1) {
+    const previous = result.map((sample) => sample.point.clone());
+    for (let i = 1; i < result.length - 1; i += 1) {
+      const target = previous[i - 1].clone().add(previous[i + 1]).multiplyScalar(0.5);
+      const delta = target.sub(previous[i]).multiplyScalar(strength);
+      if (result[i].onSurface && result[i].normal) delta.projectOnPlane(result[i].normal);
+      result[i].point.copy(previous[i]).add(delta);
+    }
+  }
+  return result;
+}
+
+function drawClumpFrame(curve, t) {
+  const point = curve.getPoint(t);
+  const y = curve.getTangent(t).normalize();
+  const z = outwardNormalAtPoint(point, y);
+  const x = new THREE.Vector3().crossVectors(y, z).normalize();
+  return { point, x, y, z };
+}
+
+function drawClumpPointSets(samples, brushSize) {
+  const centerPoints = samples.map((sample) => sample.point.clone());
+  if (centerPoints.length < 2) return [centerPoints];
+
+  const sourceCurves = DRAW_CLUMP_TEMPLATE.strands.map((template) => (
+    new THREE.CatmullRomCurve3(template.points.map(([x, y, z]) => new THREE.Vector3(x, y, z)))
+  ));
+  const sourceCenter = sourceCurves[0];
+  const targetCurve = new THREE.CatmullRomCurve3(centerPoints);
+  const lateralScale = brushSize / DRAW_CLUMP_TEMPLATE.baseWidth;
+  const lengthScale = targetCurve.getLength() / Math.max(0.001, sourceCenter.getLength());
+
+  return [
+    centerPoints,
+    ...sourceCurves.slice(1).map((branchCurve) => centerPoints.map((point, index) => {
+      const t = index / Math.max(1, centerPoints.length - 1);
+      const sourceFrame = drawClumpFrame(sourceCenter, t);
+      const targetFrame = drawClumpFrame(targetCurve, t);
+      const delta = branchCurve.getPoint(t).sub(sourceFrame.point);
+      return point.clone()
+        .addScaledVector(targetFrame.x, delta.dot(sourceFrame.x) * lateralScale)
+        .addScaledVector(targetFrame.y, delta.dot(sourceFrame.y) * lengthScale)
+        .addScaledVector(targetFrame.z, delta.dot(sourceFrame.z) * lateralScale);
+    }))
+  ];
+}
+
+function updateDrawVolumePreview(mesh, previewLock, color) {
+  const previousGeometry = mesh.geometry;
+  mesh.geometry = createHairGeometry(previewLock);
+  previousGeometry.dispose();
+  mesh.material.color.set(color);
+  mesh.visible = true;
+}
+
+function hideDrawClumpPreviews() {
+  [...drawStrandClumpVolumePreviews, ...drawStrandClumpMirrorPreviews].forEach((mesh) => {
+    mesh.visible = false;
+  });
+}
+
+function resetDrawVolumePreview(mesh) {
+  mesh.visible = false;
+  mesh.geometry.dispose();
+  mesh.geometry = new THREE.BufferGeometry();
+}
+
+function updateDrawStrandPreview() {
+  if (!drawStrandStroke?.samples.length) {
+    drawStrandPreview.visible = false;
+    drawStrandMirrorPreview.visible = false;
+    drawStrandVolumePreview.visible = false;
+    drawStrandMirrorVolumePreview.visible = false;
+    hideDrawClumpPreviews();
+    return;
+  }
+  const samples = processedDrawStroke(
+    drawStrandStroke.samples,
+    drawStrandStroke.smoothing,
+    drawStrandStroke.curveStep
+  );
+  drawStrandPreview.geometry.setFromPoints(samples.map((sample) => sample.point));
+  drawStrandPreview.visible = true;
+  drawStrandMirrorPreview.geometry.setFromPoints(samples.map((sample) => mirroredVector(sample.point)));
+  drawStrandMirrorPreview.visible = mirrorXEditing;
+  if (samples.length < 2) {
+    drawStrandVolumePreview.visible = false;
+    drawStrandMirrorVolumePreview.visible = false;
+    hideDrawClumpPreviews();
+    return;
+  }
+  const groupDefaults = groupDefaultsFor(drawStrandStroke.scalpRegion);
+  const defaults = strandCreationDefaults;
+  const previewLock = {
+    id: "draw-strand-preview",
+    points: samples.map((sample) => sample.point),
+    pointTwists: samples.map(() => 0),
+    pointScales: samples.map(() => ({ x: 1, z: 1 })),
+    baseWidth: drawStrandStroke.brushSize,
+    width: drawStrandStroke.brushSize,
+    length: strokeLength(samples),
+    twist: defaults.twist,
+    splitEnabled: defaults.splitEnabled,
+    splitPosition: defaults.splitPosition,
+    splitSpread: defaults.splitSpread,
+    radialSegments: Math.min(12, Math.round(groupDefaults.radialSegments || 10)),
+    lengthSegments: Math.min(32, Math.max(8, samples.length * 3)),
+    taperCurve: defaults.taperCurve,
+    depthCurve: defaults.depthCurve,
+    widthScale: defaults.widthScale,
+    depthScale: defaults.depthScale,
+    sweepProfile: defaults.sweepProfile,
+    profileOffset: Number(defaults.profileOffset || 0)
+  };
+  const previewColor = showGroupColors
+    ? (SCALP_REGIONS[drawStrandStroke.scalpRegion] || SCALP_REGIONS.unassigned).color
+    : DEFAULT_HAIR_COLOR;
+  updateDrawVolumePreview(drawStrandVolumePreview, previewLock, previewColor);
+  if (mirrorXEditing) {
+    const mirroredPreviewLock = {
+      ...previewLock,
+      points: previewLock.points.map(mirroredVector),
+      pointTwists: previewLock.pointTwists.map((twist) => -twist),
+      twist: -previewLock.twist
+    };
+    updateDrawVolumePreview(drawStrandMirrorVolumePreview, mirroredPreviewLock, previewColor);
+  } else {
+    drawStrandMirrorVolumePreview.visible = false;
+  }
+
+  if (drawStrandMode === "clump") {
+    const pointSets = drawClumpPointSets(samples, drawStrandStroke.brushSize);
+    DRAW_CLUMP_TEMPLATE.strands.slice(1).forEach((template, index) => {
+      const points = pointSets[index + 1];
+      const width = drawStrandStroke.brushSize * (template.width / DRAW_CLUMP_TEMPLATE.baseWidth);
+      const clumpPreviewLock = {
+        ...previewLock,
+        id: `draw-clump-preview-${index}`,
+        points,
+        pointTwists: points.map(() => 0),
+        pointScales: points.map(() => ({ x: 1, z: 1 })),
+        baseWidth: width,
+        width
+      };
+      updateDrawVolumePreview(drawStrandClumpVolumePreviews[index], clumpPreviewLock, previewColor);
+      if (mirrorXEditing) {
+        updateDrawVolumePreview(drawStrandClumpMirrorPreviews[index], {
+          ...clumpPreviewLock,
+          points: points.map(mirroredVector),
+          pointTwists: clumpPreviewLock.pointTwists.map((twist) => -twist),
+          twist: -clumpPreviewLock.twist
+        }, previewColor);
+      } else {
+        drawStrandClumpMirrorPreviews[index].visible = false;
+      }
+    });
+  } else {
+    hideDrawClumpPreviews();
+  }
+}
+
+function beginDrawStrandStroke(event, hit) {
+  if (event.button !== 0 || !hit || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return false;
+  const scalpRegion = drawScalpRegionAtEvent(event, hit);
+  const scalpOffset = Number(drawStrandScalpOffsetInput.value);
+  const sample = drawSampleFromHit(hit, true, scalpRegion, scalpOffset);
+  drawStrandStroke = {
+    pointerId: event.pointerId,
+    scalpRegion,
+    brushSize: Number(drawStrandBrushSizeInput.value),
+    smoothing: Number(drawStrandSmoothingInput.value),
+    curveStep: Number(drawStrandCurveStepInput.value),
+    scalpOffset,
+    rootSurfacePoint: hit.point.clone(),
+    rootSurfaceNormal: sample.normal.clone(),
+    samples: [sample],
+    lastX: event.clientX,
+    lastY: event.clientY,
+    freePlane: null
+  };
+  renderer.domElement.setPointerCapture?.(event.pointerId);
+  renderer.domElement.style.cursor = "crosshair";
+  drawStrandBrushCursor.visible = false;
+  updateDrawStrandPreview();
+  updateInteractionLocks();
+  updatePlacementStatus();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  return true;
+}
+
+function beginDrawFreePlane(stroke) {
+  if (stroke.freePlane) return;
+  const origin = stroke.samples.at(-1).point.clone();
+  const normal = viewPlaneNormal();
+  stroke.freePlane = {
+    origin,
+    normal,
+    plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, origin)
+  };
+  updateViewPlaneGrid();
+}
+
+function updateDrawStrandStroke(event) {
+  updateDrawStrandBrushCursor(event);
+  const stroke = drawStrandStroke;
+  if (!stroke || event.pointerId !== stroke.pointerId) return;
+  const screenDistance = Math.hypot(event.clientX - stroke.lastX, event.clientY - stroke.lastY);
+  const sampleSpacing = THREE.MathUtils.lerp(2.5, 9, stroke.smoothing);
+  if (screenDistance < sampleSpacing) return;
+
+  let nextSample = null;
+  if (!stroke.freePlane) {
+    const hit = drawSurfaceHitFromEvent(event);
+    if (hit) {
+      const surfaceSample = drawSampleFromHit(hit, false, stroke.scalpRegion, stroke.scalpOffset);
+      const previous = stroke.samples.at(-1);
+      const movingDown = surfaceSample.point.y < previous.point.y - 0.004;
+      if (movingDown && surfaceSample.normal.y < -0.08) beginDrawFreePlane(stroke);
+      else nextSample = surfaceSample;
+    } else {
+      beginDrawFreePlane(stroke);
+    }
+  }
+  if (stroke.freePlane && !nextSample) {
+    const point = rayFromViewportEvent(event).intersectPlane(stroke.freePlane.plane, new THREE.Vector3());
+    if (point) nextSample = { point, surfacePoint: null, normal: null, onSurface: false };
+  }
+  if (!nextSample || nextSample.point.distanceTo(stroke.samples.at(-1).point) < 0.008) return;
+  stroke.samples.push(nextSample);
+  stroke.lastX = event.clientX;
+  stroke.lastY = event.clientY;
+  updateDrawStrandPreview();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function createDrawnLock(stroke, points, width, isCenter) {
+  const root = points[0];
+  const length = new THREE.CatmullRomCurve3(points).getLength();
+  const lock = addLock("front", {
+    x: root.x,
+    y: root.y,
+    z: root.z,
+    length,
+    curve: points.at(-1).x - root.x,
+    width,
+    twist: strandCreationDefaults.twist,
+    splitEnabled: strandCreationDefaults.splitEnabled,
+    splitPosition: strandCreationDefaults.splitPosition,
+    splitSpread: strandCreationDefaults.splitSpread,
+    taperCurve: cloneShapePresetValue(strandCreationDefaults.taperCurve),
+    depthCurve: cloneShapePresetValue(strandCreationDefaults.depthCurve),
+    widthScale: strandCreationDefaults.widthScale,
+    depthScale: strandCreationDefaults.depthScale,
+    sweepProfile: cloneShapePresetValue(strandCreationDefaults.sweepProfile),
+    profileOffset: strandCreationDefaults.profileOffset,
+    color: DEFAULT_HAIR_COLOR,
+    scalpRegion: stroke.scalpRegion,
+    rootScalpOffset: THREE.MathUtils.clamp(
+      strandCreationDefaults.rootScalpOffset + stroke.scalpOffset,
+      -1,
+      1
+    ),
+    rootSurfacePoint: isCenter ? stroke.rootSurfacePoint : null,
+    rootSurfaceNormal: isCenter ? stroke.rootSurfaceNormal : null,
+    points
+  }, { deferUi: true });
+  applyPlacedStrandScaleProfile(lock);
+  updateLockGeometry(lock);
+  lock.curveObjects.group.visible = false;
+  return lock;
+}
+
+function createDrawnStrand(stroke) {
+  const processed = processedDrawStroke(stroke.samples, stroke.smoothing, stroke.curveStep);
+  if (processed.length < 3 || strokeLength(processed) < 0.12) return null;
+  const pointSets = drawStrandMode === "clump"
+    ? drawClumpPointSets(processed, stroke.brushSize)
+    : [processed.map((sample) => sample.point.clone())];
+  const templates = drawStrandMode === "clump"
+    ? DRAW_CLUMP_TEMPLATE.strands
+    : [{ width: DRAW_CLUMP_TEMPLATE.baseWidth }];
+  const created = pointSets.map((points, index) => createDrawnLock(
+    stroke,
+    points,
+    stroke.brushSize * (templates[index].width / DRAW_CLUMP_TEMPLATE.baseWidth),
+    index === 0
+  ));
+  created.forEach((lock) => syncActiveMirror(lock));
+  renderLockList();
+  updateCount();
+  selectLock(created[0].id);
+  return created[0];
+}
+
+function finishDrawStrandStroke(event, options = {}) {
+  const stroke = drawStrandStroke;
+  if (!stroke || (event?.pointerId !== undefined && event.pointerId !== stroke.pointerId)) return;
+  drawStrandStroke = null;
+  if (renderer.domElement.hasPointerCapture?.(stroke.pointerId)) renderer.domElement.releasePointerCapture(stroke.pointerId);
+  renderer.domElement.style.cursor = "";
+  drawStrandPreview.visible = false;
+  drawStrandPreview.geometry.setFromPoints([]);
+  drawStrandMirrorPreview.visible = false;
+  drawStrandMirrorPreview.geometry.setFromPoints([]);
+  resetDrawVolumePreview(drawStrandVolumePreview);
+  resetDrawVolumePreview(drawStrandMirrorVolumePreview);
+  [...drawStrandClumpVolumePreviews, ...drawStrandClumpMirrorPreviews].forEach(resetDrawVolumePreview);
+  viewPlaneFill.visible = false;
+  viewPlaneGrid.visible = false;
+  if (!options.cancel && stroke.samples.length >= 2 && strokeLength(stroke.samples) >= 0.12) {
+    pushUndoState();
+    createDrawnStrand(stroke);
+  }
+  updateInteractionLocks();
+  updateAttributeEditorMode();
+  updatePlacementStatus();
+  event?.preventDefault();
+}
+
 function createPlacedStrand(hit) {
   const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
   const normal = hit.face.normal.clone().applyMatrix3(normalMatrix).normalize();
@@ -3245,7 +4582,7 @@ function createPlacedStrand(hit) {
   if (normal.dot(hit.point.clone().sub(surfaceCenter).normalize()) < 0) normal.negate();
 
   const scalpRegion = scalpRegionAtHit(hit);
-  const localRootOffset = groupDefaultsFor(scalpRegion).rootScalpOffset;
+  const localRootOffset = strandCreationDefaults.rootScalpOffset;
   const root = hit.point.clone().addScaledVector(normal, rootScalpOffsetDistance(localRootOffset));
   let flow = new THREE.Vector3(0, -1, 0).projectOnPlane(normal).normalize();
   if (flow.lengthSq() < 0.01) {
@@ -3266,7 +4603,16 @@ function createPlacedStrand(hit) {
     curve: points.at(-1).x - root.x,
     width: 0.16,
     taper: 0.58,
-    twist: 0,
+    twist: strandCreationDefaults.twist,
+    splitEnabled: strandCreationDefaults.splitEnabled,
+    splitPosition: strandCreationDefaults.splitPosition,
+    splitSpread: strandCreationDefaults.splitSpread,
+    taperCurve: cloneShapePresetValue(strandCreationDefaults.taperCurve),
+    depthCurve: cloneShapePresetValue(strandCreationDefaults.depthCurve),
+    widthScale: strandCreationDefaults.widthScale,
+    depthScale: strandCreationDefaults.depthScale,
+    sweepProfile: cloneShapePresetValue(strandCreationDefaults.sweepProfile),
+    profileOffset: strandCreationDefaults.profileOffset,
     color: DEFAULT_HAIR_COLOR,
     scalpRegion,
     rootScalpOffset: localRootOffset,
@@ -3278,6 +4624,7 @@ function createPlacedStrand(hit) {
   applyPlacedStrandScaleProfile(placed);
   updateLockGeometry(placed);
   pendingPlacedLockId = placed.id;
+  syncActiveMirror(placed, { refreshUi: true });
   selectCurvePoint(placed.id, 0);
   return placed;
 }
@@ -3345,14 +4692,12 @@ function resizePlacedStrand(lock, length, width, options = {}) {
     rebuildCurveObjects(lock);
   }
   updateLockGeometry(lock);
+  syncActiveMirror(lock);
   syncInputs(lock);
   selectCurvePoint(lock.id, Math.min(selectedPoint?.pointIndex || 0, lock.points.length - 1));
 }
 
 function applyPlacedStrandScaleProfile(lock) {
-  const defaults = groupDefaultsFor(lock.scalpRegion);
-  lock.taperCurve = defaults.taperCurve.map((point) => ({ ...point }));
-  lock.depthCurve = defaults.depthCurve.map((point) => ({ ...point }));
   lock.pointScales = lock.points.map(() => ({ x: 1, z: 1 }));
   lock.pointWidths = lock.pointScales.map(() => 1);
 }
@@ -3535,6 +4880,11 @@ function updatePlacementStatus() {
     } else {
       message = "Place strand: click the placement sphere to set the root. Hold and drag to orbit.";
     }
+  } else if (activeTool === "draw") {
+    const drawLabel = drawStrandMode === "clump" ? "Draw clump" : "Draw strand";
+    message = drawStrandStroke
+      ? `${drawLabel}: drag across the live surface. Beyond its boundary, the stroke continues on the view plane.`
+      : `${drawLabel}: drag from the chosen live surface. Hold Shift, Ctrl, or Alt for viewport navigation.`;
   } else if (proportionalEditing) {
     message = "Proportional editing: tap B to toggle off, or hold B and drag to resize influence.";
   } else if (objectSpaceEditing && ["move", "rotate", "scale"].includes(activeTool)) {
@@ -3810,8 +5160,7 @@ function updateLockGeometry(lock) {
     lock.wireOverlay.geometry = createHairTopologyGeometry(lock.mesh.geometry);
   }
   const showingProportionalRamp = proportionalEditing && selectedPoint?.lockId === lock.id;
-  lock.mesh.material.color.set(showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
-  lock.mesh.material.vertexColors = true;
+  setAnimeHairBaseColor(lock.mesh.material, showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
   lock.mesh.material.needsUpdate = true;
   updateHairMaterialResponse(lock.mesh.material, materialForLock(lock).roughness);
   updateCurveObjects(lock);
@@ -3825,7 +5174,7 @@ function setGroupColorView(enabled) {
   groupColorToggle.setAttribute("aria-label", groupColorToggle.title);
   locks.forEach((lock) => {
     const showingProportionalRamp = proportionalEditing && selectedPoint?.lockId === lock.id;
-    lock.mesh.material.color.set(showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
+    setAnimeHairBaseColor(lock.mesh.material, showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
   });
   renderLockList();
 }
@@ -3863,13 +5212,17 @@ function syncGroupInputs() {
   });
   topologyValues.groupRadialSegments.textContent = groupInputs.radialSegments.value;
   topologyValues.groupLengthSegments.textContent = groupInputs.lengthSegments.value;
+  document.querySelector("#groupWidthScaleValue").textContent = Number(defaults.widthScale ?? 1).toFixed(2);
+  document.querySelector("#groupDepthScaleValue").textContent = Number(defaults.depthScale ?? 1).toFixed(2);
   document.querySelector("#groupRootScalpOffsetValue").textContent = Number(groupInputs.rootScalpOffset.value).toFixed(2);
-  renderProfilePreview(profilePreviewPaths.group, defaults.sweepProfile);
+  document.querySelector("#groupProfileOffsetValue").textContent = Number(defaults.profileOffset || 0).toFixed(2);
+  renderProfilePreview(profilePreviewPaths.group, defaults.sweepProfile, defaults.profileOffset);
   renderTaperPreview(taperPreviewPaths.group, defaults.taperCurve);
   renderTaperPreview(taperPreviewPaths.groupDepth, defaults.depthCurve);
   const group = STRAND_GROUPS.find((item) => item.id === selectedStrandGroup);
   groupSettingsTitle.textContent = group?.label || "Group Settings";
   updateTopologyStats();
+  syncShapePresetSelects();
 }
 
 function topologyStatsForLock(lock) {
@@ -3911,10 +5264,33 @@ function updateTopologyStats() {
   groupTopologyStats.textContent = formatTopologyStats(groupStats.vertices, groupStats.triangles);
 }
 
+function syncCreationShapeInputs() {
+  const defaults = strandCreationDefaults;
+  renderTaperPreview(taperPreviewPaths.strand, defaults.taperCurve);
+  renderTaperPreview(taperPreviewPaths.strandDepth, defaults.depthCurve);
+  renderProfilePreview(profilePreviewPaths.strand, defaults.sweepProfile, defaults.profileOffset);
+  inputs.widthScale.value = defaults.widthScale;
+  inputs.depthScale.value = defaults.depthScale;
+  document.querySelector("#widthScaleValue").textContent = Number(defaults.widthScale).toFixed(2);
+  document.querySelector("#depthScaleValue").textContent = Number(defaults.depthScale).toFixed(2);
+  inputs.profileOffset.value = defaults.profileOffset;
+  document.querySelector("#profileOffsetValue").textContent = Number(defaults.profileOffset).toFixed(2);
+  inputs.rootScalpOffset.value = defaults.rootScalpOffset;
+  document.querySelector("#rootScalpOffsetValue").textContent = Number(defaults.rootScalpOffset).toFixed(2);
+  inputs.twist.value = THREE.MathUtils.clamp(defaults.twist, Number(inputs.twist.min), Number(inputs.twist.max));
+  twistNumberInput.value = Number(defaults.twist).toFixed(2);
+  splitEnabledInput.checked = defaults.splitEnabled;
+  inputs.splitPosition.value = defaults.splitPosition;
+  inputs.splitSpread.value = defaults.splitSpread;
+  splitControls.classList.toggle("hidden", !defaults.splitEnabled);
+  syncShapePresetSelects();
+}
+
 function updateAttributeEditorMode() {
   const editingGroup = Boolean(selectedStrandGroup);
   const editingStrand = Boolean(getSelectedLock());
   const editingSelection = editingGroup || editingStrand;
+  const editingCreationShape = creationToolActive();
   const transformToolActive = ["move", "rotate", "scale"].includes(activeTool);
   const proportionalToolActive = transformToolActive || activeTool === "relax";
   groupSettingsPanel.classList.toggle("hidden", !editingGroup);
@@ -3923,11 +5299,18 @@ function updateAttributeEditorMode() {
   selectedStrandPanel.classList.toggle("hidden", !editingStrand);
   hairMaterialPanel.classList.toggle("hidden", !editingStrand);
   strandTopologyPanel.classList.toggle("hidden", !editingStrand);
-  transformToolPanel.classList.toggle("hidden", !editingStrand || !transformToolActive);
+  const moveToolSettingsAvailable = activeTool === "move";
+  transformToolPanel.classList.toggle("hidden", !transformToolActive || (!editingStrand && !moveToolSettingsAvailable));
+  drawStrandToolPanel.classList.toggle("hidden", activeTool !== "draw");
   transformToolTitle.textContent = `${activeTool[0].toUpperCase()}${activeTool.slice(1)} Tool`;
+  viewPlaneMoveSetting.classList.toggle("hidden", activeTool !== "move");
+  viewPlaneMoveSnappedSetting.classList.toggle("hidden", activeTool !== "move");
   proportionalPanel.classList.toggle("hidden", !editingStrand || !proportionalToolActive);
   hierarchyPanel.classList.toggle("hidden", !editingStrand || !transformToolActive || !hierarchyEditing);
-  strandShapePanel.classList.toggle("hidden", !editingStrand);
+  strandShapePanel.classList.toggle("hidden", !editingStrand && !editingCreationShape);
+  strandShapeTitle.textContent = editingCreationShape ? "New Strand Shape" : "Shape";
+  randomizeShapeButton.classList.toggle("hidden", editingCreationShape);
+  if (editingCreationShape) syncCreationShapeInputs();
 }
 
 function selectStrandGroup(region) {
@@ -3961,6 +5344,7 @@ function selectCurvePoint(lockId, pointIndex) {
     if (proportionalEditing) updateLockGeometry(lock);
     updateCurveObjects(lock, { visible: lock.id === selectedId });
   });
+  updateViewPlaneGrid();
 }
 
 function navigateCurvePointHierarchy(offset) {
@@ -3979,6 +5363,10 @@ function navigateCurvePointHierarchy(offset) {
 
   const handle = lock.curveObjects?.handles[pointIndex];
   if (!handle) return;
+  if (activeTool === "move" && viewPlaneMoveActiveForView()) {
+    updateViewPlaneGrid();
+    return;
+  }
   configureTransformControls(activeTool);
   transformControls.attach(handle);
 }
@@ -3994,20 +5382,27 @@ function syncInputs(lock) {
   syncHairMaterialEditor(lock);
   renderTaperPreview(taperPreviewPaths.strand, lock.taperCurve);
   renderTaperPreview(taperPreviewPaths.strandDepth, lock.depthCurve);
+  inputs.widthScale.value = lock.widthScale ?? 1;
+  inputs.depthScale.value = lock.depthScale ?? 1;
+  document.querySelector("#widthScaleValue").textContent = Number(lock.widthScale ?? 1).toFixed(2);
+  document.querySelector("#depthScaleValue").textContent = Number(lock.depthScale ?? 1).toFixed(2);
   splitEnabledInput.checked = Boolean(lock.splitEnabled);
   inputs.splitPosition.value = lock.splitPosition ?? 0.62;
   inputs.splitSpread.value = lock.splitSpread ?? 0.28;
   splitControls.classList.toggle("hidden", !lock.splitEnabled);
   inputs.rootScalpOffset.value = lock.rootScalpOffset ?? 0;
   document.querySelector("#rootScalpOffsetValue").textContent = Number(lock.rootScalpOffset ?? 0).toFixed(2);
+  inputs.profileOffset.value = lock.profileOffset ?? 0;
+  document.querySelector("#profileOffsetValue").textContent = Number(lock.profileOffset ?? 0).toFixed(2);
   inputs.twist.value = lock.twist;
   twistNumberInput.value = Number(lock.twist || 0).toFixed(2);
   inputs.radialSegments.value = lock.radialSegments;
   inputs.lengthSegments.value = lock.lengthSegments;
   topologyValues.strandRadialSegments.textContent = inputs.radialSegments.value;
   topologyValues.strandLengthSegments.textContent = inputs.lengthSegments.value;
-  renderProfilePreview(profilePreviewPaths.strand, lock.sweepProfile);
+  renderProfilePreview(profilePreviewPaths.strand, lock.sweepProfile, lock.profileOffset);
   updateTopologyStats();
+  syncShapePresetSelects();
 }
 
 function getSelectedLock() {
@@ -4107,45 +5502,64 @@ function bindUndoCapture(input) {
 function bindLockInput(key, parser = Number) {
   bindUndoCapture(inputs[key]);
   inputs[key].addEventListener("input", () => {
-    const lock = getSelectedLock();
-    if (!lock) return;
-    lock[key] = parser(inputs[key].value);
-    if (key === "twist") twistNumberInput.value = Number(lock.twist).toFixed(2);
-    if (key === "roughness") roughnessValue.textContent = Number(lock[key]).toFixed(2);
+    const lock = creationToolActive() ? null : getSelectedLock();
+    const target = lock || (creationToolActive() ? strandCreationDefaults : null);
+    if (!target) return;
+    target[key] = parser(inputs[key].value);
+    if (key === "twist") twistNumberInput.value = Number(target.twist).toFixed(2);
+    if (key === "roughness") roughnessValue.textContent = Number(target[key]).toFixed(2);
     if (key === "radialSegments") topologyValues.strandRadialSegments.textContent = inputs[key].value;
     if (key === "lengthSegments") topologyValues.strandLengthSegments.textContent = inputs[key].value;
-    if (key === "rootScalpOffset") {
-      document.querySelector("#rootScalpOffsetValue").textContent = Number(lock[key]).toFixed(2);
-      applyLockRootScalpOffset(lock);
+    if (key === "profileOffset") {
+      document.querySelector("#profileOffsetValue").textContent = Number(target[key]).toFixed(2);
+      renderProfilePreview(profilePreviewPaths.strand, target.sweepProfile, target.profileOffset);
+      if (sweepProfileEditor.open) renderSweepProfileEditor();
     }
-    updateLockGeometry(lock);
-    updateTopologyStats();
-    renderLockList();
+    if (key === "rootScalpOffset") {
+      document.querySelector("#rootScalpOffsetValue").textContent = Number(target[key]).toFixed(2);
+      if (lock) applyLockRootScalpOffset(lock);
+    }
+    if (key === "widthScale") document.querySelector("#widthScaleValue").textContent = Number(target[key]).toFixed(2);
+    if (key === "depthScale") document.querySelector("#depthScaleValue").textContent = Number(target[key]).toFixed(2);
+    if (lock) {
+      updateLockGeometry(lock);
+      syncActiveMirror(lock, { refreshUi: true });
+      updateTopologyStats();
+      renderLockList();
+    }
   });
 }
 
-["rootScalpOffset", "twist", "splitPosition", "splitSpread", "radialSegments", "lengthSegments"].forEach((key) => bindLockInput(key));
+["widthScale", "depthScale", "profileOffset", "rootScalpOffset", "twist", "splitPosition", "splitSpread", "radialSegments", "lengthSegments"].forEach((key) => bindLockInput(key));
 
 bindUndoCapture(twistNumberInput);
 twistNumberInput.addEventListener("input", () => {
-  const lock = getSelectedLock();
+  const lock = creationToolActive() ? null : getSelectedLock();
+  const target = lock || (creationToolActive() ? strandCreationDefaults : null);
   const value = Number(twistNumberInput.value);
-  if (!lock || !Number.isFinite(value)) return;
-  lock.twist = value;
+  if (!target || !Number.isFinite(value)) return;
+  target.twist = value;
   inputs.twist.value = THREE.MathUtils.clamp(value, Number(inputs.twist.min), Number(inputs.twist.max));
-  updateLockGeometry(lock);
-  updateTopologyStats();
-  renderLockList();
+  if (lock) {
+    updateLockGeometry(lock);
+    syncActiveMirror(lock, { refreshUi: true });
+    updateTopologyStats();
+    renderLockList();
+  }
 });
 
 splitEnabledInput.addEventListener("change", () => {
-  const lock = getSelectedLock();
-  if (!lock) return;
+  const lock = creationToolActive() ? null : getSelectedLock();
+  const target = lock || (creationToolActive() ? strandCreationDefaults : null);
+  if (!target) return;
   pushUndoState();
-  lock.splitEnabled = splitEnabledInput.checked;
-  splitControls.classList.toggle("hidden", !lock.splitEnabled);
-  updateLockGeometry(lock);
-  updateTopologyStats();
+  target.splitEnabled = splitEnabledInput.checked;
+  splitControls.classList.toggle("hidden", !target.splitEnabled);
+  if (lock) {
+    updateLockGeometry(lock);
+    syncActiveMirror(lock, { refreshUi: true });
+    updateTopologyStats();
+  }
 });
 
 hairMaterialSelect.addEventListener("change", () => {
@@ -4154,6 +5568,7 @@ hairMaterialSelect.addEventListener("change", () => {
   pushUndoState();
   lock.materialId = hairMaterialSelect.value;
   applyMaterialDefinitionToLock(lock);
+  syncActiveMirror(lock, { refreshUi: true });
   syncHairMaterialEditor(lock);
   renderLockList();
 });
@@ -4164,12 +5579,9 @@ newHairMaterialButton.addEventListener("click", () => {
   pushUndoState();
   const source = materialForLock(lock);
   hairMaterialIndex += 1;
-  const material = {
-    id: `hair-material-${crypto.randomUUID()}`,
-    name: `Hair Material ${hairMaterialIndex}`,
-    color: source.color,
-    roughness: source.roughness
-  };
+  const material = normalizeHairMaterialDefinition({ ...source });
+  material.id = `hair-material-${crypto.randomUUID()}`;
+  material.name = `Hair Material ${hairMaterialIndex}`;
   hairMaterialDefinitions.push(material);
   lock.materialId = material.id;
   applyMaterialDefinitionToLock(lock);
@@ -4177,7 +5589,7 @@ newHairMaterialButton.addEventListener("click", () => {
   renderLockList();
 });
 
-[hairMaterialNameInput, hairMaterialColorInput, hairMaterialRoughnessInput].forEach(bindUndoCapture);
+[hairMaterialNameInput, hairMaterialColorInput, hairMaterialShadowColorInput, hairMaterialHighlightColorInput, hairMaterialRoughnessInput, ...Object.values(hairShaderInputs)].forEach(bindUndoCapture);
 hairMaterialNameInput.addEventListener("input", () => {
   const lock = getSelectedLock();
   if (!lock) return;
@@ -4192,6 +5604,20 @@ hairMaterialColorInput.addEventListener("input", () => {
   material.color = hairMaterialColorInput.value;
   refreshMaterialUsers(material.id);
 });
+hairMaterialShadowColorInput.addEventListener("input", () => {
+  const lock = getSelectedLock();
+  if (!lock) return;
+  const material = materialForLock(lock);
+  material.shadowColor = hairMaterialShadowColorInput.value;
+  refreshMaterialUsers(material.id);
+});
+hairMaterialHighlightColorInput.addEventListener("input", () => {
+  const lock = getSelectedLock();
+  if (!lock) return;
+  const material = materialForLock(lock);
+  material.highlightColor = hairMaterialHighlightColorInput.value;
+  refreshMaterialUsers(material.id);
+});
 hairMaterialRoughnessInput.addEventListener("input", () => {
   const lock = getSelectedLock();
   if (!lock) return;
@@ -4199,6 +5625,16 @@ hairMaterialRoughnessInput.addEventListener("input", () => {
   material.roughness = Number(hairMaterialRoughnessInput.value);
   syncRoughnessValue();
   refreshMaterialUsers(material.id);
+});
+Object.entries(hairShaderInputs).forEach(([key, input]) => {
+  input.addEventListener("input", () => {
+    const lock = getSelectedLock();
+    if (!lock) return;
+    const material = materialForLock(lock);
+    material[key] = Number(input.value);
+    syncHairShaderValue(key);
+    refreshMaterialUsers(material.id);
+  });
 });
 Object.entries(groupInputs).forEach(([key, input]) => {
   input.addEventListener("pointerdown", requestGroupDefaultsWarning, { capture: true });
@@ -4208,7 +5644,14 @@ Object.entries(groupInputs).forEach(([key, input]) => {
     strandGroupDefaults[selectedStrandGroup][key] = Number(input.value);
     if (key === "radialSegments") topologyValues.groupRadialSegments.textContent = input.value;
     if (key === "lengthSegments") topologyValues.groupLengthSegments.textContent = input.value;
+    if (key === "profileOffset") {
+      document.querySelector("#groupProfileOffsetValue").textContent = Number(input.value).toFixed(2);
+      renderProfilePreview(profilePreviewPaths.group, strandGroupDefaults[selectedStrandGroup].sweepProfile, Number(input.value));
+      if (sweepProfileEditor.open) renderSweepProfileEditor();
+    }
     if (key === "rootScalpOffset") document.querySelector("#groupRootScalpOffsetValue").textContent = Number(input.value).toFixed(2);
+    if (key === "widthScale") document.querySelector("#groupWidthScaleValue").textContent = Number(input.value).toFixed(2);
+    if (key === "depthScale") document.querySelector("#groupDepthScaleValue").textContent = Number(input.value).toFixed(2);
     applyGroupDefaultsToExistingStrands(selectedStrandGroup);
   });
 });
@@ -4415,44 +5858,8 @@ document.querySelector("#mirrorLock").addEventListener("click", () => {
   const lock = getSelectedLock();
   if (!lock) return;
   pushUndoState();
-  addLock("front", {
-    name: `${lock.name} mirror`,
-    materialId: lock.materialId || DEFAULT_HAIR_MATERIAL_ID,
-    scalpRegion: ({
-      "side-bangs-left": "side-bangs-right",
-      "side-bangs-right": "side-bangs-left",
-      "side-left": "side-right",
-      "side-right": "side-left"
-    })[lock.scalpRegion] || lock.scalpRegion || "unassigned",
-    x: -lock.x,
-    y: lock.y,
-    z: lock.z,
-    length: lock.length,
-    curve: -lock.curve,
-    width: lock.width,
-    taperCurve: lock.taperCurve.map((point) => ({ ...point })),
-    depthCurve: lock.depthCurve.map((point) => ({ ...point })),
-    splitEnabled: lock.splitEnabled,
-    splitPosition: lock.splitPosition,
-    splitSpread: lock.splitSpread,
-    rootScalpOffset: lock.rootScalpOffset,
-    rootSurfacePoint: lock.rootSurfacePoint ? new THREE.Vector3(-lock.rootSurfacePoint.x, lock.rootSurfacePoint.y, lock.rootSurfacePoint.z) : null,
-    rootSurfaceNormal: lock.rootSurfaceNormal ? new THREE.Vector3(-lock.rootSurfaceNormal.x, lock.rootSurfaceNormal.y, lock.rootSurfaceNormal.z) : null,
-    twist: -lock.twist,
-    radialSegments: lock.radialSegments,
-    lengthSegments: lock.lengthSegments,
-    sweepProfile: lock.sweepProfile.map((point) => ({ ...point }))
-  });
-  const mirrored = getSelectedLock();
+  const mirrored = createMirrorPartner(lock);
   if (!mirrored) return;
-  mirrored.points = lock.points.map((point) => new THREE.Vector3(-point.x, point.y, point.z));
-  mirrored.baseWidth = lock.baseWidth;
-  mirrored.pointWidths = [...lock.pointWidths];
-  mirrored.pointScales = lock.pointScales.map((scale) => ({ x: scale.x, z: scale.z }));
-  mirrored.pointTwists = lock.pointTwists.map((twist) => -twist);
-  applyLockRootScalpOffset(mirrored);
-  syncLockFromCurve(mirrored);
-  updateLockGeometry(mirrored);
   selectLock(mirrored.id);
 });
 
@@ -4517,8 +5924,33 @@ modeToolButtons.forEach((button) => {
 });
 
 spaceToggle.addEventListener("click", () => setObjectSpaceEditing(!objectSpaceEditing));
+mirrorXToggle.addEventListener("click", () => setMirrorXEditing(!mirrorXEditing));
 transformSpaceButtons.forEach((button) => {
   button.addEventListener("click", () => setObjectSpaceEditing(button.dataset.transformSpace === "object"));
+});
+viewPlaneMoveInput.addEventListener("change", () => setViewPlaneMove(viewPlaneMoveInput.checked));
+viewPlaneMoveSnappedOnlyInput.addEventListener("change", () => setViewPlaneMoveSnappedOnly(viewPlaneMoveSnappedOnlyInput.checked));
+drawStrandBrushSizeInput.addEventListener("input", () => {
+  drawStrandBrushSizeValue.textContent = Number(drawStrandBrushSizeInput.value).toFixed(2);
+  drawStrandBrushCursor.scale.setScalar(Number(drawStrandBrushSizeInput.value));
+});
+drawStrandSmoothingInput.addEventListener("input", () => {
+  drawStrandSmoothingValue.textContent = Number(drawStrandSmoothingInput.value).toFixed(2);
+});
+drawStrandCurveStepInput.addEventListener("input", () => {
+  drawStrandCurveStepValue.textContent = Number(drawStrandCurveStepInput.value).toFixed(2);
+});
+drawStrandScalpOffsetInput.addEventListener("input", () => {
+  drawStrandScalpOffsetValue.textContent = Number(drawStrandScalpOffsetInput.value).toFixed(2);
+});
+drawStrandSurfaceInput.addEventListener("change", () => {
+  finishDrawStrandStroke(null, { cancel: true });
+  drawStrandBrushCursor.visible = false;
+  updateScalpEditingVisibility();
+  updatePlacementStatus();
+});
+drawStrandOutputButtons.forEach((button) => {
+  button.addEventListener("click", () => setDrawStrandMode(button.dataset.drawOutput));
 });
 hierarchyToggle.addEventListener("click", () => setHierarchyEditing(!hierarchyEditing));
 hierarchyRecursiveTransformInput.addEventListener("change", () => {
@@ -4527,7 +5959,11 @@ hierarchyRecursiveTransformInput.addEventListener("change", () => {
 proportionalToggle.addEventListener("click", () => setProportionalEditing(!proportionalEditing));
 latticeToggle.addEventListener("click", () => setScalpShapeEditing(!scalpShapeEditing));
 scalpPaintToggle.addEventListener("click", () => setScalpPaintEditing(!scalpPaintEditing));
+scalpGuideVisibilityToggle.addEventListener("click", () => setScalpGuideVisibility(!scalpGuideVisible));
 groupColorToggle.addEventListener("click", () => setGroupColorView(!showGroupColors));
+[lightAzimuthInput, lightElevationInput].forEach((input) => {
+  input.addEventListener("input", updateLightAngleFromInputs);
+});
 advancedLatticeButton.addEventListener("click", () => setScalpLatticeEditing(!scalpLatticeEditing));
 undoButton.addEventListener("click", undoLastAction);
 
@@ -4546,6 +5982,10 @@ scalpBrushSizeInput.addEventListener("input", () => updatePlacementStatus());
 
 window.addEventListener("keydown", (event) => {
   const tag = document.activeElement?.tagName?.toLowerCase();
+  if (event.key === "Shift" && !event.repeat && beginViewSnapFromActiveOrbit()) {
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Escape" && !presetLibrary.classList.contains("hidden")) {
     event.preventDefault();
     setPresetLibraryOpen(false);
@@ -4611,9 +6051,13 @@ window.addEventListener("keyup", (event) => {
   }
 });
 window.addEventListener("blur", () => {
+  activeViewportPointer = null;
   window.clearTimeout(proportionalHotkeyPress?.holdTimer);
   proportionalHotkeyPress = null;
   endProportionalSizeEdit();
+  endViewSnap();
+  endViewPlaneMove();
+  finishDrawStrandStroke(null, { cancel: true });
   updateInteractionLocks();
 });
 
@@ -4621,19 +6065,23 @@ document.querySelector("#deleteLock").addEventListener("click", () => {
   const lock = getSelectedLock();
   if (!lock) return;
   pushUndoState();
-  if (lock.curveObjects?.handles.includes(transformControls.object)) transformControls.detach();
-  if (selectedPoint?.lockId === lock.id) {
+  const mirrorPartner = mirrorXEditing ? mirrorPartnerFor(lock) : null;
+  const targets = mirrorPartner ? [lock, mirrorPartner] : [lock];
+  if (targets.some((item) => item.curveObjects?.handles.includes(transformControls.object))) transformControls.detach();
+  if (targets.some((item) => selectedPoint?.lockId === item.id)) {
     selectedPoint = null;
     updateSelectedPointLabel();
   }
-  hairGroup.remove(lock.mesh);
-  curveGroup.remove(lock.curveObjects.group);
-  lock.mesh.geometry.dispose();
-  lock.mesh.material.dispose();
-  lock.wireOverlay?.geometry.dispose();
-  lock.wireOverlay?.material.dispose();
-  disposeCurveObjects(lock);
-  locks.splice(locks.indexOf(lock), 1);
+  targets.forEach((item) => {
+    hairGroup.remove(item.mesh);
+    curveGroup.remove(item.curveObjects.group);
+    item.mesh.geometry.dispose();
+    item.mesh.material.dispose();
+    item.wireOverlay?.geometry.dispose();
+    item.wireOverlay?.material.dispose();
+    disposeCurveObjects(item);
+    locks.splice(locks.indexOf(item), 1);
+  });
   selectLock(locks.at(-1)?.id);
   renderLockList();
   updateCount();
@@ -4669,6 +6117,7 @@ document.querySelector("#randomize").addEventListener("click", () => {
   lock.length *= 0.94 + Math.random() * 0.12;
   lock.points = createCurvePoints(lock);
   updateLockGeometry(lock);
+  syncActiveMirror(lock, { refreshUi: true });
   selectLock(lock.id);
 });
 
@@ -4691,8 +6140,10 @@ document.querySelector("#resetCamera").addEventListener("click", () => {
     frameGuideModel();
     return;
   }
+  camera.up.set(0, 1, 0);
   camera.position.set(0, 1.15, 5.2);
   controls.target.set(0, 0.75, 0);
+  controls.update();
 });
 
 document.querySelector("#toggleWire").addEventListener("click", () => {
@@ -4754,8 +6205,177 @@ function blockProportionalSizingEvent(event) {
   event.stopPropagation();
 }
 
+function updateLightAngleFromInputs() {
+  const azimuth = THREE.MathUtils.degToRad(Number(lightAzimuthInput.value));
+  const elevation = THREE.MathUtils.degToRad(Number(lightElevationInput.value));
+  const horizontalDistance = keyLightDistance * Math.cos(elevation);
+  keyLight.position.set(
+    horizontalDistance * Math.sin(azimuth),
+    keyLightDistance * Math.sin(elevation),
+    horizontalDistance * Math.cos(azimuth)
+  );
+  lightAzimuthValue.textContent = String(Math.round(Number(lightAzimuthInput.value)));
+  lightElevationValue.textContent = String(Math.round(Number(lightElevationInput.value)));
+}
+
+function beginViewSnap(event) {
+  if (event.button !== 0 || !event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return false;
+  const started = startViewSnap(event.pointerId, event.clientX, event.clientY);
+  if (!started) return false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  return true;
+}
+
+function startViewSnap(pointerId, startX, startY) {
+  if (viewSnapDrag) return false;
+  const dampingEnabled = controls.enableDamping;
+  controls.enableDamping = false;
+  controls.update();
+  controls.enableDamping = dampingEnabled;
+  const offset = camera.position.clone().sub(controls.target);
+  const startAxis = nearestCardinalAxis(offset);
+  const baseHorizontalAxis = Math.abs(startAxis.y) > 0.5
+    ? lastHorizontalViewAxis.clone()
+    : startAxis.clone();
+  viewSnapDrag = {
+    pointerId,
+    startX,
+    startY,
+    distance: offset.length(),
+    startAxis,
+    baseHorizontalAxis,
+    currentAxisKey: "",
+    didDrag: false
+  };
+  renderer.domElement.setPointerCapture?.(pointerId);
+  renderer.domElement.style.cursor = "grabbing";
+  emptySelectionPointer = null;
+  updateInteractionLocks();
+  return true;
+}
+
+function beginViewSnapFromActiveOrbit() {
+  const pointer = activeViewportPointer;
+  if (!pointer || !(pointer.buttons & 1) || viewSnapDrag) return false;
+  if (
+    transformDragging || relaxEdit || proportionalSizeEdit || proportionalHotkeyPress ||
+    scalpLatticeDrag || scalpPaintDrag || viewPlaneMoveDrag || placeEdit || drawStrandStroke
+  ) return false;
+  return startViewSnap(pointer.pointerId, pointer.x, pointer.y);
+}
+
+function trackViewportPointerDown(event) {
+  if (event.button !== 0) return;
+  activeViewportPointer = {
+    pointerId: event.pointerId,
+    x: event.clientX,
+    y: event.clientY,
+    buttons: event.buttons
+  };
+}
+
+function trackViewportPointerMove(event) {
+  if (!activeViewportPointer || activeViewportPointer.pointerId !== event.pointerId) return;
+  activeViewportPointer.x = event.clientX;
+  activeViewportPointer.y = event.clientY;
+  activeViewportPointer.buttons = event.buttons;
+  if (!(event.buttons & 1)) activeViewportPointer = null;
+}
+
+function clearViewportPointer(event) {
+  if (!activeViewportPointer || activeViewportPointer.pointerId !== event.pointerId) return;
+  activeViewportPointer = null;
+}
+
+function updateViewSnap(event) {
+  if (!viewSnapDrag || event.pointerId !== viewSnapDrag.pointerId) return;
+  const dx = event.clientX - viewSnapDrag.startX;
+  const dy = event.clientY - viewSnapDrag.startY;
+  if (!viewSnapDrag.didDrag && Math.hypot(dx, dy) < 3) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+  if (!viewSnapDrag.didDrag) {
+    viewSnapDrag.didDrag = true;
+    shiftSnappedViewActive = true;
+    snapCameraToCardinalAxis(viewSnapDrag.startAxis, viewSnapDrag.distance);
+    viewSnapDrag.currentAxisKey = cardinalAxisKey(viewSnapDrag.startAxis);
+  }
+
+  const horizontalStep = steppedDragAmount(dx);
+  const verticalStep = steppedDragAmount(dy);
+  let axis = viewSnapDrag.startAxis;
+  if (Math.abs(dy) > Math.abs(dx) && verticalStep !== 0) {
+    axis = new THREE.Vector3(0, verticalStep > 0 ? 1 : -1, 0);
+  } else if (horizontalStep !== 0) {
+    axis = viewSnapDrag.baseHorizontalAxis.clone().applyAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      -horizontalStep * Math.PI * 0.5
+    );
+  }
+
+  const axisKey = cardinalAxisKey(axis);
+  if (axisKey !== viewSnapDrag.currentAxisKey) {
+    shiftSnappedViewActive = true;
+    snapCameraToCardinalAxis(axis, viewSnapDrag.distance);
+    viewSnapDrag.currentAxisKey = axisKey;
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function nearestCardinalAxis(direction) {
+  direction = direction.clone().normalize();
+  const absolute = new THREE.Vector3(Math.abs(direction.x), Math.abs(direction.y), Math.abs(direction.z));
+  const axis = new THREE.Vector3();
+  if (absolute.y >= absolute.x && absolute.y >= absolute.z) {
+    axis.set(0, Math.sign(direction.y) || 1, 0);
+  } else if (absolute.x >= absolute.z) {
+    axis.set(Math.sign(direction.x) || 1, 0, 0);
+  } else {
+    axis.set(0, 0, Math.sign(direction.z) || 1);
+  }
+  return axis;
+}
+
+function cardinalAxisKey(axis) {
+  return `${Math.round(axis.x)},${Math.round(axis.y)},${Math.round(axis.z)}`;
+}
+
+function steppedDragAmount(delta) {
+  const distance = Math.abs(delta);
+  if (distance < CARDINAL_VIEW_DRAG_GRACE) return 0;
+  return Math.sign(delta) * (1 + Math.floor((distance - CARDINAL_VIEW_DRAG_GRACE) / CARDINAL_VIEW_DRAG_STEP));
+}
+
+function snapCameraToCardinalAxis(axis, distance) {
+  axis = nearestCardinalAxis(axis);
+  if (Math.abs(axis.y) > 0.5) {
+    camera.up.set(0, 0, axis.y > 0 ? -1 : 1);
+  } else {
+    camera.up.set(0, 1, 0);
+    lastHorizontalViewAxis.copy(axis);
+  }
+  camera.position.copy(controls.target).addScaledVector(axis, distance);
+  camera.lookAt(controls.target);
+  controls.update();
+}
+
+function endViewSnap(event) {
+  if (!viewSnapDrag || (event?.pointerId !== undefined && event.pointerId !== viewSnapDrag.pointerId)) return;
+  const { pointerId } = viewSnapDrag;
+  viewSnapDrag = null;
+  if (renderer.domElement.hasPointerCapture?.(pointerId)) renderer.domElement.releasePointerCapture(pointerId);
+  renderer.domElement.style.cursor = "";
+  updateInteractionLocks();
+  event?.preventDefault();
+  event?.stopImmediatePropagation();
+}
+
 function prepareCurvePointSelection(event) {
-  if (proportionalSizeEdit || proportionalHotkeyPress || scalpShapeEditing || scalpPaintEditing || activeTool === "select" || activeTool === "place") return;
+  if (event.shiftKey || proportionalSizeEdit || proportionalHotkeyPress || scalpShapeEditing || scalpPaintEditing || ["select", "place", "draw"].includes(activeTool)) return;
   const selectedLock = getSelectedLock();
   const handles = selectedLock?.curveObjects?.group.visible ? selectedLock.curveObjects.handles : [];
   if (!handles.length) return;
@@ -4775,22 +6395,34 @@ window.addEventListener("resize", resize);
 updateGuideControlsVisibility();
 updateUndoButton();
 setObjectSpaceEditing(false);
+setViewPlaneMove(false);
 setHierarchyEditing(false);
 setProportionalEditing(false);
 setScalpShapeEditing(false);
 setScalpPaintEditing(false);
+updateLightAngleFromInputs();
+window.addEventListener("pointermove", trackViewportPointerMove);
+window.addEventListener("pointermove", updateViewSnap);
+window.addEventListener("pointermove", updateViewPlaneMove);
 window.addEventListener("pointermove", updateRelaxEdit);
 window.addEventListener("pointermove", updatePlaceEdit);
+window.addEventListener("pointermove", updateDrawStrandStroke);
 window.addEventListener("pointermove", handleViewportPointerMove);
 window.addEventListener("pointermove", updateScalpLatticeDrag);
 window.addEventListener("pointermove", updateScalpPaint);
+window.addEventListener("pointerup", endViewSnap);
+window.addEventListener("pointerup", endViewPlaneMove);
 window.addEventListener("pointerup", endRelaxEdit);
 window.addEventListener("pointerup", endPlaceEdit);
+window.addEventListener("pointerup", finishDrawStrandStroke);
 window.addEventListener("pointerup", endScalpLatticeDrag);
 window.addEventListener("pointerup", endScalpPaint);
 window.addEventListener("pointerup", finishEmptySelectionPointer);
+window.addEventListener("pointercancel", endViewSnap);
+window.addEventListener("pointercancel", endViewPlaneMove);
 window.addEventListener("pointercancel", endRelaxEdit);
 window.addEventListener("pointercancel", endPlaceEdit);
+window.addEventListener("pointercancel", (event) => finishDrawStrandStroke(event, { cancel: true }));
 window.addEventListener("pointercancel", endScalpLatticeDrag);
 window.addEventListener("pointercancel", endScalpPaint);
 window.addEventListener("pointercancel", () => {
@@ -4804,9 +6436,13 @@ window.addEventListener("pointerup", (event) => {
 window.addEventListener("pointercancel", () => {
   placementPointer = null;
 });
+window.addEventListener("pointerup", clearViewportPointer);
+window.addEventListener("pointercancel", clearViewportPointer);
 ["pointerdown", "click", "dblclick"].forEach((eventName) => {
   renderer.domElement.addEventListener(eventName, blockProportionalSizingEvent, true);
 });
+renderer.domElement.addEventListener("pointerdown", trackViewportPointerDown, true);
+renderer.domElement.addEventListener("pointerdown", beginViewSnap, true);
 renderer.domElement.addEventListener("pointerdown", prepareCurvePointSelection, true);
 renderer.domElement.addEventListener("pointerdown", (event) => {
   if (proportionalSizeEdit || proportionalHotkeyPress) return;
@@ -4843,6 +6479,12 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     return;
   }
   if (scalpShapeEditing) return;
+  if (activeTool === "draw") {
+    if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    const surfaceHit = drawSurfaceHitFromEvent(event);
+    beginDrawStrandStroke(event, surfaceHit);
+    return;
+  }
   if (activeTool === "place") {
     if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
     if (placeEdit) {
@@ -4883,7 +6525,12 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     return;
   }
 
-  if (event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+  const modelingClick = event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
+  const selectedLock = getSelectedLock();
+  const handles = selectedLock?.curveObjects?.group.visible ? selectedLock.curveObjects.handles : [];
+  const hit = modelingClick ? raycaster.intersectObjects(handles, false)[0] : null;
+
+  if (!hit && modelingClick) {
     const lockHit = raycaster.intersectObjects(locks.map((lock) => lock.mesh), false)[0];
     const lockId = lockHit?.object.userData.lockId;
     if (lockId && lockId !== selectedId) {
@@ -4893,9 +6540,6 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     }
   }
 
-  const selectedLock = getSelectedLock();
-  const handles = selectedLock?.curveObjects?.group.visible ? selectedLock.curveObjects.handles : [];
-  const hit = raycaster.intersectObjects(handles, false)[0];
   if (!hit) {
     if (activeTool === "relax" && selectedLock && selectedPoint?.lockId === selectedLock.id) {
       if (beginRelaxEdit(selectedLock, selectedPoint.pointIndex, event)) {
@@ -4918,6 +6562,10 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     }
     return;
   }
+  if (activeTool === "move" && viewPlaneMoveActiveForView()) {
+    beginViewPlaneMove(getSelectedLock(), handle, event);
+    return;
+  }
   configureTransformControls(activeTool);
   transformControls.attach(handle);
   beginHandleEdit();
@@ -4935,6 +6583,7 @@ function animate(timestamp = performance.now()) {
     fpsSampleStart = timestamp;
   }
   controls.update();
+  updateViewPlaneGrid();
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }

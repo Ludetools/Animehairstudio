@@ -105,6 +105,10 @@ button:focus-visible {
   z-index: 40;
 }
 
+.sweep-profile-dialog {
+  width: min(400px, calc(100vw - 400px));
+}
+
 .profile-dialog::backdrop {
   background: #08070ac9;
 }
@@ -141,7 +145,7 @@ button:focus-visible {
 .profile-canvas {
   display: block;
   width: 100%;
-  aspect-ratio: 13 / 8;
+  aspect-ratio: 1;
   border: 1px solid #464049;
   border-radius: 6px;
   background: #39383b;
@@ -184,6 +188,10 @@ button:focus-visible {
   .profile-dialog {
     inset: auto 12px 12px auto;
     width: min(360px, calc(100vw - 24px));
+  }
+
+  .sweep-profile-dialog {
+    width: min(400px, calc(100vw - 24px));
   }
 }
 
@@ -608,6 +616,36 @@ button:focus-visible {
   padding: 0;
 }
 
+.scalp-guide-visibility-button {
+  width: 44px;
+  padding: 0;
+}
+
+.scalp-guide-visibility-button.active {
+  border-color: #58f6ff;
+  background: #17363a;
+  color: #8ff9ff;
+}
+
+.icon-scalp-guide {
+  border: 1px solid currentColor;
+  border-bottom: 0;
+  border-radius: 50% 50% 0 0;
+  background:
+    linear-gradient(currentColor, currentColor) 50% 0 / 1px 100% no-repeat,
+    linear-gradient(currentColor, currentColor) 0 58% / 100% 1px no-repeat;
+}
+
+.icon-scalp-guide::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  bottom: -2px;
+  height: 1px;
+  background: currentColor;
+}
+
 .group-color-swatches {
   width: 22px;
   height: 22px;
@@ -824,6 +862,31 @@ button:focus-visible {
   box-shadow: -5px 5px 0 -1px currentColor, 5px 5px 0 -1px currentColor;
 }
 
+.icon-draw::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 1px;
+  width: 5px;
+  height: 15px;
+  border: 2px solid currentColor;
+  border-radius: 2px 2px 0 0;
+  transform: rotate(42deg);
+  transform-origin: center;
+}
+
+.icon-draw::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  width: 16px;
+  height: 7px;
+  border-bottom: 2px solid currentColor;
+  border-radius: 50%;
+  transform: rotate(-8deg);
+}
+
 .icon-proportional::before {
   content: "";
   position: absolute;
@@ -846,6 +909,38 @@ button:focus-visible {
   border: 2px solid currentColor;
   border-radius: 50%;
   opacity: 0.7;
+}
+
+.mirror-button {
+  width: 44px;
+  justify-self: end;
+  padding: 0;
+}
+
+.icon-mirror-x::before,
+.icon-mirror-x::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  width: 7px;
+  height: 14px;
+  border: 2px solid currentColor;
+}
+
+.icon-mirror-x::before {
+  left: 1px;
+  border-radius: 7px 1px 1px 7px;
+}
+
+.icon-mirror-x::after {
+  right: 1px;
+  border-radius: 1px 7px 7px 1px;
+}
+
+.mirror-button.active {
+  border-color: #ff73d1;
+  background: #3a1f34;
+  color: #ffb6e8;
 }
 
 .icon-space::before,
@@ -1013,7 +1108,8 @@ button:focus-visible {
   order: -3;
 }
 
-#transformToolPanel {
+#transformToolPanel,
+#drawStrandToolPanel {
   order: -4;
 }
 
@@ -1064,6 +1160,7 @@ button:focus-visible {
 #hairMaterialPanel.hidden,
 #strandTopologyPanel.hidden,
 #transformToolPanel.hidden,
+#drawStrandToolPanel.hidden,
 #hierarchyPanel.hidden,
 #proportionalPanel.hidden,
 #strandShapePanel.hidden {
@@ -1122,6 +1219,24 @@ button:focus-visible {
   grid-template-columns: 104px minmax(0, 1fr) 24px;
 }
 
+#displayPanel .topology-control {
+  grid-template-columns: 104px minmax(0, 1fr) 34px;
+}
+
+#viewPlaneMoveSetting.hidden,
+#viewPlaneMoveSnappedSetting.hidden {
+  display: none;
+}
+
+.view-plane-subsetting {
+  padding-left: 12px;
+  color: #aaa3ac;
+}
+
+.view-plane-subsetting.disabled {
+  opacity: 0.45;
+}
+
 .slider-value {
   color: #9eeff4;
   font-size: 12px;
@@ -1136,9 +1251,15 @@ button:focus-visible {
   gap: 10px;
 }
 
+.shape-preview-shell {
+  position: relative;
+  min-width: 0;
+  line-height: 0;
+}
+
 .profile-preview {
   width: 86px;
-  height: 52px;
+  height: 86px;
   border: 1px solid #3d3840;
   border-radius: 5px;
   background: #17161a;
@@ -1151,15 +1272,65 @@ button:focus-visible {
   vector-effect: non-scaling-stroke;
 }
 
-.profile-control-row button {
+.profile-preview .profile-preview-reference circle,
+.profile-preview .profile-preview-reference line {
+  fill: none;
+  stroke: #b7c8ca2b;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile-preview .profile-preview-reference line {
+  stroke: #d9e6e830;
+}
+
+.profile-origin-marker line {
+  stroke: #ff37db;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.profile-preset-stack {
+  display: grid;
+  align-content: center;
+  gap: 9px;
   min-width: 0;
+}
+
+.profile-offset-control {
+  display: grid;
+  grid-template-columns: 1fr 30px;
+  gap: 4px 6px;
+  color: #aaa3ac;
+  font-size: 11px;
+}
+
+.profile-offset-control input {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.profile-offset-control output {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.shape-preset-select {
+  align-self: center;
+  min-width: 0;
+  width: 100%;
+  height: 36px;
 }
 
 .taper-curve-control {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 72px;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
   align-items: stretch;
+}
+
+.taper-curve-control .shape-preset-select {
+  width: 100%;
 }
 
 .taper-preview {
@@ -1176,6 +1347,51 @@ button:focus-visible {
   stroke: #58f6ff;
   stroke-width: 2;
   vector-effect: non-scaling-stroke;
+}
+
+.shape-edit-button {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 1;
+  width: 25px;
+  min-width: 25px;
+  min-height: 25px;
+  padding: 0;
+  border-color: #4a454e;
+  border-radius: 4px;
+  background: #18171bcc;
+  color: #aaa4ad;
+  opacity: 0.72;
+}
+
+.shape-preview-shell:hover .shape-edit-button,
+.shape-edit-button:focus-visible {
+  border-color: #5f8b8f;
+  color: #8ff7fc;
+  opacity: 1;
+}
+
+.pencil-glyph {
+  position: relative;
+  display: block;
+  width: 12px;
+  height: 4px;
+  border: 1px solid currentColor;
+  border-radius: 1px;
+  transform: rotate(-45deg);
+}
+
+.pencil-glyph::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  top: -1px;
+  width: 0;
+  height: 0;
+  border-top: 2px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-left: 3px solid currentColor;
 }
 
 .taper-canvas {
