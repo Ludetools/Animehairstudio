@@ -36,9 +36,11 @@
         <div class="viewport-tools" aria-label="Modeling tools">
           <button class="tool-button active" data-tool="select" title="Select (Q)" aria-label="Select tool"><span class="tool-icon icon-select" aria-hidden="true"></span><kbd>Q</kbd></button>
           <button class="tool-button" data-tool="move" title="Move curve point (W)" aria-label="Move tool"><span class="tool-icon icon-move" aria-hidden="true"></span><kbd>W</kbd></button>
+          <button class="tool-button" data-tool="pull" title="Pull strand" aria-label="Pull strand tool"><span class="tool-icon icon-pull" aria-hidden="true"></span></button>
           <button class="tool-button" data-tool="rotate" title="Rotate curve point (E)" aria-label="Rotate curve point tool"><span class="tool-icon icon-rotate" aria-hidden="true"></span><kbd>E</kbd></button>
           <button class="tool-button" data-tool="scale" title="Scale strand thickness (R)" aria-label="Scale tool"><span class="tool-icon icon-scale" aria-hidden="true"></span><kbd>R</kbd></button>
           <button class="tool-button" data-tool="relax" title="Relax curve point (T)" aria-label="Relax curve point tool"><span class="tool-icon icon-relax" aria-hidden="true"></span><kbd>T</kbd></button>
+          <button class="tool-button" data-tool="place" title="Place strand (A)" aria-label="Place strand tool"><span class="tool-icon icon-place" aria-hidden="true"></span><kbd>A</kbd></button>
           <button class="tool-button" data-tool="draw" title="Draw strand (D)" aria-label="Draw strand tool"><span class="tool-icon icon-draw" aria-hidden="true"></span><kbd>D</kbd></button>
           <button class="tool-button" data-tool="braid" title="Draw procedural braid (G)" aria-label="Braid tool"><span class="tool-icon icon-braid" aria-hidden="true"></span><kbd>G</kbd></button>
         </div>
@@ -134,7 +136,7 @@
           <div class="section-head">
             <span>Scalp Guide</span>
           </div>
-          <label class="compact-select-row" for="scalpGuideSource"><span>Guide Mesh</span>
+          <label for="scalpGuideSource">Guide Mesh
             <select id="scalpGuideSource">
               <option value="default">Default</option>
               <option value="custom">Import Custom Mesh...</option>
@@ -227,13 +229,15 @@
           <label class="topology-control" title="Places top-layer strands above the middle layer.">Top <input id="groupLayerTop" type="range" min="-0.2" max="0.35" step="0.01" value="0.08" /><output id="groupLayerTopValue" class="slider-value">0.08</output></label>
           <label class="topology-control" title="Places accent strands above the main hair mass.">Accent <input id="groupLayerAccent" type="range" min="-0.2" max="0.35" step="0.01" value="0.16" /><output id="groupLayerAccentValue" class="slider-value">0.16</output></label>
           <div class="subsection-label">New Strand Defaults</div>
-          <div class="curve-heading-row"><div class="subsection-label">Width Curve</div><select class="shape-preset-select" data-shape-preset="taperCurve" aria-label="Group width curve preset"></select></div>
+          <div class="subsection-label">Width Curve</div>
           <div class="taper-curve-control">
             <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Group width curve preview"><path id="groupTaperPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="taperCurve" type="button" title="Edit width curve" aria-label="Edit width curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <select class="shape-preset-select" data-shape-preset="taperCurve" aria-label="Group width curve preset"></select>
           </div>
-          <div class="curve-heading-row"><div class="subsection-label">Depth Curve</div><select class="shape-preset-select" data-shape-preset="depthCurve" aria-label="Group depth curve preset"></select></div>
+          <div class="subsection-label">Depth Curve</div>
           <div class="taper-curve-control">
             <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Group depth curve preview"><path id="groupDepthPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="depthCurve" type="button" title="Edit depth curve" aria-label="Edit depth curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <select class="shape-preset-select" data-shape-preset="depthCurve" aria-label="Group depth curve preset"></select>
           </div>
           <label class="topology-control">Width Scale <input id="groupWidthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="groupWidthScaleValue" class="slider-value">1.00</output></label>
           <label class="topology-control">Depth Scale <input id="groupDepthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="groupDepthScaleValue" class="slider-value">1.00</output></label>
@@ -252,19 +256,18 @@
         </div>
 
         <div id="presetPanel" class="panel-section hidden" aria-hidden="true">
-          <label class="compact-select-row" for="preset"><span>Preset</span>
-            <select id="preset">
-              <option value="braided-buns">Braided buns</option>
-              <option value="braided-bob">Braided bob</option>
-              <option value="bowl-cut">Bowl cut</option>
-              <option value="generated-bangs">Generated bangs</option>
-              <option value="front">Front bangs</option>
-              <option value="side">Side sweep</option>
-              <option value="back">Back layer</option>
-              <option value="twin">Twin tail</option>
-              <option value="ahoge">Ahoge curl</option>
-            </select>
-          </label>
+          <label for="preset">Preset</label>
+          <select id="preset">
+            <option value="braided-buns">Braided buns</option>
+            <option value="braided-bob">Braided bob</option>
+            <option value="bowl-cut">Bowl cut</option>
+            <option value="generated-bangs">Generated bangs</option>
+            <option value="front">Front bangs</option>
+            <option value="side">Side sweep</option>
+            <option value="back">Back layer</option>
+            <option value="twin">Twin tail</option>
+            <option value="ahoge">Ahoge curl</option>
+          </select>
           <div class="button-row">
             <button id="addLock">Add preset</button>
             <button id="mirrorLock">Mirror</button>
@@ -278,12 +281,10 @@
           </div>
           <label for="lockName">Name</label>
           <input id="lockName" type="text" value="" />
-          <div class="compact-select-row material-select-setting">
-            <label for="hairMaterialSelect">Material</label>
-            <div class="material-assign-row">
-              <select id="hairMaterialSelect"></select>
-              <button id="newHairMaterial" type="button" title="Create material" aria-label="Create material">+</button>
-            </div>
+          <label for="hairMaterialSelect">Material</label>
+          <div class="material-assign-row">
+            <select id="hairMaterialSelect"></select>
+            <button id="newHairMaterial" type="button" title="Create material" aria-label="Create material">+</button>
           </div>
           <div class="point-status">Point <span id="selectedPointLabel">None</span></div>
         </div>
@@ -352,10 +353,6 @@
           <div class="section-head">
             <span id="transformToolTitle">Move Tool</span>
           </div>
-          <label id="pullMoveSetting" class="toggle-row" for="pullMove" title="Pull the strand chain toward a free target while moving a curve point.">
-            <span>Pull Strand</span>
-            <input id="pullMove" type="checkbox" />
-          </label>
           <label id="viewPlaneMoveSetting" class="toggle-row" for="viewPlaneMove" title="Drag curve points freely on the 2D plane that best matches the current camera view.">
             <span>Contextual 2D Free Translation</span>
             <input id="viewPlaneMove" type="checkbox" />
@@ -364,6 +361,7 @@
             <span>Snapped Views Only</span>
             <input id="viewPlaneMoveSnappedOnly" type="checkbox" />
           </label>
+          <label id="pullElasticitySetting" class="topology-control hidden" title="Controls how much the pulled portion may stretch. Stretch is concentrated near the grabbed point and diminishes toward the root.">Elasticity <input id="pullElasticity" type="range" min="0" max="1" step="0.01" value="0.18" /><output id="pullElasticityValue" class="slider-value">0.18</output></label>
           <div class="transform-space-setting">
             <span>Transform Space</span>
             <div class="segmented-control" role="group" aria-label="Transform space">
@@ -388,30 +386,24 @@
           <div class="section-head">
             <span>Draw Strand Tool</span>
           </div>
-          <label class="compact-select-row" for="drawBrushPreset" title="Choose what the Draw Strand brush creates."><span>Brush Preset</span>
-            <select id="drawBrushPreset">
-              <option value="standard">Standard</option>
-              <option value="clump">3 Strand Clump</option>
-              <option value="coil">Coil</option>
-            </select>
-          </label>
-          <div class="creation-preset-row">
-            <label class="compact-select-row" for="strandToolPreset" title="Apply a saved strand creation recipe without changing the selected strand."><span>Strand Preset</span>
-              <select id="strandToolPreset"><option value="default">Default Strand</option></select>
-            </label>
-            <button id="saveStrandToolPreset" class="creation-preset-add" type="button" title="Create strand preset" aria-label="Create strand preset">+</button>
-          </div>
-          <label class="topology-control" title="Scales the overall size of strands created by the Draw Strand brush.">Brush Size <input id="drawToolSize" type="range" min="0.25" max="3" step="0.01" value="1" /><output id="drawToolSizeValue" class="slider-value">1.00</output></label>
+          <label for="drawBrushPreset" title="Choose what the Draw Strand brush creates.">Brush Preset</label>
+          <select id="drawBrushPreset">
+            <option value="standard">Standard</option>
+            <option value="clump">3 Strand Clump</option>
+            <option value="coil">Coil</option>
+          </select>
+          <label class="topology-control" title="Sets the width of newly drawn strands.">Brush Size <input id="drawStrandBrushSize" type="range" min="0.04" max="0.42" step="0.01" value="0.16" /><output id="drawStrandBrushSizeValue" class="slider-value">0.16</output></label>
           <label class="topology-control" title="Higher values smooth small deviations from the drawn stroke.">Smoothing <input id="drawStrandSmoothing" type="range" min="0" max="1" step="0.01" value="0.45" /><output id="drawStrandSmoothingValue" class="slider-value">0.45</output></label>
           <label class="topology-control" title="Sets the distance between generated curve points. Larger steps create fewer points.">Curve Step <input id="drawStrandCurveStep" type="range" min="0.12" max="0.6" step="0.01" value="0.38" /><output id="drawStrandCurveStepValue" class="slider-value">0.38</output></label>
           <label class="topology-control" title="Offsets the entire strand from the live surface for layered hair passes.">Scalp Offset <input id="drawStrandScalpOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="drawStrandScalpOffsetValue" class="slider-value">0.00</output></label>
-          <label class="compact-select-row" for="drawStrandSurface" title="Choose how the stroke is projected into 3D space."><span>Live Surface</span>
-            <select id="drawStrandSurface">
-              <option value="head-contextual" selected>Head Mesh + Contextual 2D</option>
-              <option value="head-conform">Conform to Head Mesh</option>
-              <option value="contextual-plane">Contextual 2D Plane</option>
-            </select>
-          </label>
+          <label for="drawStrandSurface" title="Choose how the stroke is projected into 3D space.">Live Surface</label>
+          <select id="drawStrandSurface">
+            <option value="scalp-contextual">Scalp Guide + Contextual 2D</option>
+            <option value="head-contextual">Head Mesh + Contextual 2D</option>
+            <option value="scalp-conform">Conform to Scalp Guide</option>
+            <option value="head-conform">Conform to Head Mesh</option>
+            <option value="contextual-plane">Contextual 2D Plane</option>
+          </select>
           <label class="toggle-row" for="drawAutoShowScalp" title="Automatically turn on scalp guide visibility when this tool uses the scalp guide.">
             <span>Auto-show Scalp Guide</span>
             <input id="drawAutoShowScalp" type="checkbox" checked />
@@ -420,32 +412,35 @@
             <span>Continue from Tip</span>
             <input id="drawContinueFromTip" type="checkbox" checked />
           </label>
+          <div class="subsection-label">Curl Settings</div>
+          <label class="topology-control" title="Sets how many complete curls are distributed along a Coil strand.">Curl Count <input id="drawStrandCurlCount" type="range" min="1" max="16" step="0.25" value="4" disabled /><output id="drawStrandCurlCountValue" class="slider-value">4.00</output></label>
+          <label class="topology-control" title="Sets how far a Coil strand travels away from its editable center curve.">Curl Displacement <input id="drawStrandCurlDisplacement" type="range" min="0.01" max="0.6" step="0.01" value="0.18" disabled /><output id="drawStrandCurlDisplacementValue" class="slider-value">0.18</output></label>
         </div>
 
         <div id="braidToolPanel" class="panel-section sliders hidden">
           <div class="section-head">
             <span>Braid Tool</span>
           </div>
-          <div class="creation-preset-row">
-            <label class="compact-select-row" for="braidToolPreset" title="Apply a complete braid recipe, including its mesh, dimensions, strand profile, and width and depth curves."><span>Braid Preset</span>
-              <select id="braidToolPreset">
-                <option value="classic">Classic Braid</option>
-                <option value="chain-links">Chain Links</option>
-              </select>
-            </label>
-            <button id="saveBraidToolPreset" class="creation-preset-add" type="button" title="Create braid preset" aria-label="Create braid preset">+</button>
-          </div>
-          <label class="topology-control" title="Scales braid width, depth, and segment length together.">Braid Size <input id="braidToolSize" type="range" min="0.25" max="3" step="0.01" value="1" /><output id="braidToolSizeValue" class="slider-value">1.00</output></label>
+          <label for="braidMeshPreset" title="Choose the mesh repeated along the braid curve. Presets may include authored start and end caps.">Mesh</label>
+          <select id="braidMeshPreset">
+            <option value="classic">Classic Braid</option>
+            <option value="chain-links">Chain Links</option>
+          </select>
+          <label class="topology-control" title="Sets the overall width of the generated braid.">Width <input id="braidWidth" type="range" min="0.12" max="0.8" step="0.01" value="0.34" /><output id="braidWidthValue" class="slider-value">0.34</output></label>
+          <label class="topology-control" title="Sets the front-to-back depth of the generated braid.">Depth <input id="braidDepth" type="range" min="0.08" max="0.8" step="0.01" value="0.44" /><output id="braidDepthValue" class="slider-value">0.44</output></label>
+          <label class="topology-control" title="Controls the length of each repeated braid segment. Smaller values create a tighter braid.">Segment Length <input id="braidSegmentLength" type="range" min="0.12" max="0.6" step="0.01" value="0.28" /><output id="braidSegmentLengthValue" class="slider-value">0.28</output></label>
+          <label class="topology-control" title="Rolls the braid mesh around its center curve without rotating the curve points.">Rotation <input id="braidRotation" type="range" min="-180" max="180" step="1" value="0" /><output id="braidRotationValue" class="slider-value">0 deg</output></label>
           <label class="topology-control" title="Higher values smooth small deviations from the drawn center curve.">Smoothing <input id="braidSmoothing" type="range" min="0" max="1" step="0.01" value="0.55" /><output id="braidSmoothingValue" class="slider-value">0.55</output></label>
           <label class="topology-control" title="Sets the distance between editable curve points.">Curve Step <input id="braidCurveStep" type="range" min="0.12" max="0.7" step="0.01" value="0.42" /><output id="braidCurveStepValue" class="slider-value">0.42</output></label>
           <label class="topology-control" title="Offsets the braid from the live surface for layering.">Scalp Offset <input id="braidScalpOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="braidScalpOffsetValue" class="slider-value">0.00</output></label>
-          <label class="compact-select-row" for="braidSurface" title="Choose how the braid center curve is projected into 3D space."><span>Live Surface</span>
-            <select id="braidSurface">
-              <option value="head-contextual" selected>Head Mesh + Contextual 2D</option>
-              <option value="head-conform">Conform to Head Mesh</option>
-              <option value="contextual-plane">Contextual 2D Plane</option>
-            </select>
-          </label>
+          <label for="braidSurface" title="Choose how the braid center curve is projected into 3D space.">Live Surface</label>
+          <select id="braidSurface">
+            <option value="scalp-contextual">Scalp Guide + Contextual 2D</option>
+            <option value="head-contextual">Head Mesh + Contextual 2D</option>
+            <option value="scalp-conform">Conform to Scalp Guide</option>
+            <option value="head-conform">Conform to Head Mesh</option>
+            <option value="contextual-plane">Contextual 2D Plane</option>
+          </select>
           <label class="toggle-row" for="braidAutoShowScalp" title="Automatically turn on scalp guide visibility when this tool uses the scalp guide.">
             <span>Auto-show Scalp Guide</span>
             <input id="braidAutoShowScalp" type="checkbox" checked />
@@ -481,27 +476,26 @@
         <div id="strandShapePanel" class="panel-section sliders">
           <div class="section-head">
             <span id="strandShapeTitle">Shape</span>
+            <button id="randomize" title="Nudge shape" aria-label="Nudge shape">*</button>
           </div>
-          <label class="compact-select-row" for="strandLayer"><span>Layer</span><select id="strandLayer"><option value="bottom">Bottom</option><option value="mid" selected>Mid</option><option value="top">Top</option><option value="accent">Accent</option></select></label>
-          <div class="draw-shape-controls">
-            <div class="subsection-label">Strand Geometry</div>
-            <label class="topology-control" title="Sets the width of newly drawn strands.">Width <input id="drawStrandBrushSize" type="range" min="0.04" max="0.42" step="0.01" value="0.16" /><output id="drawStrandBrushSizeValue" class="slider-value">0.16</output></label>
+          <label for="strandLayer">Layer <select id="strandLayer"><option value="bottom">Bottom</option><option value="mid" selected>Mid</option><option value="top">Top</option><option value="accent">Accent</option></select></label>
+          <div class="subsection-label">Strand Profile</div>
+          <div class="profile-control-row">
+            <div class="shape-preview-shell"><svg class="profile-preview" viewBox="0 0 86 86" role="img" aria-label="Selected strand profile preview"><g class="profile-preview-reference" aria-hidden="true"><circle cx="43" cy="43" r="30"></circle><line x1="7" y1="43" x2="79" y2="43"></line><line x1="43" y1="7" x2="43" y2="79"></line></g><path id="strandProfilePreview"></path><g class="profile-origin-marker" aria-hidden="true"><line x1="38" y1="43" x2="48" y2="43"></line><line x1="43" y1="38" x2="43" y2="48"></line></g></svg><button class="shape-edit-button edit-sweep-profile" type="button" title="Edit strand profile" aria-label="Edit strand profile"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <div class="profile-preset-stack"><select class="shape-preset-select" data-shape-preset="sweepProfile" aria-label="Selected strand profile preset"></select><label class="profile-offset-control">Vertical Offset <input id="profileOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="profileOffsetValue" class="slider-value">0.00</output></label></div>
           </div>
-          <div class="braid-shape-controls">
-            <label class="compact-select-row" for="braidMeshPreset" title="Choose only the mesh repeated along the braid curve without changing its other shape settings."><span>Braid Mesh</span>
-              <select id="braidMeshPreset">
-                <option value="classic">Classic Braid</option>
-                <option value="chain-links">Chain Links</option>
-              </select>
-            </label>
-            <div class="subsection-label">Braid Geometry</div>
-            <label class="topology-control" title="Sets the overall width of the generated braid.">Width <input id="braidWidth" type="range" min="0.05" max="2.5" step="0.01" value="0.34" /><output id="braidWidthValue" class="slider-value">0.34</output></label>
-            <label class="topology-control" title="Sets the front-to-back depth of the generated braid.">Depth <input id="braidDepth" type="range" min="0.05" max="2.5" step="0.01" value="0.44" /><output id="braidDepthValue" class="slider-value">0.44</output></label>
-            <label class="topology-control" title="Controls the length of each repeated braid segment. Smaller values create a tighter braid.">Segment Length <input id="braidSegmentLength" type="range" min="0.12" max="0.6" step="0.01" value="0.28" /><output id="braidSegmentLengthValue" class="slider-value">0.28</output></label>
-            <label class="topology-control" title="Rolls the braid mesh around its center curve without rotating the curve points.">Rotation <input id="braidRotation" type="range" min="-180" max="180" step="1" value="0" /><output id="braidRotationValue" class="slider-value">0 deg</output></label>
+          <div class="subsection-label">Width Curve</div>
+          <div class="taper-curve-control">
+            <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Selected strand width curve preview"><path id="strandTaperPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="taperCurve" type="button" title="Edit width curve" aria-label="Edit width curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <select class="shape-preset-select" data-shape-preset="taperCurve" aria-label="Selected strand width curve preset"></select>
           </div>
-          <label class="topology-control strand-dimension-scale width-dimension-scale"><span id="widthScaleLabel">Width</span> <input id="widthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="widthScaleValue" class="slider-value">1.00</output></label>
-          <label class="topology-control strand-dimension-scale depth-dimension-scale"><span id="depthScaleLabel">Depth</span> <input id="depthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="depthScaleValue" class="slider-value">1.00</output></label>
+          <div class="subsection-label">Depth Curve</div>
+          <div class="taper-curve-control">
+            <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Selected strand depth curve preview"><path id="strandDepthPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="depthCurve" type="button" title="Edit depth curve" aria-label="Edit depth curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
+            <select class="shape-preset-select" data-shape-preset="depthCurve" aria-label="Selected strand depth curve preset"></select>
+          </div>
+          <label class="topology-control">Width Scale <input id="widthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="widthScaleValue" class="slider-value">1.00</output></label>
+          <label class="topology-control">Depth Scale <input id="depthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="depthScaleValue" class="slider-value">1.00</output></label>
           <label class="topology-control">Root Scalp Offset <input id="rootScalpOffset" type="range" min="-1" max="1" step="0.01" /><output id="rootScalpOffsetValue" class="slider-value">0.00</output></label>
           <label class="twist-control">
             <span>Twist</span>
@@ -510,23 +504,14 @@
               <input id="twistNumber" type="number" step="0.05" aria-label="Twist value" />
             </span>
           </label>
-          <div class="subsection-label">Strand Profile</div>
-          <div class="profile-control-row">
-            <div class="shape-preview-shell"><svg class="profile-preview" viewBox="0 0 86 86" role="img" aria-label="Selected strand profile preview"><g class="profile-preview-reference" aria-hidden="true"><circle cx="43" cy="43" r="30"></circle><line x1="7" y1="43" x2="79" y2="43"></line><line x1="43" y1="7" x2="43" y2="79"></line></g><path id="strandProfilePreview"></path><g class="profile-origin-marker" aria-hidden="true"><line x1="38" y1="43" x2="48" y2="43"></line><line x1="43" y1="38" x2="43" y2="48"></line></g></svg><button class="shape-edit-button edit-sweep-profile" type="button" title="Edit strand profile" aria-label="Edit strand profile"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
-            <div class="profile-preset-stack"><select class="shape-preset-select" data-shape-preset="sweepProfile" aria-label="Selected strand profile preset"></select><label class="profile-offset-control">Vertical Offset <input id="profileOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="profileOffsetValue" class="slider-value">0.00</output></label></div>
-          </div>
-          <div class="curve-heading-row"><div class="subsection-label">Width Curve</div><select class="shape-preset-select" data-shape-preset="taperCurve" aria-label="Selected strand width curve preset"></select></div>
-          <div class="taper-curve-control">
-            <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Selected strand width curve preview"><path id="strandTaperPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="taperCurve" type="button" title="Edit width curve" aria-label="Edit width curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
-          </div>
-          <div class="curve-heading-row"><div class="subsection-label">Depth Curve</div><select class="shape-preset-select" data-shape-preset="depthCurve" aria-label="Selected strand depth curve preset"></select></div>
-          <div class="taper-curve-control">
-            <div class="shape-preview-shell"><svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Selected strand depth curve preview"><path id="strandDepthPreview"></path></svg><button class="shape-edit-button edit-shape-curve" data-curve-key="depthCurve" type="button" title="Edit depth curve" aria-label="Edit depth curve"><span class="pencil-glyph" aria-hidden="true"></span></button></div>
-          </div>
-          <div class="draw-shape-controls draw-coil-shape-controls">
-            <div class="subsection-label">Coil Shape</div>
-            <label class="topology-control" title="Sets how many complete curls are distributed along a Coil strand.">Curl Count <input id="drawStrandCurlCount" type="range" min="1" max="16" step="0.25" value="4" disabled /><output id="drawStrandCurlCountValue" class="slider-value">4.00</output></label>
-            <label class="topology-control" title="Sets how far a Coil strand travels away from its editable center curve.">Curl Displacement <input id="drawStrandCurlDisplacement" type="range" min="0.01" max="0.6" step="0.01" value="0.18" disabled /><output id="drawStrandCurlDisplacementValue" class="slider-value">0.18</output></label>
+          <div class="subsection-label">Experimental Split</div>
+          <label class="toggle-row" for="splitEnabled">
+            <span>Split Strand</span>
+            <input id="splitEnabled" type="checkbox" />
+          </label>
+          <div id="splitControls" class="split-controls hidden">
+            <label>Split Point <input id="splitPosition" type="range" min="0.25" max="0.85" step="0.01" value="0.62" /></label>
+            <label>Offshoot Spread <input id="splitSpread" type="range" min="0.05" max="0.8" step="0.01" value="0.28" /></label>
           </div>
         </div>
 
@@ -630,24 +615,6 @@
           <button id="resetTaperCurve" type="button">Reset curve</button>
         </div>
       </div>
-    </dialog>
-
-    <dialog id="creationPresetDialog" class="creation-preset-dialog" aria-labelledby="creationPresetDialogTitle">
-      <form id="creationPresetForm" method="dialog">
-        <div class="profile-dialog-head">
-          <div>
-            <h2 id="creationPresetDialogTitle">Create Strand Preset</h2>
-            <p>Save the current working creation shape.</p>
-          </div>
-          <button id="closeCreationPresetDialog" type="button" title="Close" aria-label="Close preset naming panel">X</button>
-        </div>
-        <label for="creationPresetName">Preset Name</label>
-        <input id="creationPresetName" type="text" maxlength="60" autocomplete="off" required />
-        <div class="dialog-actions">
-          <button id="cancelCreationPreset" type="button">Cancel</button>
-          <button type="submit" class="primary-action">Create</button>
-        </div>
-      </form>
     </dialog>
 
     <script type="importmap">
