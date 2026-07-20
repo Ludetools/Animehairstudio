@@ -1143,6 +1143,8 @@ let viewPlaneMoveEnabled = false;
 let viewPlaneMoveSnappedOnly = false;
 let viewPlaneMoveDrag = null;
 let pullMoveEnabled = false;
+let pullCollisionEnabled = true;
+let pullRigidity = 0.65;
 let lastHorizontalViewAxis = new THREE.Vector3(0, 0, 1);
 const CARDINAL_VIEW_DRAG_STEP = 72;
 const CARDINAL_VIEW_DRAG_GRACE = 48;
@@ -1350,6 +1352,11 @@ const viewPlaneMoveSnappedSetting = document.querySelector("#viewPlaneMoveSnappe
 const viewPlaneMoveSnappedOnlyInput = document.querySelector("#viewPlaneMoveSnappedOnly");
 const pullMoveSetting = document.querySelector("#pullMoveSetting");
 const pullMoveInput = document.querySelector("#pullMove");
+const pullRigiditySetting = document.querySelector("#pullRigiditySetting");
+const pullRigidityInput = document.querySelector("#pullRigidity");
+const pullRigidityValue = document.querySelector("#pullRigidityValue");
+const pullCollisionSetting = document.querySelector("#pullCollisionSetting");
+const pullCollisionInput = document.querySelector("#pullCollision");
 const placeStrandToolPanel = document.querySelector("#placeStrandToolPanel");
 const placeStrandScalpOffsetInput = document.querySelector("#placeStrandScalpOffset");
 const placeStrandScalpOffsetValue = document.querySelector("#placeStrandScalpOffsetValue");
@@ -6178,8 +6185,51 @@ function applySingleMove(lock, pointIndex, handle) {
 function applyPullMove(lock, pointIndex, handle) {
   const edit = activeHandleEdit;
   if (!edit?.points?.length || pointIndex < 0 || pointIndex >= edit.points.length) return;
-  const solved = solvePulledStrand(edit.points, pointIndex, handle.position, 0);
-  solved.forEach((point, index) => lock.points[index].copy(point));
+  const solved = solvePulledStrand(edit.points, pointIndex, handle.position, 0, pullRigidity);
+  const constrained = pullCollisionEnabled ? constrainPullPointsOutsideHead(solved, lock) : solved;
+  constrained.forEach((point, index) => lock.points[index].copy(point));
+}
+
+function pullHeadCollisionContext() {
+  const edit = activeHandleEdit;
+  if (edit?.pullHeadCollisionContext) return edit.pullHeadCollisionContext;
+  const meshes = scalpBuilderHeadMeshes();
+  if (!meshes.length) return null;
+  const bounds = new THREE.Box3();
+  meshes.forEach((mesh) => bounds.expandByObject(mesh));
+  if (bounds.isEmpty()) return null;
+  const size = bounds.getSize(new THREE.Vector3());
+  const context = {
+    meshes,
+    center: bounds.getCenter(new THREE.Vector3()),
+    rayDistance: Math.max(size.x, size.y, size.z) * 1.6,
+    raycaster: new THREE.Raycaster()
+  };
+  if (edit) edit.pullHeadCollisionContext = context;
+  return context;
+}
+
+function constrainPullPointsOutsideHead(points, lock) {
+  const context = pullHeadCollisionContext();
+  if (!context) return points;
+  const margin = Math.max(0.018, Number(lock.width ?? lock.baseWidth ?? 0.16) * 0.24);
+  return points.map((point, index) => {
+    if (index === 0) return point;
+    const direction = point.clone().sub(context.center);
+    if (direction.lengthSq() < 0.000001) direction.set(0, 1, 0);
+    direction.normalize();
+    context.raycaster.set(
+      context.center.clone().addScaledVector(direction, context.rayDistance),
+      direction.clone().negate()
+    );
+    context.raycaster.near = 0;
+    context.raycaster.far = context.rayDistance * 2;
+    const hit = context.raycaster.intersectObjects(context.meshes, false)[0];
+    if (!hit) return point;
+    const requiredDistance = hit.point.distanceTo(context.center) + margin;
+    if (point.distanceTo(context.center) >= requiredDistance) return point;
+    return context.center.clone().addScaledVector(direction, requiredDistance);
+  });
 }
 
 function applyProportionalMove(lock, pointIndex, handle) {
@@ -11935,6 +11985,8 @@ function updateAttributeEditorMode() {
   }
   transformToolTitle.textContent = `${activeTool[0].toUpperCase()}${activeTool.slice(1)} Tool`;
   pullMoveSetting.classList.toggle("hidden", activeTool !== "move");
+  pullRigiditySetting.classList.toggle("hidden", activeTool !== "move" || !pullMoveEnabled);
+  pullCollisionSetting.classList.toggle("hidden", activeTool !== "move" || !pullMoveEnabled);
   viewPlaneMoveSetting.classList.toggle("hidden", activeTool !== "move");
   viewPlaneMoveSnappedSetting.classList.toggle("hidden", activeTool !== "move");
   placeStrandToolPanel.classList.toggle("hidden", activeTool !== "place");
@@ -13141,6 +13193,13 @@ pullMoveInput.addEventListener("change", () => {
   activeHandleEdit = null;
   transformControls.detach();
   setActiveTool("move");
+});
+pullRigidityInput.addEventListener("input", () => {
+  pullRigidity = Number(pullRigidityInput.value);
+  pullRigidityValue.textContent = pullRigidity.toFixed(2);
+});
+pullCollisionInput.addEventListener("change", () => {
+  pullCollisionEnabled = pullCollisionInput.checked;
 });
 placeStrandScalpOffsetInput.addEventListener("input", () => {
   placeStrandScalpOffsetValue.textContent = Number(placeStrandScalpOffsetInput.value).toFixed(2);

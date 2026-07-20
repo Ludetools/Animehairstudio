@@ -356,6 +356,11 @@
             <span>Pull Strand</span>
             <input id="pullMove" type="checkbox" />
           </label>
+          <label id="pullRigiditySetting" class="topology-control hidden" title="Controls how strongly the strand preserves its existing curve while being pulled. Lower values behave like a loose chain.">Rigidity <input id="pullRigidity" type="range" min="0" max="1" step="0.01" value="0.65" /><output id="pullRigidityValue" class="slider-value">0.65</output></label>
+          <label id="pullCollisionSetting" class="toggle-row hidden" for="pullCollision" title="Keep pulled curve points outside the head mesh. The strand root may remain inside the scalp.">
+            <span>Head Collision</span>
+            <input id="pullCollision" type="checkbox" checked />
+          </label>
           <label id="viewPlaneMoveSetting" class="toggle-row" for="viewPlaneMove" title="Drag curve points freely on the 2D plane that best matches the current camera view.">
             <span>Contextual 2D Free Translation</span>
             <input id="viewPlaneMove" type="checkbox" />
