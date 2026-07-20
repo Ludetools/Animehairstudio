@@ -7,7 +7,7 @@ import {
   closestPointsOnSegments,
   findSpatialCollisionPairs,
   solvePulledStrand
-} from "./modules/strand-constraints.js";
+} from "./modules/strand-constraints.js?v=20260720-1";
 import {
   adaptiveCurveParameters,
   legacyTaperCurve,
@@ -16,13 +16,13 @@ import {
   sampleScale,
   sampleTaperCurve,
   uniformCurveParameters
-} from "./modules/curve-math.js";
-import { exportHairFaces } from "./modules/obj-export.js";
+} from "./modules/curve-math.js?v=20260720-1";
+import { exportHairFaces } from "./modules/obj-export.js?v=20260720-1";
 import {
   createHairProject,
   projectFileName,
   validateHairProject
-} from "./modules/project-schema.js";
+} from "./modules/project-schema.js?v=20260720-1";
 import {
   CURVE_LATTICE_FEATURE_ENABLED,
   DEFAULT_BRAID_DEPTH_CURVE,
@@ -46,8 +46,8 @@ import {
   SCALP_REGIONS,
   STRAND_GROUPS,
   TAPER_VALUE_MAX
-} from "./modules/app-config.js";
-import { BoundedHistory } from "./modules/history.js";
+} from "./modules/app-config.js?v=20260720-1";
+import { BoundedHistory } from "./modules/history.js?v=20260720-1";
 
 function setupEditableSliderControls() {
   document.querySelectorAll('input[type="range"]').forEach((range) => {
@@ -524,7 +524,7 @@ async function createAuthoredScalpGeometry() {
     lambert6SG: "side-bangs-left",
     lambert7SG: "side-left"
   };
-  const response = await fetch("./assets/scalpcurvelatticeguide.obj");
+  const response = await fetch("./assets/scalpcurvelatticeguide.obj?v=20260720-1");
   if (!response.ok) throw new Error(`Could not load the built-in scalp guide (${response.status})`);
   const sourceVertices = [];
   const sourceFaces = [];
@@ -1550,10 +1550,10 @@ const presets = {
 
 const generatedPresetGroups = new Set(["generated-bangs", "bowl-cut", "long-layered-curls", "braided-bob"]);
 const authoredPresetProjects = new Map([
-  ["braided-buns", "./assets/presets/braided-buns.animehair.json"]
+  ["braided-buns", "./assets/presets/braided-buns.animehair.json?v=20260720-1"]
 ]);
 const presetCatalog = [
-  { id: "braided-buns", title: "Braided Buns", category: "full", thumbnail: "braided-buns", previewImage: "./assets/presets/braided-buns-preview.png" },
+  { id: "braided-buns", title: "Braided Buns", category: "full", thumbnail: "braided-buns", previewImage: "./assets/presets/braided-buns-preview.png?v=20260720-1" },
   { id: "braided-bob", title: "Braided Bob", category: "full", thumbnail: "braided-bob" },
   { id: "long-layered-curls", title: "Long Layered Curls", category: "full", thumbnail: "long-layers" },
   { id: "bowl-cut", title: "Bowl Cut", category: "full", thumbnail: "bowl" },
@@ -1703,7 +1703,7 @@ function installGuideModel(obj, options = {}) {
 
 function loadDefaultGuideModel(options = {}) {
   return new Promise((resolve, reject) => {
-    new OBJLoader().load("./assets/headplusfeatures.obj", (obj) => {
+    new OBJLoader().load("./assets/headplusfeatures.obj?v=20260720-1", (obj) => {
       try {
         installGuideModel(obj, options);
         obj.updateMatrixWorld(true);
@@ -1894,8 +1894,8 @@ function loadBraidMeshPreset(id, path, options) {
   });
 }
 
-loadBraidMeshPreset(DEFAULT_BRAID_MESH_PRESET, "./assets/braid-segment.obj");
-loadBraidMeshPreset("chain-links", "./assets/chainlinks.obj", { authoredCaps: true });
+loadBraidMeshPreset(DEFAULT_BRAID_MESH_PRESET, "./assets/braid-segment.obj?v=20260720-1");
+loadBraidMeshPreset("chain-links", "./assets/chainlinks.obj?v=20260720-1", { authoredCaps: true });
 
 function frameGuideModel({ distanceScale = 1, targetYOffset = 0.18 } = {}) {
   const box = guideHeadBounds(guideModel);
@@ -2652,7 +2652,7 @@ function parseScalpTopologyTemplate(content) {
 
 function loadScalpTopologyTemplate() {
   if (!scalpTopologyTemplatePromise) {
-    scalpTopologyTemplatePromise = fetch("./assets/scalp-topology-template.obj")
+    scalpTopologyTemplatePromise = fetch("./assets/scalp-topology-template.obj?v=20260720-1")
       .then((response) => {
         if (!response.ok) throw new Error(`Could not load scalp topology template (${response.status})`);
         return response.text();
@@ -2664,7 +2664,7 @@ function loadScalpTopologyTemplate() {
 
 function loadScalpBuilderCurveLatticeTemplate() {
   if (!scalpBuilderCurveLatticePromise) {
-    scalpBuilderCurveLatticePromise = fetch("./assets/scalpcurvelatticeguide.obj")
+    scalpBuilderCurveLatticePromise = fetch("./assets/scalpcurvelatticeguide.obj?v=20260720-1")
       .then((response) => {
         if (!response.ok) throw new Error(`Could not load scalp curve lattice (${response.status})`);
         return response.text();
@@ -7818,6 +7818,11 @@ function addLock(presetName, overrides = {}, options = {}) {
   lock.rootSurfaceNormal = base.rootSurfaceNormal?.clone()?.normalize() || null;
   lock.sweepProfile = (base.sweepProfile || topologyDefaults.sweepProfile).map((point) => ({ ...point }));
   lock.points = base.points ? base.points.map((point) => point.clone()) : createCurvePoints(lock);
+  lock.rootAttachment = rootAttachmentFromData(base.rootAttachment || null, lock);
+  if (lock.rootAttachment) {
+    lock.rootSurfacePoint = lock.rootAttachment.surfacePoint.clone();
+    lock.rootSurfaceNormal = lock.rootAttachment.normal.clone();
+  }
   lock.groupLatticeBasePoints = base.groupLatticeBasePoints?.map((point) => point.clone()) || null;
   lock.pointScales = lock.points.map(() => ({ x: 1, z: 1 }));
   lock.pointWidths = lock.points.map(() => 1);
@@ -7964,6 +7969,7 @@ function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), optio
   partner.rootScalpOffset = Number(lock.rootScalpOffset || 0);
   partner.rootSurfacePoint = mirroredVector(lock.rootSurfacePoint);
   partner.rootSurfaceNormal = mirroredVector(lock.rootSurfaceNormal)?.normalize() || null;
+  partner.rootAttachment = createRootAttachment(partner);
   partner.radialSegments = lock.radialSegments;
   partner.lengthSegments = lock.lengthSegments;
   partner.dynamicDensity = Boolean(lock.dynamicDensity);
@@ -8011,7 +8017,7 @@ function setMirrorXEditing(enabled) {
 
 function snapshotState() {
   return {
-    scalpAttachmentVersion: 2,
+    scalpAttachmentVersion: 4,
     lockIndex,
     hairMaterialIndex,
     hairMaterials: hairMaterialDefinitions.map((material) => ({ ...material })),
@@ -8094,6 +8100,7 @@ function snapshotState() {
       clumpGuideRestScales: lock.clumpGuideRestScales?.map((scale) => ({ x: scale.x, z: scale.z })) || null,
       rootSurfacePoint: lock.rootSurfacePoint ? vectorToData(lock.rootSurfacePoint) : null,
       rootSurfaceNormal: lock.rootSurfaceNormal ? vectorToData(lock.rootSurfaceNormal) : null,
+      rootAttachment: rootAttachmentToData(syncRootAttachmentMetadata(lock)),
       twist: lock.twist,
       radialSegments: lock.radialSegments,
       lengthSegments: lock.lengthSegments,
@@ -8171,10 +8178,13 @@ function closestPointOnActiveScalp(worldPoint, preferredRegion = null) {
   const closest = new THREE.Vector3();
   const bestPoint = new THREE.Vector3();
   const bestNormal = new THREE.Vector3();
+  const bestBarycentric = new THREE.Vector3();
   const a = new THREE.Vector3();
   const b = new THREE.Vector3();
   const c = new THREE.Vector3();
   let bestDistanceSq = Infinity;
+  let bestTriangleIndex = -1;
+  let bestTriangleVertices = null;
   const triangleCount = index ? index.count / 3 : position.count / 3;
 
   for (let triangleIndex = 0; triangleIndex < triangleCount; triangleIndex += 1) {
@@ -8193,6 +8203,9 @@ function closestPointOnActiveScalp(worldPoint, preferredRegion = null) {
     bestDistanceSq = distanceSq;
     bestPoint.copy(closest);
     triangle.getNormal(bestNormal);
+    triangle.getBarycoord(closest, bestBarycentric);
+    bestTriangleIndex = triangleIndex;
+    bestTriangleVertices = [ia, ib, ic];
   }
 
   if (!Number.isFinite(bestDistanceSq) && preferredRegion) {
@@ -8203,7 +8216,277 @@ function closestPointOnActiveScalp(worldPoint, preferredRegion = null) {
   const normal = bestNormal.applyMatrix3(new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld)).normalize();
   const center = new THREE.Box3().setFromObject(mesh).getCenter(new THREE.Vector3());
   if (normal.dot(point.clone().sub(center)) < 0) normal.negate();
-  return { point, normal, center };
+  const uv = geometry.getAttribute("uv");
+  let regionPosition = null;
+  if (uv && bestTriangleVertices) {
+    const [ia, ib, ic] = bestTriangleVertices;
+    regionPosition = {
+      u: uv.getX(ia) * bestBarycentric.x + uv.getX(ib) * bestBarycentric.y + uv.getX(ic) * bestBarycentric.z,
+      v: uv.getY(ia) * bestBarycentric.x + uv.getY(ib) * bestBarycentric.y + uv.getY(ic) * bestBarycentric.z
+    };
+  }
+  return {
+    point,
+    normal,
+    center,
+    triangleIndex: bestTriangleIndex,
+    barycentric: bestBarycentric.clone(),
+    regionPosition
+  };
+}
+
+function rootAttachmentFrame(lock, normal) {
+  const tangent = lock.placementFrame?.flow?.clone()
+    || lock.points?.[1]?.clone().sub(lock.points[0])
+    || new THREE.Vector3(0, -1, 0);
+  tangent.projectOnPlane(normal);
+  if (tangent.lengthSq() < 0.000001) tangent.set(0, -1, 0).projectOnPlane(normal);
+  if (tangent.lengthSq() < 0.000001) tangent.set(1, 0, 0).projectOnPlane(normal);
+  tangent.normalize();
+  const bitangent = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+  return { tangent, bitangent };
+}
+
+function rootAttachmentLocalFrame(normal, tangent, bitangent) {
+  const mesh = activeScalpSurfaceMesh();
+  if (!mesh) {
+    return {
+      normal: normal.clone(),
+      tangent: tangent.clone(),
+      bitangent: bitangent.clone()
+    };
+  }
+  mesh.updateMatrixWorld(true);
+  const inverseWorld = mesh.matrixWorld.clone().invert();
+  return {
+    normal: normal.clone().transformDirection(inverseWorld).normalize(),
+    tangent: tangent.clone().transformDirection(inverseWorld).normalize(),
+    bitangent: bitangent.clone().transformDirection(inverseWorld).normalize()
+  };
+}
+
+function resolveRootAttachment(attachment) {
+  const mesh = activeScalpSurfaceMesh();
+  const geometry = mesh?.geometry;
+  const position = geometry?.getAttribute("position");
+  const triangleIndex = Number(attachment?.surfaceLocation?.triangleIndex);
+  const barycentric = attachment?.surfaceLocation?.barycentric;
+  if (!mesh || !position || !Number.isInteger(triangleIndex) || triangleIndex < 0 || !barycentric) return null;
+
+  const index = geometry.getIndex();
+  const offset = triangleIndex * 3;
+  if (offset + 2 >= (index?.count ?? position.count)) return null;
+  const ia = index ? index.getX(offset) : offset;
+  const ib = index ? index.getX(offset + 1) : offset + 1;
+  const ic = index ? index.getX(offset + 2) : offset + 2;
+  const a = new THREE.Vector3().fromBufferAttribute(position, ia);
+  const b = new THREE.Vector3().fromBufferAttribute(position, ib);
+  const c = new THREE.Vector3().fromBufferAttribute(position, ic);
+  const weightTotal = barycentric.x + barycentric.y + barycentric.z || 1;
+  const localPoint = a.multiplyScalar(barycentric.x / weightTotal)
+    .addScaledVector(b, barycentric.y / weightTotal)
+    .addScaledVector(c, barycentric.z / weightTotal);
+
+  mesh.updateMatrixWorld(true);
+  const point = localPoint.applyMatrix4(mesh.matrixWorld);
+  const localFrame = attachment.localFrame;
+  if (!localFrame) return { point };
+  const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
+  const normal = localFrame.normal.clone().applyMatrix3(normalMatrix).normalize();
+  const tangent = localFrame.tangent.clone().transformDirection(mesh.matrixWorld).projectOnPlane(normal).normalize();
+  const bitangent = new THREE.Vector3().crossVectors(normal, tangent).normalize();
+  return { point, normal, tangent, bitangent };
+}
+
+const ROOT_LOCAL_CURVE_FIELDS = Object.freeze({
+  points: "points",
+  clumpRestPoints: "clumpRestPoints",
+  clumpGuideRestPoints: "clumpGuideRestPoints",
+  groupLatticeBasePoints: "groupLatticeBasePoints"
+});
+
+function curvePointsToRootLocal(points, origin, frame) {
+  if (!points?.length || !origin || !frame) return null;
+  return points.map((point) => {
+    const delta = point.clone().sub(origin);
+    return new THREE.Vector3(
+      delta.dot(frame.bitangent),
+      delta.dot(frame.tangent),
+      delta.dot(frame.normal)
+    );
+  });
+}
+
+function curvePointsFromRootLocal(points, origin, frame) {
+  if (!points?.length || !origin || !frame) return null;
+  return points.map((point) => origin.clone()
+    .addScaledVector(frame.bitangent, point.x)
+    .addScaledVector(frame.tangent, point.y)
+    .addScaledVector(frame.normal, point.z));
+}
+
+function syncRootAttachmentLocalCurves(lock, attachment) {
+  if (!lock?.points?.length || !attachment) return;
+  const resolved = resolveRootAttachment(attachment);
+  const frame = {
+    normal: resolved?.normal || attachment.normal,
+    tangent: resolved?.tangent || attachment.tangent,
+    bitangent: resolved?.bitangent || attachment.bitangent
+  };
+  const origin = lock.points[0];
+  attachment.localCurves = {};
+  Object.entries(ROOT_LOCAL_CURVE_FIELDS).forEach(([attachmentKey, lockKey]) => {
+    const localPoints = curvePointsToRootLocal(lock[lockKey], origin, frame);
+    if (localPoints) attachment.localCurves[attachmentKey] = localPoints;
+  });
+}
+
+function applyRootAttachmentLocalCurves(lock) {
+  const attachment = lock?.rootAttachment;
+  if (!attachment?.localCurves?.points?.length) return false;
+  const resolved = resolveRootAttachment(attachment);
+  if (!resolved?.point || !resolved.normal || !resolved.tangent || !resolved.bitangent) return false;
+  const rootOffset = rootScalpOffsetDistance(attachment.localOffset)
+    + layerOffsetForLock(lock) * layerRootOffsetFactor(attachment.hairLayer);
+  const origin = resolved.point.clone().addScaledVector(resolved.normal, rootOffset);
+  const frame = {
+    normal: resolved.normal,
+    tangent: resolved.tangent,
+    bitangent: resolved.bitangent
+  };
+
+  Object.entries(ROOT_LOCAL_CURVE_FIELDS).forEach(([attachmentKey, lockKey]) => {
+    const restored = curvePointsFromRootLocal(attachment.localCurves[attachmentKey], origin, frame);
+    if (restored) lock[lockKey] = restored;
+  });
+  lock.rootSurfacePoint = resolved.point.clone();
+  lock.rootSurfaceNormal = resolved.normal.clone();
+  if (lock.placementFrame) {
+    lock.placementFrame.root.copy(origin);
+    lock.placementFrame.normal.copy(resolved.normal);
+    lock.placementFrame.flow.copy(resolved.tangent);
+    lock.placementFrame.side.copy(resolved.bitangent);
+  }
+  return true;
+}
+
+function createRootAttachment(lock, sourceOverride = null) {
+  const sourcePoint = sourceOverride?.clone() || lock.rootSurfacePoint?.clone() || lock.points?.[0]?.clone();
+  if (!sourcePoint) return null;
+  const surface = closestPointOnActiveScalp(sourcePoint, lock.scalpRegion || null);
+  const point = surface?.point || sourcePoint;
+  const normal = surface?.normal
+    || lock.rootSurfaceNormal?.clone()?.normalize()
+    || new THREE.Vector3(0, 1, 0);
+  const frame = rootAttachmentFrame(lock, normal);
+  const localFrame = rootAttachmentLocalFrame(normal, frame.tangent, frame.bitangent);
+  return {
+    version: 3,
+    coordinateSpace: "scalp-local",
+    scalpRegion: lock.scalpRegion || "unassigned",
+    regionPosition: surface?.regionPosition ? { ...surface.regionPosition } : null,
+    surfaceLocation: surface ? {
+      triangleIndex: surface.triangleIndex,
+      barycentric: surface.barycentric.clone()
+    } : null,
+    surfacePoint: point.clone(),
+    normal: normal.clone(),
+    tangent: frame.tangent,
+    bitangent: frame.bitangent,
+    localFrame,
+    hairLayer: normalizeHairLayer(lock.hairLayer),
+    localOffset: Number(lock.rootScalpOffset ?? 0)
+  };
+}
+
+function syncRootAttachmentMetadata(lock) {
+  if (!lock) return null;
+  if (!lock.rootAttachment) lock.rootAttachment = createRootAttachment(lock);
+  if (!lock.rootAttachment) return null;
+  lock.rootAttachment.scalpRegion = lock.scalpRegion || "unassigned";
+  lock.rootAttachment.hairLayer = normalizeHairLayer(lock.hairLayer);
+  lock.rootAttachment.localOffset = Number(lock.rootScalpOffset ?? 0);
+  if (lock.rootSurfacePoint) lock.rootAttachment.surfacePoint.copy(lock.rootSurfacePoint);
+  if (lock.rootSurfaceNormal) lock.rootAttachment.normal.copy(lock.rootSurfaceNormal).normalize();
+  const frame = rootAttachmentFrame(lock, lock.rootAttachment.normal);
+  lock.rootAttachment.tangent.copy(frame.tangent);
+  lock.rootAttachment.bitangent.copy(frame.bitangent);
+  lock.rootAttachment.localFrame = rootAttachmentLocalFrame(
+    lock.rootAttachment.normal,
+    lock.rootAttachment.tangent,
+    lock.rootAttachment.bitangent
+  );
+  lock.rootAttachment.version = 3;
+  lock.rootAttachment.coordinateSpace = "scalp-local";
+  syncRootAttachmentLocalCurves(lock, lock.rootAttachment);
+  return lock.rootAttachment;
+}
+
+function rootAttachmentToData(attachment) {
+  if (!attachment) return null;
+  return {
+    version: Number(attachment.version || 1),
+    coordinateSpace: attachment.coordinateSpace || "scalp-local",
+    scalpRegion: attachment.scalpRegion || "unassigned",
+    regionPosition: attachment.regionPosition ? { ...attachment.regionPosition } : null,
+    surfaceLocation: attachment.surfaceLocation ? {
+      triangleIndex: Number(attachment.surfaceLocation.triangleIndex),
+      barycentric: vectorToData(attachment.surfaceLocation.barycentric)
+    } : null,
+    surfacePoint: vectorToData(attachment.surfacePoint),
+    normal: vectorToData(attachment.normal),
+    tangent: vectorToData(attachment.tangent),
+    bitangent: vectorToData(attachment.bitangent),
+    localFrame: attachment.localFrame ? {
+      normal: vectorToData(attachment.localFrame.normal),
+      tangent: vectorToData(attachment.localFrame.tangent),
+      bitangent: vectorToData(attachment.localFrame.bitangent)
+    } : null,
+    localCurves: attachment.localCurves ? Object.fromEntries(
+      Object.entries(attachment.localCurves).map(([key, points]) => [key, points.map(vectorToData)])
+    ) : null,
+    hairLayer: normalizeHairLayer(attachment.hairLayer),
+    localOffset: Number(attachment.localOffset ?? 0)
+  };
+}
+
+function rootAttachmentFromData(data, lock) {
+  if (!data) return createRootAttachment(lock);
+  const normal = dataToVector(data.normal || vectorToData(lock.rootSurfaceNormal || new THREE.Vector3(0, 1, 0))).normalize();
+  const tangent = dataToVector(data.tangent || { x: 0, y: -1, z: 0 }).normalize();
+  const bitangent = dataToVector(data.bitangent || { x: 1, y: 0, z: 0 }).normalize();
+  const attachment = {
+    version: Number(data.version || 1),
+    coordinateSpace: data.coordinateSpace || "scalp-local",
+    scalpRegion: data.scalpRegion || lock.scalpRegion || "unassigned",
+    regionPosition: data.regionPosition ? { ...data.regionPosition } : null,
+    surfaceLocation: data.surfaceLocation ? {
+      triangleIndex: Number(data.surfaceLocation.triangleIndex),
+      barycentric: dataToVector(data.surfaceLocation.barycentric)
+    } : null,
+    surfacePoint: dataToVector(data.surfacePoint || vectorToData(lock.rootSurfacePoint || lock.points[0])),
+    normal,
+    tangent,
+    bitangent,
+    localFrame: data.localFrame ? {
+      normal: dataToVector(data.localFrame.normal).normalize(),
+      tangent: dataToVector(data.localFrame.tangent).normalize(),
+      bitangent: dataToVector(data.localFrame.bitangent).normalize()
+    } : rootAttachmentLocalFrame(normal, tangent, bitangent),
+    localCurves: data.localCurves ? Object.fromEntries(
+      Object.entries(data.localCurves).map(([key, points]) => [key, points.map(dataToVector)])
+    ) : null,
+    hairLayer: normalizeHairLayer(data.hairLayer ?? lock.hairLayer),
+    localOffset: Number(data.localOffset ?? lock.rootScalpOffset ?? 0)
+  };
+  const resolved = resolveRootAttachment(attachment);
+  if (resolved) {
+    attachment.surfacePoint.copy(resolved.point);
+    if (resolved.normal) attachment.normal.copy(resolved.normal);
+    if (resolved.tangent) attachment.tangent.copy(resolved.tangent);
+    if (resolved.bitangent) attachment.bitangent.copy(resolved.bitangent);
+  }
+  return attachment;
 }
 
 function remapLegacyPresetToActiveScalp() {
@@ -8235,6 +8518,7 @@ function remapLegacyPresetToActiveScalp() {
     }
     lock.rootSurfacePoint = attachment.point.clone();
     lock.rootSurfaceNormal = attachment.normal.clone();
+    lock.rootAttachment = createRootAttachment(lock);
     lock.x = lock.points[0].x;
     lock.y = lock.points[0].y;
     lock.z = lock.points[0].z;
@@ -8619,6 +8903,10 @@ function restoreLock(snapshot) {
     groupLatticeBasePoints: snapshot.groupLatticeBasePoints?.map(dataToVector) || null,
     placementFrame: snapshot.placementFrame ? frameFromData(snapshot.placementFrame) : null
   };
+  lock.rootAttachment = rootAttachmentFromData(snapshot.rootAttachment || null, lock);
+  lock.rootSurfacePoint = lock.rootAttachment?.surfacePoint?.clone() || lock.rootSurfacePoint;
+  lock.rootSurfaceNormal = lock.rootAttachment?.normal?.clone() || lock.rootSurfaceNormal;
+  applyRootAttachmentLocalCurves(lock);
   lock.radialSegments = lock.radialSegments || 10;
   lock.lengthSegments = lock.lengthSegments || 26;
   if (legacyUniformLayerOffset) applyLayerOffset(lock, lock.layerOffsetApplied);
@@ -11499,6 +11787,20 @@ function isAffectedCurvePoint(lock, index) {
 function syncLockFromCurve(lock) {
   const first = lock.points[0];
   const last = lock.points.at(-1);
+  if (lock.rootSurfacePoint && lock.rootSurfaceNormal) {
+    const expectedRoot = lock.rootSurfacePoint.clone().addScaledVector(
+      lock.rootSurfaceNormal,
+      rootScalpOffsetDistance(lock.rootScalpOffset) + layerOffsetForLock(lock) * layerRootOffsetFactor(lock.hairLayer)
+    );
+    if (first.distanceToSquared(expectedRoot) > 0.000004) {
+      lock.rootAttachment = createRootAttachment(lock, first);
+      if (lock.rootAttachment) {
+        lock.rootSurfacePoint = lock.rootAttachment.surfacePoint.clone();
+        lock.rootSurfaceNormal = lock.rootAttachment.normal.clone();
+      }
+    }
+  }
+  syncRootAttachmentMetadata(lock);
   lock.x = first.x;
   lock.y = first.y;
   lock.z = first.z;
