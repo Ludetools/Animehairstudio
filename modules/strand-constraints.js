@@ -2,7 +2,7 @@ function clamp(value, minimum, maximum) {
   return Math.min(maximum, Math.max(minimum, value));
 }
 
-export function solvePulledStrand(points, pointIndex, target, elasticity = 0.18) {
+export function solvePulledStrand(points, pointIndex, target, elasticity = 0.18, rigidity = 0) {
   const solved = points.map((point) => point.clone());
   if (!points.length || pointIndex < 0 || pointIndex >= points.length) return solved;
 
@@ -64,6 +64,49 @@ export function solvePulledStrand(points, pointIndex, target, elasticity = 0.18)
         chain[index].copy(chain[index - 1]).add(direction.normalize().multiplyScalar(segmentLengths[index - 1]));
       }
       if (chain[pointIndex].distanceToSquared(constrainedTarget) < 1e-8) break;
+    }
+  }
+
+  const rigidityAmount = clamp(Number(rigidity) || 0, 0, 1);
+  if (rigidityAmount > 0 && pointIndex > 1) {
+    const targetDelta = constrainedTarget.clone().sub(points[pointIndex]);
+    const preferred = chain.map((point, index) => {
+      const hierarchyAmount = index / pointIndex;
+      return points[index].clone().addScaledVector(targetDelta, hierarchyAmount);
+    });
+    const shapeStrength = rigidityAmount * 0.42;
+
+    for (let iteration = 0; iteration < 14; iteration += 1) {
+      for (let index = 1; index < pointIndex; index += 1) {
+        chain[index].lerp(preferred[index], shapeStrength);
+      }
+
+      chain[0].copy(root);
+      chain[pointIndex].copy(constrainedTarget);
+      for (let pass = 0; pass < 2; pass += 1) {
+        const start = pass === 0 ? 0 : pointIndex - 1;
+        const end = pass === 0 ? pointIndex : -1;
+        const step = pass === 0 ? 1 : -1;
+        for (let index = start; index !== end; index += step) {
+          const firstIndex = index;
+          const secondIndex = index + 1;
+          const first = chain[firstIndex];
+          const second = chain[secondIndex];
+          const delta = second.clone().sub(first);
+          const distance = Math.max(0.0001, delta.length());
+          const correction = delta.multiplyScalar((distance - segmentLengths[firstIndex]) / distance);
+          const firstPinned = firstIndex === 0;
+          const secondPinned = secondIndex === pointIndex;
+          if (firstPinned && !secondPinned) second.sub(correction);
+          else if (!firstPinned && secondPinned) first.add(correction);
+          else if (!firstPinned && !secondPinned) {
+            first.addScaledVector(correction, 0.5);
+            second.addScaledVector(correction, -0.5);
+          }
+        }
+        chain[0].copy(root);
+        chain[pointIndex].copy(constrainedTarget);
+      }
     }
   }
 

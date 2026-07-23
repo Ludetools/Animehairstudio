@@ -4,10 +4,85 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Hair Studio</title>
-    <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=20260723-12" />
   </head>
   <body>
     <main class="studio-shell">
+      <header class="app-topbar">
+        <nav class="app-menu-bar" aria-label="Application menu">
+            <div class="app-menu-shell">
+              <button id="fileMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">File</button>
+              <div id="fileMenu" class="app-menu-dropdown hidden" role="menu" aria-label="File">
+                <button id="openHairProject" type="button" role="menuitem"><span>Open</span></button>
+                <button id="saveCurrentPreset" type="button" role="menuitem"><span>Save</span></button>
+                <button
+                  id="devSaveProject"
+                  class="local-save-menu-item"
+                  type="button"
+                  role="menuitem"
+                  title="Local Save for Dev purposes, please use the regular save feature"
+                >
+                  <span>Local Save</span>
+                  <span class="local-save-warning" aria-hidden="true">&#9888;</span>
+                </button>
+                <div class="app-menu-separator" role="separator"></div>
+                <button id="exportObj" type="button" role="menuitem"><span>Export to OBJ</span></button>
+                <button id="exportMaya" type="button" role="menuitem"><span>Export to Python For Maya</span></button>
+                <button
+                  id="localExportObj"
+                  class="local-save-menu-item"
+                  type="button"
+                  role="menuitem"
+                  title="Local Export for Dev purposes, please use the regular Export to OBJ feature"
+                >
+                  <span>Local Export to OBJ</span>
+                  <span class="local-save-warning" aria-hidden="true">&#9888;</span>
+                </button>
+                <button
+                  id="localExportMaya"
+                  class="local-save-menu-item"
+                  type="button"
+                  role="menuitem"
+                  title="Local Export for Dev purposes, please use the regular Export to Python For Maya feature"
+                >
+                  <span>Local Export to Python For Maya</span>
+                  <span class="local-save-warning" aria-hidden="true">&#9888;</span>
+                </button>
+                <div class="app-menu-separator" role="separator"></div>
+                <button id="importHeadMeshMenu" type="button" role="menuitem"><span>Import Head Mesh</span></button>
+              </div>
+            </div>
+            <div class="app-menu-shell">
+              <button id="editMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">Edit</button>
+              <div id="editMenu" class="app-menu-dropdown hidden" role="menu" aria-label="Edit">
+                <button id="undoAction" type="button" role="menuitem" disabled><span>Undo</span><kbd>Ctrl+Z</kbd></button>
+                <button id="redoAction" type="button" role="menuitem" disabled><span>Redo</span><kbd>Ctrl+Y</kbd></button>
+                <button id="deleteSelectionAction" type="button" role="menuitem"><span>Delete</span><kbd>Delete</kbd></button>
+              </div>
+            </div>
+            <div class="app-menu-shell">
+              <button id="scalpSetupToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">Guides</button>
+              <div id="scalpSetupMenu" class="app-menu-dropdown guide-app-menu hidden" role="menu" aria-label="Guides">
+                <button id="scalpBuilderMode" type="button" role="menuitem"><span class="tool-icon icon-scalp-builder" aria-hidden="true"></span><span>Edit Scalp</span></button>
+                <button id="scalpPaintToggle" type="button" role="menuitem"><span class="tool-icon icon-scalp-paint" aria-hidden="true"></span><span>Scalp Painting</span></button>
+                <button id="headSetupMode" type="button" role="menuitem"><span class="tool-icon icon-head-setup" aria-hidden="true"></span><span>Edit Head</span></button>
+                <button id="capsuleGuideMode" type="button" role="menuitem"><span class="tool-icon icon-surface-guide" aria-hidden="true"></span><span>Capsule Guide</span></button>
+              </div>
+            </div>
+            <div class="app-menu-shell">
+              <button id="materialsMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">Materials</button>
+              <div id="materialsMenu" class="app-menu-dropdown hidden" role="menu" aria-label="Materials">
+                <div class="app-menu-empty">No material commands yet</div>
+              </div>
+            </div>
+        </nav>
+        <div class="viewport-title">
+          <strong>Anime Hair Studio</strong>
+          <span id="strandCount" hidden>0 strands</span>
+        </div>
+        <input id="hairProjectFile" class="hidden-file-input" type="file" accept=".json,.animehair.json,application/json" />
+        <input id="headMeshFile" class="hidden-file-input" type="file" accept=".obj,model/obj,text/plain" />
+      </header>
       <aside class="outliner-panel" aria-label="Strand outliner">
         <div class="outliner-titlebar">
           <span>Strand Outliner</span>
@@ -31,7 +106,10 @@
         <div class="viewport-stats" aria-label="Viewport statistics">
           <div><span>Selected</span><strong id="viewportSelectedStats">-- verts / -- tris</strong></div>
           <div><span>Total</span><strong id="viewportTotalStats">0 verts / 0 tris</strong></div>
-          <div><span>Performance</span><strong id="viewportFps">-- FPS</strong></div>
+          <div class="viewport-performance-row">
+            <span>Performance</span>
+            <strong id="viewportFps">-- FPS</strong>
+          </div>
         </div>
         <div class="viewport-tools" aria-label="Modeling tools">
           <button class="tool-button active" data-tool="select" title="Select (Q)" aria-label="Select tool"><span class="tool-icon icon-select" aria-hidden="true"></span><kbd>Q</kbd></button>
@@ -40,6 +118,7 @@
           <button class="tool-button" data-tool="scale" title="Scale strand thickness (R)" aria-label="Scale tool"><span class="tool-icon icon-scale" aria-hidden="true"></span><kbd>R</kbd></button>
           <button class="tool-button" data-tool="relax" title="Relax curve point (T)" aria-label="Relax curve point tool"><span class="tool-icon icon-relax" aria-hidden="true"></span><kbd>T</kbd></button>
           <button class="tool-button" data-tool="draw" title="Draw strand (D)" aria-label="Draw strand tool"><span class="tool-icon icon-draw" aria-hidden="true"></span><kbd>D</kbd></button>
+          <button class="tool-button" data-tool="panel" title="Draw panel strand (P)" aria-label="Panel strand tool"><span class="tool-icon icon-panel" aria-hidden="true"></span><kbd>P</kbd></button>
           <button class="tool-button" data-tool="braid" title="Draw procedural braid (G)" aria-label="Braid tool"><span class="tool-icon icon-braid" aria-hidden="true"></span><kbd>G</kbd></button>
         </div>
         <div class="viewport-modes" aria-label="Editing modes">
@@ -49,46 +128,12 @@
           <button id="proportionalToggle" class="tool-button proportional-button" title="Toggle proportional editing (B)" aria-label="Toggle proportional editing"><span class="tool-icon icon-proportional" aria-hidden="true"></span><kbd>B</kbd></button>
           <button id="strandCollisionToggle" class="tool-button collision-button" title="Enable lightweight strand collision" aria-label="Enable lightweight strand collision" aria-pressed="false"><span class="tool-icon icon-collision" aria-hidden="true"></span></button>
         </div>
-        <div class="viewport-bar">
-          <div>
-            <strong>Anime Hair Studio</strong>
-            <span id="strandCount">0 strands</span>
-          </div>
-          <div class="viewport-setup" aria-label="Setup controls">
-            <div class="setup-menu-shell">
-              <button id="scalpSetupToggle" class="tool-button lattice-button" title="Scalp and head setup" aria-label="Open scalp and head setup" aria-haspopup="menu" aria-expanded="false"><span class="tool-icon icon-lattice" aria-hidden="true"></span></button>
-              <div id="scalpSetupMenu" class="setup-menu hidden" role="menu" aria-label="Scalp and head setup">
-                <button id="scalpBuilderMode" type="button" role="menuitem"><span class="tool-icon icon-scalp-builder" aria-hidden="true"></span><span>Edit Scalp</span></button>
-                <button id="scalpPaintToggle" type="button" role="menuitem"><span class="tool-icon icon-scalp-paint" aria-hidden="true"></span><span>Scalp Painting</span></button>
-                <button id="headSetupMode" type="button" role="menuitem"><span class="tool-icon icon-head-setup" aria-hidden="true"></span><span>Edit Head</span></button>
-              </div>
-            </div>
-            <button id="presetLibraryToggle" class="tool-button preset-library-button" title="Open preset library" aria-label="Open preset library" aria-pressed="false"><span class="preset-library-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span></button>
-          </div>
-          <div class="bar-actions">
-            <button id="openHairProject" class="project-bar-action" type="button" title="Open hair project"><span>Open</span></button>
-            <button id="saveCurrentPreset" class="project-bar-action" type="button" title="Save hair project"><span>Save</span></button>
-            <input id="hairProjectFile" class="hidden-file-input" type="file" accept=".json,.animehair.json,application/json" />
-            <input id="headMeshFile" class="hidden-file-input" type="file" accept=".obj,model/obj,text/plain" />
-            <button id="undoAction" title="Undo (Ctrl+Z)" aria-label="Undo" disabled>
-              <span>Undo</span>
-            </button>
-            <button id="resetCamera" title="Reset camera" aria-label="Reset camera">
-              <span>R</span>
-            </button>
-            <button id="toggleWire" title="Toggle strand topology" aria-label="Toggle strand topology" aria-pressed="false">
-              <span>W</span>
-            </button>
-            <button id="scalpGuideVisibilityToggle" class="scalp-guide-visibility-button" title="Show scalp guide" aria-label="Show scalp guide" aria-pressed="false">
-              <span class="tool-icon icon-scalp-guide" aria-hidden="true"></span>
-            </button>
-            <button id="groupColorToggle" class="group-color-button" title="Show group colors" aria-label="Show group colors" aria-pressed="false">
-              <span class="group-color-swatches" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-            </button>
-            <button id="exportObj" title="Export hair OBJ" aria-label="Export hair OBJ">
-              <span>OBJ</span>
-            </button>
-          </div>
+        <div class="bar-actions viewport-display-actions" aria-label="Viewport display controls">
+          <button id="presetLibraryToggle" class="tool-button preset-library-button" title="Open preset library" aria-label="Open preset library" aria-pressed="false"><span class="preset-library-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span></button>
+          <button id="resetCamera" title="Reset camera" aria-label="Reset camera"><span>R</span></button>
+          <button id="toggleWire" title="Toggle strand topology" aria-label="Toggle strand topology" aria-pressed="false"><span>W</span></button>
+          <button id="scalpGuideVisibilityToggle" class="scalp-guide-visibility-button" title="Show scalp guide" aria-label="Show scalp guide" aria-pressed="false"><span class="tool-icon icon-scalp-guide" aria-hidden="true"></span></button>
+          <button id="groupColorToggle" class="group-color-button" title="Show group colors" aria-label="Show group colors" aria-pressed="false"><span class="group-color-swatches" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
         </div>
         <section id="presetLibrary" class="preset-library hidden" role="dialog" aria-modal="false" aria-labelledby="presetLibraryTitle">
           <header class="preset-library-head">
@@ -109,8 +154,13 @@
         </section>
       </section>
 
-      <aside class="tool-panel" aria-label="Hair controls">
-        <div id="scalpBuilderPanel" class="panel-section sliders hidden">
+      <aside class="tool-panel" aria-label="Hair controls" data-active-attribute-tab="main">
+        <div class="attribute-editor-tabs" role="tablist" aria-label="Attribute editor">
+          <button id="attributeMainTab" class="active" type="button" role="tab" aria-selected="true" data-attribute-tab="main">Main</button>
+          <button id="attributeDisplayTab" type="button" role="tab" aria-selected="false" data-attribute-tab="display">Display</button>
+          <button id="attributeMaterialsTab" type="button" role="tab" aria-selected="false" data-attribute-tab="materials">Materials</button>
+        </div>
+        <div id="scalpBuilderPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Edit Scalp</span>
             <button id="resetScalpBuilder" type="button" title="Reset curve lattice" aria-label="Reset curve lattice">R</button>
@@ -120,6 +170,10 @@
             <strong id="scalpBuilderStepName">Scalp Curve Guide</strong>
           </div>
           <p id="scalpBuilderInstruction" class="builder-instruction">Select a control point and use the gizmo to shape the region-colored scalp curves.</p>
+          <label class="toggle-row" title="Make the head transparent and allow selecting scalp control points through it.">
+            <span>Transparent Head</span>
+            <input id="scalpBuilderTransparentHead" type="checkbox" />
+          </label>
           <div class="subsection-label">Rough Scalp Fit</div>
           <label class="topology-control scalp-rough-scale-control axis-reset-control" title="Changes the scalp guide width without changing the head mesh.">Scale X <button data-reset-scalp-rough-scale="x" type="button" title="Reset X scale" aria-label="Reset X scale">⟲</button><input data-scalp-rough-scale-axis="x" type="range" min="0.5" max="1.5" step="0.01" value="1" /><output data-scalp-rough-scale-value="x" class="slider-value">1.00</output></label>
           <label class="topology-control scalp-rough-scale-control axis-reset-control" title="Changes the scalp guide height without changing the head mesh.">Scale Y <button data-reset-scalp-rough-scale="y" type="button" title="Reset Y scale" aria-label="Reset Y scale">⟲</button><input data-scalp-rough-scale-axis="y" type="range" min="0.5" max="1.5" step="0.01" value="1" /><output data-scalp-rough-scale-value="y" class="slider-value">1.00</output></label>
@@ -130,7 +184,7 @@
           <button id="generateScalpBuilder" class="wide-action hidden" hidden style="display: none" type="button">Generate Surface Preview</button>
         </div>
 
-        <div id="scalpPanel" class="panel-section sliders hidden">
+        <div id="scalpPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Scalp Guide</span>
           </div>
@@ -168,7 +222,7 @@
           <label>Depth <input id="scalpScaleZ" type="range" min="0.5" max="1.5" step="0.01" value="1" /></label>
         </div>
 
-        <div id="scalpPaintPanel" class="panel-section sliders hidden">
+        <div id="scalpPaintPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Scalp Regions</span>
             <button id="clearScalpRegions" title="Clear all scalp regions" aria-label="Clear all scalp regions">C</button>
@@ -185,7 +239,7 @@
           <label>Brush Size <input id="scalpBrushSize" type="range" min="0.05" max="0.5" step="0.01" value="0.18" /></label>
         </div>
 
-        <div id="guidePanel" class="panel-section sliders">
+        <div id="guidePanel" class="panel-section sliders hidden" data-attribute-panel="tools" hidden aria-hidden="true">
           <div class="section-head">
             <span id="guidePanelTitle">Curve Guides</span>
             <button id="deleteGuide" class="icon-danger guide-controls" title="Delete selected guide" aria-label="Delete selected guide">X</button>
@@ -217,10 +271,12 @@
           </div>
         </div>
 
-        <div id="groupSettingsPanel" class="panel-section sliders hidden">
+        <div id="groupSettingsPanel" class="panel-section sliders hidden" data-attribute-panel="strands">
           <div class="section-head">
             <span id="groupSettingsTitle">Group Settings</span>
           </div>
+          <div class="subsection-label">Region Shape</div>
+          <label class="topology-control" title="Lengthens or shortens every strand in this scalp region by extending its curve from the tip while keeping the root fixed.">Length <input id="groupLengthScale" type="range" min="0.25" max="2.5" step="0.01" value="1" /><output id="groupLengthScaleValue" class="slider-value">1.00</output></label>
           <div class="subsection-label">Layer Spacing</div>
           <label class="topology-control" title="Places bottom-layer strands closer to or farther from the scalp.">Bottom <input id="groupLayerBottom" type="range" min="-0.2" max="0.35" step="0.01" value="-0.04" /><output id="groupLayerBottomValue" class="slider-value">-0.04</output></label>
           <label class="topology-control" title="Sets the scalp spacing for the main middle layer.">Mid <input id="groupLayerMid" type="range" min="-0.2" max="0.35" step="0.01" value="0" /><output id="groupLayerMidValue" class="slider-value">0.00</output></label>
@@ -251,7 +307,7 @@
           </div>
         </div>
 
-        <div id="presetPanel" class="panel-section hidden" aria-hidden="true">
+        <div id="presetPanel" class="panel-section hidden" aria-hidden="true" data-attribute-panel="strands">
           <label class="compact-select-row" for="preset"><span>Preset</span>
             <select id="preset">
               <option value="braided-buns">Braided buns</option>
@@ -267,11 +323,10 @@
           </label>
           <div class="button-row">
             <button id="addLock">Add preset</button>
-            <button id="mirrorLock">Mirror</button>
           </div>
         </div>
 
-        <div id="selectedStrandPanel" class="panel-section">
+        <div id="selectedStrandPanel" class="panel-section" data-attribute-panel="strands">
           <div class="section-head">
             <span>Selected Strand</span>
             <button id="deleteLock" class="icon-danger" title="Delete selected strand" aria-label="Delete selected strand">X</button>
@@ -288,7 +343,7 @@
           <div class="point-status">Point <span id="selectedPointLabel">None</span></div>
         </div>
 
-        <div id="clumpGuidePanel" class="panel-section sliders hidden">
+        <div id="clumpGuidePanel" class="panel-section sliders hidden" data-attribute-panel="strands">
           <div class="section-head">
             <span>Clump Guide</span>
           </div>
@@ -306,38 +361,24 @@
           </div>
         </div>
 
-        <div id="hairMaterialPanel" class="panel-section">
+        <div id="hairMaterialPanel" class="panel-section sliders" data-attribute-panel="materials">
           <div class="section-head">
-            <span>Material</span>
+            <span>Project Materials</span>
+            <button id="addProjectHairMaterial" class="compact-icon-button" type="button" title="Create material" aria-label="Create material">+</button>
           </div>
+          <div id="hairMaterialOutliner" class="material-outliner" role="listbox" aria-label="Project materials"></div>
+          <div class="subsection-label">Material Properties</div>
           <label for="hairMaterialName">Name</label>
           <input id="hairMaterialName" type="text" value="Default Purple" />
           <label for="hairMaterialColor">Color</label>
           <input id="hairMaterialColor" type="color" value="#2c223a" />
-          <label for="hairMaterialShadowColor">Shadow Color</label>
-          <input id="hairMaterialShadowColor" type="color" value="#555a78" />
-          <label for="hairMaterialHighlightColor">Highlight Color</label>
-          <input id="hairMaterialHighlightColor" type="color" value="#e7ebff" />
-          <label for="hairMaterialRoughness">Roughness</label>
-          <div class="range-value-row">
-            <input id="hairMaterialRoughness" type="range" min="0.2" max="1" step="0.01" value="0.72" />
-            <output id="roughnessValue" class="slider-value">0.72</output>
-          </div>
-          <div class="subsection-label">Shadow</div>
-          <label class="topology-control">Threshold <input id="hairShadowThreshold" type="range" min="-0.35" max="0.65" step="0.01" value="0.12" /><output id="hairShadowThresholdValue" class="slider-value">0.12</output></label>
-          <label class="topology-control">Softness <input id="hairShadowSoftness" type="range" min="0.001" max="0.12" step="0.001" value="0.025" /><output id="hairShadowSoftnessValue" class="slider-value">0.025</output></label>
-          <label class="topology-control">Back Gradient <input id="hairBackGradientStrength" type="range" min="0" max="1" step="0.01" value="0.36" /><output id="hairBackGradientStrengthValue" class="slider-value">0.36</output></label>
-          <label class="topology-control">Gradient Power <input id="hairBackGradientPower" type="range" min="0.2" max="4" step="0.01" value="1.35" /><output id="hairBackGradientPowerValue" class="slider-value">1.35</output></label>
-          <div class="subsection-label">Highlight</div>
-          <label class="topology-control">Width <input id="hairHighlightWidth" type="range" min="0.01" max="0.45" step="0.001" value="0.055" /><output id="hairHighlightWidthValue" class="slider-value">0.055</output></label>
-          <label class="topology-control">Softness <input id="hairHighlightSoftness" type="range" min="0.001" max="0.08" step="0.001" value="0.018" /><output id="hairHighlightSoftnessValue" class="slider-value">0.018</output></label>
-          <label class="topology-control">Strength <input id="hairHighlightStrength" type="range" min="0" max="3" step="0.01" value="0.68" /><output id="hairHighlightStrengthValue" class="slider-value">0.68</output></label>
-          <label class="topology-control">Shift <input id="hairHighlightShift" type="range" min="-0.6" max="0.6" step="0.01" value="0.12" /><output id="hairHighlightShiftValue" class="slider-value">0.12</output></label>
-          <label class="topology-control">Detail <input id="hairHighlightJaggedness" type="range" min="0" max="0.6" step="0.001" value="0.22" /><output id="hairHighlightJaggednessValue" class="slider-value">0.220</output></label>
-          <label class="topology-control">Detail Scale <input id="hairHighlightJaggedFrequency" type="range" min="1" max="28" step="0.1" value="7" /><output id="hairHighlightJaggedFrequencyValue" class="slider-value">7.0</output></label>
+          <label class="topology-control" for="hairMaterialRoughness">Roughness
+            <input id="hairMaterialRoughness" type="range" min="0" max="1" step="0.01" value="0.72" />
+            <output id="hairMaterialRoughnessValue" class="slider-value">0.72</output>
+          </label>
         </div>
 
-        <div id="strandTopologyPanel" class="panel-section sliders">
+        <div id="strandTopologyPanel" class="panel-section sliders" data-attribute-panel="strands">
           <div class="section-head">
             <span>Topology</span>
           </div>
@@ -348,7 +389,7 @@
           <output id="strandTopologyStats" class="topology-readout">0 verts / 0 tris</output>
         </div>
 
-        <div id="transformToolPanel" class="panel-section sliders hidden">
+        <div id="transformToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span id="transformToolTitle">Move Tool</span>
           </div>
@@ -378,7 +419,7 @@
           </div>
         </div>
 
-        <div id="placeStrandToolPanel" class="panel-section sliders hidden">
+        <div id="placeStrandToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Place Strand Tool</span>
           </div>
@@ -389,7 +430,7 @@
           </label>
         </div>
 
-        <div id="drawStrandToolPanel" class="panel-section sliders hidden">
+        <div id="drawStrandToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Draw Strand Tool</span>
           </div>
@@ -397,6 +438,7 @@
             <select id="drawBrushPreset">
               <option value="standard">Standard</option>
               <option value="clump">3 Strand Clump</option>
+              <option value="ponytail-clump">Ponytail Clump</option>
               <option value="coil">Coil</option>
             </select>
           </label>
@@ -410,6 +452,7 @@
           <label class="topology-control" title="Higher values smooth small deviations from the drawn stroke.">Smoothing <input id="drawStrandSmoothing" type="range" min="0" max="1" step="0.01" value="0.45" /><output id="drawStrandSmoothingValue" class="slider-value">0.45</output></label>
           <label class="topology-control" title="Sets the distance between generated curve points. Larger steps create fewer points.">Curve Step <input id="drawStrandCurveStep" type="range" min="0.12" max="0.6" step="0.01" value="0.38" /><output id="drawStrandCurveStepValue" class="slider-value">0.38</output></label>
           <label class="topology-control" title="Offsets the entire strand from the live surface for layered hair passes.">Scalp Offset <input id="drawStrandScalpOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="drawStrandScalpOffsetValue" class="slider-value">0.00</output></label>
+          <label class="topology-control" title="Controls how strongly the strand's profile orientation follows the sampled live-surface normals. Set to 0 for free radial orientation.">Surface Normal Influence <input id="drawSurfaceNormalInfluence" type="range" min="0" max="1" step="0.01" value="1" /><output id="drawSurfaceNormalInfluenceValue" class="slider-value">1.00</output></label>
           <label class="compact-select-row" for="drawStrandSurface" title="Choose how the stroke is projected into 3D space."><span>Live Surface</span>
             <select id="drawStrandSurface">
               <option value="head-contextual" selected>Head Mesh + Contextual 2D</option>
@@ -427,7 +470,7 @@
           </label>
         </div>
 
-        <div id="braidToolPanel" class="panel-section sliders hidden">
+        <div id="braidToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Braid Tool</span>
           </div>
@@ -461,7 +504,47 @@
           </label>
         </div>
 
-        <div id="proportionalPanel" class="panel-section sliders">
+        <div id="panelStrandToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
+          <div class="section-head">
+            <span>Panel Strand Tool</span>
+          </div>
+          <label class="topology-control" title="Sets the overall size of newly drawn panel strands.">Brush Size <input id="panelToolSize" type="range" min="0.25" max="3" step="0.01" value="1" /><output id="panelToolSizeValue" class="slider-value">1.00</output></label>
+          <label class="topology-control" title="Higher values smooth small deviations from the drawn center path.">Smoothing <input id="panelSmoothing" type="range" min="0" max="1" step="0.01" value="0.5" /><output id="panelSmoothingValue" class="slider-value">0.50</output></label>
+          <label class="topology-control" title="Sets the distance between editable center-curve points.">Curve Step <input id="panelCurveStep" type="range" min="0.12" max="0.7" step="0.01" value="0.4" /><output id="panelCurveStepValue" class="slider-value">0.40</output></label>
+          <label class="topology-control" title="Offsets the panel from the live surface for layering.">Scalp Offset <input id="panelScalpOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="panelScalpOffsetValue" class="slider-value">0.00</output></label>
+          <label class="topology-control" title="Controls how strongly the panel orientation follows sampled surface normals.">Surface Normal Influence <input id="panelSurfaceNormalInfluence" type="range" min="0" max="1" step="0.01" value="1" /><output id="panelSurfaceNormalInfluenceValue" class="slider-value">1.00</output></label>
+          <label class="compact-select-row" for="panelSurface" title="Choose how the panel center path is projected into 3D space."><span>Live Surface</span>
+            <select id="panelSurface">
+              <option value="head-contextual" selected>Head Mesh + Contextual 2D</option>
+              <option value="head-conform">Conform to Head Mesh</option>
+              <option value="contextual-plane">Contextual 2D Plane</option>
+            </select>
+          </label>
+          <label class="toggle-row" for="panelAutoShowScalp" title="Automatically turn on scalp guide visibility while drawing panels.">
+            <span>Auto-show Scalp Guide</span>
+            <input id="panelAutoShowScalp" type="checkbox" checked />
+          </label>
+        </div>
+
+        <div id="surfaceGuideToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
+          <div class="section-head">
+            <span>Capsule Guide</span>
+          </div>
+          <button id="surfaceGuideFitScalp" class="full-width-button" type="button">Create From Scalp</button>
+            <label class="topology-control" title="Sets the radius of the selected capsule guide.">Radius <input id="surfaceGuideRadius" type="range" min="0.04" max="4" step="0.01" value="0.34" /><output id="surfaceGuideRadiusValue" class="slider-value">0.34</output></label>
+            <label class="topology-control" title="Sets the total length of the selected capsule guide.">Length <input id="surfaceGuideLength" type="range" min="0.1" max="10" step="0.05" value="1.7" /><output id="surfaceGuideLengthValue" class="slider-value">1.70</output></label>
+          <label class="topology-control" title="Controls the quad loops around the capsule.">Around Loops <input id="surfaceGuideRadialLoops" type="range" min="6" max="32" step="2" value="8" /><output id="surfaceGuideRadialLoopsValue" class="slider-value">8</output></label>
+            <label class="topology-control" title="Controls the quad loops along the capsule.">Length Loops <input id="surfaceGuideLengthLoops" type="range" min="4" max="32" step="1" value="8" /><output id="surfaceGuideLengthLoopsValue" class="slider-value">8</output></label>
+            <label class="topology-control" title="Controls display smoothing without changing the editable cage.">Subdivision <input id="surfaceGuideSubdivisionSteps" type="range" min="0" max="2" step="1" value="2" /><output id="surfaceGuideSubdivisionStepsValue" class="slider-value">2</output></label>
+            <label class="topology-control" title="Controls the visible fill of live surface guides.">Opacity <input id="surfaceGuideOpacity" type="range" min="0.04" max="0.8" step="0.01" value="0.24" /><output id="surfaceGuideOpacityValue" class="slider-value">0.24</output></label>
+          <label class="toggle-row" for="surfaceGuideFresnel" title="Makes the capsule more transparent when viewed face-on while keeping its silhouette visible.">
+            <span>Fresnel Transparency</span>
+            <input id="surfaceGuideFresnel" type="checkbox" checked />
+          </label>
+          <label class="topology-control" title="Controls how visible the face-on center of the capsule remains.">Center Visibility <input id="surfaceGuideCenterVisibility" type="range" min="0" max="1" step="0.01" value="0.18" /><output id="surfaceGuideCenterVisibilityValue" class="slider-value">0.18</output></label>
+        </div>
+
+        <div id="proportionalPanel" class="panel-section sliders" data-attribute-panel="tools">
           <div class="section-head">
             <span>Proportional Edit</span>
           </div>
@@ -473,7 +556,7 @@
           </label>
         </div>
 
-        <div id="hierarchyPanel" class="panel-section hidden">
+        <div id="hierarchyPanel" class="panel-section hidden" data-attribute-panel="strands">
           <div class="section-head">
             <span>Hierarchy Edit</span>
           </div>
@@ -483,7 +566,7 @@
           </label>
         </div>
 
-        <div id="strandShapePanel" class="panel-section sliders">
+        <div id="strandShapePanel" class="panel-section sliders" data-attribute-panel="strands">
           <div class="section-head">
             <span id="strandShapeTitle">Shape</span>
           </div>
@@ -505,8 +588,31 @@
             <label class="topology-control" title="Controls the length of each repeated braid segment. Smaller values create a tighter braid.">Segment Length <input id="braidSegmentLength" type="range" min="0.12" max="0.6" step="0.01" value="0.28" /><output id="braidSegmentLengthValue" class="slider-value">0.28</output></label>
             <label class="topology-control" title="Rolls the braid mesh around its center curve without rotating the curve points.">Rotation <input id="braidRotation" type="range" min="-180" max="180" step="1" value="0" /><output id="braidRotationValue" class="slider-value">0 deg</output></label>
           </div>
+          <div class="panel-shape-controls">
+            <div class="subsection-label">Panel Geometry</div>
+            <label class="topology-control" title="Sets the full width of the procedural panel.">Width <input id="panelWidth" type="range" min="0.08" max="2.5" step="0.01" value="0.62" /><output id="panelWidthValue" class="slider-value">0.62</output></label>
+            <label class="topology-control" title="Adds non-destructive front-to-back extrusion to the flat panel.">Thickness <input id="panelThickness" type="range" min="0.005" max="0.5" step="0.005" value="0.08" /><output id="panelThicknessValue" class="slider-value">0.08</output></label>
+            <label class="topology-control" title="Controls the number of loops along the drawn path.">Lengthwise Loops <input id="panelLengthLoops" type="range" min="3" max="32" step="1" value="10" /><output id="panelLengthLoopsValue" class="slider-value">10</output></label>
+            <label class="topology-control" title="Controls the number of loops across the panel width.">Crosswise Loops <input id="panelWidthLoops" type="range" min="3" max="24" step="1" value="6" /><output id="panelWidthLoopsValue" class="slider-value">6</output></label>
+            <label class="topology-control" title="Bows the flat panel across its width while preserving its center path.">Horizontal Curvature <input id="panelCurvature" type="range" min="-1" max="1" step="0.01" value="0.18" /><output id="panelCurvatureValue" class="slider-value">0.18</output></label>
+            <div class="subsection-label">Edge Length</div>
+            <label class="topology-control" title="Shortens the left boundary toward the root while leaving the opposite edge at full length.">Left Edge Trim <input id="panelLeftEdgeTrim" type="range" min="0" max="0.75" step="0.01" value="0" /><output id="panelLeftEdgeTrimValue" class="slider-value">0.00</output></label>
+            <label class="topology-control" title="Shortens the right boundary toward the root while leaving the opposite edge at full length.">Right Edge Trim <input id="panelRightEdgeTrim" type="range" min="0" max="0.75" step="0.01" value="0" /><output id="panelRightEdgeTrimValue" class="slider-value">0.00</output></label>
+            <div class="subsection-label">Split Tip</div>
+            <label class="toggle-row" for="panelSplitEnabled" title="Shows independent zipper handles for adding and positioning tip slits."><span>Split Geometry</span><input id="panelSplitEnabled" type="checkbox" checked /></label>
+            <label class="toggle-row" for="panelSplitSnapToLoops" title="Snaps vertical zipper movement to the panel's lengthwise topology loops."><span>Snap Zippers to Loops</span><input id="panelSplitSnapToLoops" type="checkbox" checked /></label>
+            <div class="panel-zipper-count-row" title="Adds independent zipper controls. The available count is limited by the number of crosswise loops.">
+              <span>Zipper Controls</span>
+              <div class="panel-zipper-stepper">
+                <button id="removePanelSplit" type="button" title="Remove a zipper control" aria-label="Remove a zipper control">-</button>
+                <output id="panelSplitCount">2</output>
+                <button id="addPanelSplit" type="button" title="Add a zipper control" aria-label="Add a zipper control">+</button>
+              </div>
+            </div>
+            <label class="topology-control" title="Controls the width of the openings made by the zipper handles.">Split Spacing <input id="panelSplitGap" type="range" min="0" max="0.28" step="0.01" value="0.07" /><output id="panelSplitGapValue" class="slider-value">0.07</output></label>
+          </div>
           <label class="topology-control strand-dimension-scale width-dimension-scale"><span id="widthScaleLabel">Width</span> <input id="widthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="widthScaleValue" class="slider-value">1.00</output></label>
-          <label class="topology-control strand-dimension-scale depth-dimension-scale"><span id="depthScaleLabel">Depth</span> <input id="depthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="depthScaleValue" class="slider-value">1.00</output></label>
+          <label class="topology-control strand-dimension-scale depth-dimension-scale" title="Sets the base front-to-back depth before the depth curve is applied."><span id="depthScaleLabel">Depth</span> <input id="depthScale" type="range" min="0.01" max="3" step="0.01" value="0.16" /><output id="depthScaleValue" class="slider-value">0.16</output></label>
           <label class="topology-control">Root Scalp Offset <input id="rootScalpOffset" type="range" min="-1" max="1" step="0.01" /><output id="rootScalpOffsetValue" class="slider-value">0.00</output></label>
           <label class="twist-control">
             <span>Twist</span>
@@ -533,9 +639,14 @@
             <label class="topology-control" title="Sets how many complete curls are distributed along a Coil strand.">Curl Count <input id="drawStrandCurlCount" type="range" min="1" max="16" step="0.25" value="4" disabled /><output id="drawStrandCurlCountValue" class="slider-value">4.00</output></label>
             <label class="topology-control" title="Sets how far a Coil strand travels away from its editable center curve.">Curl Displacement <input id="drawStrandCurlDisplacement" type="range" min="0.01" max="0.6" step="0.01" value="0.18" disabled /><output id="drawStrandCurlDisplacementValue" class="slider-value">0.18</output></label>
           </div>
+          <div class="draw-shape-controls">
+            <div class="subsection-label">Split Tip</div>
+            <label class="toggle-row" for="strandSplitEnabled" title="Divides the strand profile into two closed branches that separate toward the tip."><span>Split Geometry</span><input id="strandSplitEnabled" type="checkbox" /></label>
+            <label class="topology-control" title="Controls how far apart the two tip branches open.">Split Spacing <input id="strandSplitGap" type="range" min="0" max="0.5" step="0.01" value="0.12" /><output id="strandSplitGapValue" class="slider-value">0.12</output></label>
+          </div>
         </div>
 
-        <div id="headPanel" class="panel-section sliders hidden">
+        <div id="headPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Edit Head</span>
           </div>
@@ -550,9 +661,40 @@
           <button id="fineTuneScalpGuide" class="wide-action" type="button">Fine Tune Scalp Guide</button>
         </div>
 
-        <div id="displayPanel" class="panel-section sliders">
+        <div id="displayPanel" class="panel-section sliders" data-attribute-panel="display">
           <div class="section-head">
             <span>Display</span>
+          </div>
+          <div class="visibility-filter-box">
+            <div class="visibility-filter-title">Strands by Region</div>
+            <label class="visibility-filter-row visibility-filter-parent"><input id="allRegionsVisibility" type="checkbox" checked /><span>All Regions</span></label>
+            <div class="visibility-filter-children">
+              <label class="visibility-filter-row"><input type="checkbox" data-region-visibility="bangs" checked /><span>Front Bangs</span></label>
+              <label class="visibility-filter-row"><input type="checkbox" data-region-visibility="side-bangs-left" checked /><span>Side Bangs Left</span></label>
+              <label class="visibility-filter-row"><input type="checkbox" data-region-visibility="side-bangs-right" checked /><span>Side Bangs Right</span></label>
+              <label class="visibility-filter-row"><input type="checkbox" data-region-visibility="side-left" checked /><span>Side Left</span></label>
+              <label class="visibility-filter-row"><input type="checkbox" data-region-visibility="side-right" checked /><span>Side Right</span></label>
+              <label class="visibility-filter-row"><input type="checkbox" data-region-visibility="back" checked /><span>Back</span></label>
+              <label class="visibility-filter-row"><input type="checkbox" data-region-visibility="unassigned" checked /><span>Unassigned</span></label>
+            </div>
+          </div>
+          <div class="visibility-filter-box">
+            <div class="visibility-filter-title">Strands by Layer</div>
+            <label class="visibility-filter-row visibility-filter-parent"><input id="allLayersVisibility" type="checkbox" checked /><span>All Layers</span></label>
+            <div class="visibility-filter-children">
+              <label class="visibility-filter-row"><input type="checkbox" data-layer-visibility="bottom" checked /><span>Bottom</span></label>
+              <label class="visibility-filter-row"><input type="checkbox" data-layer-visibility="mid" checked /><span>Mid</span></label>
+              <label class="visibility-filter-row"><input type="checkbox" data-layer-visibility="top" checked /><span>Top</span></label>
+              <label class="visibility-filter-row"><input type="checkbox" data-layer-visibility="accent" checked /><span>Accent</span></label>
+            </div>
+          </div>
+          <div class="visibility-filter-box">
+            <div class="visibility-filter-title">Guides</div>
+            <label class="visibility-filter-row visibility-filter-parent"><input id="allGuidesVisibility" type="checkbox" /><span>All Guides</span></label>
+            <div class="visibility-filter-children">
+              <label class="visibility-filter-row"><input id="scalpDisplayVisibility" type="checkbox" /><span>Scalp</span></label>
+              <label class="visibility-filter-row"><input id="capsuleDisplayVisibility" type="checkbox" checked /><span>Capsule Guides</span></label>
+            </div>
           </div>
           <div class="subsection-label">Light Angle</div>
           <label class="topology-control">Horizontal <input id="lightAzimuth" type="range" min="-180" max="180" step="1" value="37" /><output id="lightAzimuthValue" class="slider-value">37</output></label>
@@ -564,6 +706,7 @@
 
     <div id="clumpContextMenu" class="outliner-context-menu hidden" role="menu" aria-label="Clump actions">
       <button id="dissolveClumpAction" type="button" role="menuitem">Dissolve clump</button>
+      <button id="mirrorInstanceAction" type="button" role="menuitem">Create mirror instance</button>
       <button id="deleteOutlinerAction" class="danger" type="button" role="menuitem">Delete clump</button>
     </div>
 
@@ -575,6 +718,17 @@
         <div class="dialog-actions">
           <button id="cancelGroupDefaultsChange" type="button">Cancel</button>
           <button id="confirmGroupDefaultsChange" type="button" class="primary-action">Continue</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="panelSplitSnapWarning" class="warning-dialog" aria-labelledby="panelSplitSnapWarningTitle">
+      <div class="warning-dialog-body">
+        <h2 id="panelSplitSnapWarningTitle">Disable zipper snapping?</h2>
+        <p>Free zipper placement can put a split between horizontal topology loops. This may create uneven or non-watertight geometry when the panel is exported.</p>
+        <div class="dialog-actions">
+          <button id="cancelPanelSplitSnapDisable" type="button">Keep Snapping</button>
+          <button id="confirmPanelSplitSnapDisable" type="button" class="primary-action">Disable</button>
         </div>
       </div>
     </dialog>
@@ -591,10 +745,25 @@
         <svg id="sweepProfileCanvas" class="profile-canvas" viewBox="0 0 440 440" role="img" aria-label="Editable strand profile curve">
           <line class="profile-axis" x1="24" y1="220" x2="416" y2="220"></line>
           <line class="profile-axis" x1="220" y1="24" x2="220" y2="416"></line>
+          <path id="sweepProfileOriginalPath" class="profile-path profile-path-reference"></path>
           <path id="sweepProfilePath" class="profile-path"></path>
           <g id="sweepProfilePoints"></g>
           <g class="profile-origin-marker" aria-hidden="true"><line x1="210" y1="220" x2="230" y2="220"></line><line x1="220" y1="210" x2="220" y2="230"></line></g>
         </svg>
+        <div class="profile-trim-controls">
+          <label class="topology-control" title="Cuts the left side of the strand profile inward.">Trim Left <input id="sweepProfileTrimLeft" type="range" min="0" max="1" step="0.01" value="0" /><output id="sweepProfileTrimLeftValue" class="slider-value">0.00</output></label>
+          <label class="topology-control" title="Cuts the right side of the strand profile inward.">Trim Right <input id="sweepProfileTrimRight" type="range" min="0" max="1" step="0.01" value="0" /><output id="sweepProfileTrimRightValue" class="slider-value">0.00</output></label>
+          <label class="topology-control" title="Blends the profile into its cut boundaries. Zero creates a hard edge; one creates a fully rounded border.">Cut Roundness <input id="sweepProfileTrimRoundness" type="range" min="0" max="1" step="0.01" value="1" /><output id="sweepProfileTrimRoundnessValue" class="slider-value">1.00</output></label>
+        </div>
+        <div class="profile-point-controls">
+          <label>Interpolation
+            <select id="sweepPointInterpolation">
+              <option value="smooth">Smooth</option>
+              <option value="linear">Linear</option>
+            </select>
+          </label>
+          <button id="sweepProfileMirrorX" type="button" title="Mirror profile point edits across X" aria-label="Mirror profile point edits across X" aria-pressed="false"><span class="tool-icon icon-mirror-x" aria-hidden="true"></span><span>Mirror X</span></button>
+        </div>
         <div class="profile-dialog-actions">
           <button id="addSweepPoint" type="button">Add point</button>
           <button id="deleteSweepPoint" type="button">Delete point</button>
@@ -663,6 +832,6 @@
         }
       }
     </script>
-    <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=20260723-18"></script>
   </body>
 </html>

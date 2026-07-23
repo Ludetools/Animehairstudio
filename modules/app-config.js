@@ -15,19 +15,7 @@ export const DEFAULT_HAIR_MATERIAL_ID = "default-purple";
 export const ROOT_SCALP_OFFSET_DISTANCE = 0.08;
 export const DEFAULT_HAIR_MATERIAL_SETTINGS = {
   color: DEFAULT_HAIR_COLOR,
-  shadowColor: "#555a78",
-  highlightColor: "#e7ebff",
-  roughness: 0.72,
-  shadowThreshold: 0.12,
-  shadowSoftness: 0.025,
-  backGradientStrength: 0.36,
-  backGradientPower: 1.35,
-  highlightWidth: 0.055,
-  highlightSoftness: 0.018,
-  highlightStrength: 0.68,
-  highlightShift: 0.12,
-  highlightJaggedness: 0.22,
-  highlightJaggedFrequency: 7
+  roughness: 0.72
 };
 
 export const STRAND_GROUPS = [
@@ -54,13 +42,17 @@ export const DEFAULT_LAYER_OFFSETS = Object.fromEntries(HAIR_LAYERS.map((layer) 
 export const DEFAULT_BRAID_MESH_PRESET = "classic";
 
 export const DEFAULT_SWEEP_PROFILE = [
-  { x: 1, z: -0.31 }, { x: 0.94, z: -0.18 }, { x: 0.55, z: 0.14 },
-  { x: 0, z: 0.36 }, { x: -0.55, z: 0.14 }, { x: -0.94, z: -0.18 },
-  { x: -1, z: -0.31 }, { x: -0.7, z: -0.36 }, { x: 0.7, z: -0.36 }
+  { x: 1, z: -0.31, interpolation: "smooth" }, { x: 0.94, z: -0.18, interpolation: "smooth" },
+  { x: 0.55, z: 0.14, interpolation: "smooth" }, { x: 0, z: 0.36, interpolation: "linear" },
+  { x: -0.55, z: 0.14, interpolation: "smooth" }, { x: -0.94, z: -0.18, interpolation: "smooth" },
+  { x: -1, z: -0.31, interpolation: "smooth" }, { x: -0.7, z: -0.36, interpolation: "smooth" },
+  { x: 0.7, z: -0.36, interpolation: "smooth" }
 ];
 export const ROUND_SWEEP_PROFILE = [
-  { x: 1, z: 0 }, { x: 0.7, z: 0.7 }, { x: 0, z: 1 }, { x: -0.7, z: 0.7 },
-  { x: -1, z: 0 }, { x: -0.7, z: -0.7 }, { x: 0, z: -1 }, { x: 0.7, z: -0.7 }
+  { x: 1, z: 0, interpolation: "smooth" }, { x: 0.7, z: 0.7, interpolation: "smooth" },
+  { x: 0, z: 1, interpolation: "smooth" }, { x: -0.7, z: 0.7, interpolation: "smooth" },
+  { x: -1, z: 0, interpolation: "smooth" }, { x: -0.7, z: -0.7, interpolation: "smooth" },
+  { x: 0, z: -1, interpolation: "smooth" }, { x: 0.7, z: -0.7, interpolation: "smooth" }
 ];
 export const DEFAULT_TAPER_CURVE = [
   { position: 0, value: 0.3, interpolation: "smooth" },

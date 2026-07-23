@@ -19,6 +19,12 @@ export function exportHairFaces(geometry, vertexOffset, uvOffset) {
   const faceVertex = (vertex) => hasUvs
     ? `${vertex + vertexOffset}/${vertex + uvOffset}`
     : `${vertex + vertexOffset}`;
+  const quadFaces = geometry.userData.quadFaces;
+  if (Array.isArray(quadFaces) && quadFaces.length) {
+    return quadFaces
+      .map((quad) => `f ${quad.map(faceVertex).join(" ")}\n`)
+      .join("");
+  }
   const sideTriangleCount = Math.min(Number(geometry.userData.sideTriangleCount || 0), Math.floor(index.length / 3));
   let faces = "";
   let cursor = 0;
@@ -54,4 +60,14 @@ export function exportHairFaces(geometry, vertexOffset, uvOffset) {
     });
   });
   return faces;
+}
+
+export function exportCurvePolyline(points, vertexOffset) {
+  if (!points?.length || points.length < 2) return { text: "", vertexCount: 0 };
+  let text = points.map((point) => (
+    `v ${Number(point.x).toFixed(5)} ${Number(point.y).toFixed(5)} ${Number(point.z).toFixed(5)}\n`
+  )).join("");
+  const indices = points.map((_, index) => vertexOffset + index);
+  text += `l ${indices.join(" ")}\n`;
+  return { text, vertexCount: points.length };
 }
