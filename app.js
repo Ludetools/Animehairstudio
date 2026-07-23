@@ -1373,6 +1373,7 @@ const proportionalToggle = document.querySelector("#proportionalToggle");
 const strandCollisionToggle = document.querySelector("#strandCollisionToggle");
 const appMenuTriggers = [...document.querySelectorAll(".app-menu-trigger")];
 const appMenuDropdowns = [...document.querySelectorAll(".app-menu-dropdown")];
+const joinDiscordButton = document.querySelector("#joinDiscord");
 const scalpSetupToggle = document.querySelector("#scalpSetupToggle");
 const scalpSetupMenu = document.querySelector("#scalpSetupMenu");
 const scalpPaintToggle = document.querySelector("#scalpPaintToggle");
@@ -17472,6 +17473,9 @@ appMenuDropdowns.forEach((menu) => {
   menu.addEventListener("click", (event) => {
     if (event.target.closest("button")) closeAppMenus();
   });
+});
+joinDiscordButton.addEventListener("click", () => {
+  window.open("https://discord.gg/U4JBykv4yk", "_blank", "noopener,noreferrer");
 });
 deleteSelectionAction.addEventListener("click", () => {
   if (getSelectedLock()) {
