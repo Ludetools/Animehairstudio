@@ -139,3 +139,39 @@ export function sampleScale(scales, t, axis) {
   const next = Math.min(scales.length - 1, index + 1);
   return lerp(scales[index][axis] || 1, scales[next][axis] || 1, scaled - index);
 }
+
+export function upperProfileArcIndices(points) {
+  if (!points?.length) return [];
+  if (points.length === 1) return [0];
+
+  let leftIndex = 0;
+  let rightIndex = 0;
+  points.forEach((point, index) => {
+    const x = Number(point.x);
+    const height = Number(point.z ?? point.y ?? 0);
+    const leftX = Number(points[leftIndex].x);
+    const leftHeight = Number(points[leftIndex].z ?? points[leftIndex].y ?? 0);
+    const rightX = Number(points[rightIndex].x);
+    const rightHeight = Number(points[rightIndex].z ?? points[rightIndex].y ?? 0);
+    if (x < leftX || (x === leftX && height < leftHeight)) leftIndex = index;
+    if (x > rightX || (x === rightX && height < rightHeight)) rightIndex = index;
+  });
+  if (leftIndex === rightIndex) return points.map((_, index) => index);
+
+  const cyclicPath = (start, end, step) => {
+    const indices = [start];
+    let index = start;
+    while (index !== end && indices.length <= points.length) {
+      index = (index + step + points.length) % points.length;
+      indices.push(index);
+    }
+    return indices;
+  };
+  const forward = cyclicPath(rightIndex, leftIndex, 1);
+  const backward = cyclicPath(rightIndex, leftIndex, -1);
+  const averageHeight = (indices) => indices.reduce(
+    (total, index) => total + Number(points[index].z ?? points[index].y ?? 0),
+    0
+  ) / indices.length;
+  return averageHeight(forward) >= averageHeight(backward) ? forward : backward;
+}

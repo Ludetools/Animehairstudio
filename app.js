@@ -3,11 +3,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { TransformControls } from "three/addons/controls/TransformControls.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { mergeGeometries, mergeVertices } from "three/addons/utils/BufferGeometryUtils.js";
-import {
-  closestPointsOnSegments,
-  findSpatialCollisionPairs,
-  solvePulledStrand
-} from "./modules/strand-constraints.js?v=20260720-1";
+import { solvePulledStrand } from "./modules/strand-constraints.js?v=20260720-1";
 import {
   adaptiveCurveParameters,
   legacyTaperCurve,
@@ -15,8 +11,9 @@ import {
   sampleArray,
   sampleScale,
   sampleTaperCurve,
+  upperProfileArcIndices,
   uniformCurveParameters
-} from "./modules/curve-math.js?v=20260720-1";
+} from "./modules/curve-math.js?v=20260724-2";
 import { exportCurvePolyline, exportHairFaces } from "./modules/obj-export.js?v=20260720-3";
 import {
   createHairProject,
@@ -24,6 +21,7 @@ import {
   validateHairProject
 } from "./modules/project-schema.js?v=20260720-1";
 import {
+  APP_VERSION,
   CURVE_LATTICE_FEATURE_ENABLED,
   DEFAULT_BRAID_DEPTH_CURVE,
   DEFAULT_BRAID_MESH_PRESET,
@@ -48,6 +46,101 @@ import {
   TAPER_VALUE_MAX
 } from "./modules/app-config.js?v=20260723-1";
 import { BoundedHistory } from "./modules/history.js?v=20260720-1";
+import { fanTriangleEdgeMasks, parseObjFaceVertexCounts } from "./modules/topology.js?v=20260724-1";
+import {
+  createDocumentLocalizer,
+  DEFAULT_LANGUAGE,
+  LANGUAGE_STORAGE_KEY,
+  normalizeLanguage
+} from "./modules/localization.js?v=20260725-13";
+
+function readSavedLanguage() {
+  try {
+    return normalizeLanguage(window.localStorage.getItem(LANGUAGE_STORAGE_KEY));
+  } catch {
+    return DEFAULT_LANGUAGE;
+  }
+}
+
+function saveLanguage(language) {
+  try {
+    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
+  } catch {
+    // The preference remains active for this session when browser storage is unavailable.
+  }
+}
+
+const RADIAL_MENUS_PREFERENCE_KEY = "anime-hair-studio-experimental-radial-menus";
+const NAVIGATION_TIPS_PREFERENCE_KEY = "anime-hair-studio-navigation-tips";
+const TOOL_TIPS_PREFERENCE_KEY = "anime-hair-studio-tool-tips";
+const VIEWPORT_STATISTICS_PREFERENCE_KEY = "anime-hair-studio-viewport-statistics";
+
+function readRadialMenusPreference() {
+  try {
+    return window.localStorage.getItem(RADIAL_MENUS_PREFERENCE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveRadialMenusPreference(enabled) {
+  try {
+    window.localStorage.setItem(RADIAL_MENUS_PREFERENCE_KEY, String(Boolean(enabled)));
+  } catch {
+    // The preference remains active for this session when browser storage is unavailable.
+  }
+}
+
+function readNavigationTipsPreference() {
+  try {
+    return window.localStorage.getItem(NAVIGATION_TIPS_PREFERENCE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function saveNavigationTipsPreference(enabled) {
+  try {
+    window.localStorage.setItem(NAVIGATION_TIPS_PREFERENCE_KEY, String(Boolean(enabled)));
+  } catch {
+    // The preference remains active for this session when browser storage is unavailable.
+  }
+}
+
+function readToolTipsPreference() {
+  try {
+    return window.localStorage.getItem(TOOL_TIPS_PREFERENCE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function saveToolTipsPreference(enabled) {
+  try {
+    window.localStorage.setItem(TOOL_TIPS_PREFERENCE_KEY, String(Boolean(enabled)));
+  } catch {
+    // The preference remains active for this session when browser storage is unavailable.
+  }
+}
+
+function readViewportStatisticsPreference() {
+  try {
+    return window.localStorage.getItem(VIEWPORT_STATISTICS_PREFERENCE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function saveViewportStatisticsPreference(enabled) {
+  try {
+    window.localStorage.setItem(VIEWPORT_STATISTICS_PREFERENCE_KEY, String(Boolean(enabled)));
+  } catch {
+    // The preference remains active for this session when browser storage is unavailable.
+  }
+}
+
+const savedLanguage = readSavedLanguage();
+const documentLocalizer = createDocumentLocalizer(document, savedLanguage);
 
 function setupEditableSliderControls() {
   document.querySelectorAll('input[type="range"]').forEach((range) => {
@@ -132,6 +225,9 @@ function setupEditableSliderControls() {
 setupEditableSliderControls();
 
 const viewport = document.querySelector("#viewport");
+const viewportPanel = viewport.closest(".viewport-panel");
+const referenceImageDropTarget = document.querySelector("#referenceImageDropTarget");
+const referenceOverlayDropMarker = document.querySelector("#referenceOverlayDropMarker");
 const selectionMarquee = document.querySelector("#selectionMarquee");
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -140,17 +236,205 @@ viewport.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 
-const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+const perspectiveCamera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+const orthographicCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+let camera = perspectiveCamera;
+let orthographicView = false;
+let orthographicHalfHeight = 1;
 camera.position.set(0, 1.15, 5.2);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
+controls.enableRotate = false;
 controls.target.set(0, 0.75, 0);
 
 const transformControls = new TransformControls(camera, renderer.domElement);
 transformControls.setMode("translate");
 transformControls.setSize(0.72);
 scene.add(transformControls);
+
+function copyCameraPose(source, target) {
+  target.position.copy(source.position);
+  target.quaternion.copy(source.quaternion);
+  target.up.copy(source.up);
+}
+
+function updateCameraProjectionForViewport() {
+  const width = Math.max(1, viewport.clientWidth);
+  const height = Math.max(1, viewport.clientHeight);
+  const aspect = width / height;
+  perspectiveCamera.aspect = aspect;
+  perspectiveCamera.updateProjectionMatrix();
+  orthographicCamera.left = -orthographicHalfHeight * aspect;
+  orthographicCamera.right = orthographicHalfHeight * aspect;
+  orthographicCamera.top = orthographicHalfHeight;
+  orthographicCamera.bottom = -orthographicHalfHeight;
+  orthographicCamera.updateProjectionMatrix();
+}
+
+function syncOrthographicFramingFromDistance() {
+  const distance = Math.max(0.01, camera.position.distanceTo(controls.target));
+  orthographicHalfHeight = distance * Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov * 0.5));
+  orthographicCamera.zoom = 1;
+}
+
+function setOrthographicView(enabled) {
+  const nextOrthographic = Boolean(enabled);
+  if (nextOrthographic === orthographicView) return;
+  const previousCamera = camera;
+  if (nextOrthographic) {
+    syncOrthographicFramingFromDistance();
+    copyCameraPose(previousCamera, orthographicCamera);
+    camera = orthographicCamera;
+  } else {
+    const visibleHalfHeight = orthographicHalfHeight / Math.max(0.0001, orthographicCamera.zoom);
+    const distance = visibleHalfHeight / Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov * 0.5));
+    copyCameraPose(previousCamera, perspectiveCamera);
+    const direction = new THREE.Vector3();
+    previousCamera.getWorldDirection(direction);
+    perspectiveCamera.position.copy(controls.target).addScaledVector(direction, -distance);
+    camera = perspectiveCamera;
+  }
+  orthographicView = nextOrthographic;
+  controls.object = camera;
+  transformControls.camera = camera;
+  updateCameraProjectionForViewport();
+  orthographicViewToggle.classList.toggle("active", orthographicView);
+  orthographicViewToggle.setAttribute("aria-pressed", String(orthographicView));
+  orthographicViewToggle.title = orthographicView
+    ? "Switch to perspective view"
+    : "Switch to orthographic view";
+  controls.update();
+  updateReferencePlaneVisibility();
+}
+const TRANSFORM_GIZMO_PICKER_DEFLATION = 0.5;
+const TRANSFORM_GIZMO_AXIS_PICKER_DEFLATION = 0.35;
+const STRAND_CONTROL_POINT_RADIUS_SCALE = 0.85;
+const TRANSFORM_GIZMO_DARK_AXIS_COLORS = Object.freeze({
+  X: 0x6b2525,
+  Y: 0x245c32,
+  Z: 0x273d70
+});
+
+function addNegativeTransformGizmoRods() {
+  const gizmoGroups = transformControls._gizmo?.gizmo;
+  if (!gizmoGroups) return;
+  ["translate", "scale"].forEach((mode) => {
+    const gizmoGroup = gizmoGroups[mode];
+    ["X", "Y", "Z"].forEach((axis) => {
+      const positiveRod = gizmoGroup.children.find((handle) => {
+        const parameters = handle.geometry?.parameters;
+        return handle.name === axis
+          && handle.geometry?.type === "CylinderGeometry"
+          && Math.abs((parameters?.radiusTop ?? 0) - (parameters?.radiusBottom ?? 0)) < 1e-6;
+      });
+      if (!positiveRod) return;
+      const negativeRod = positiveRod.clone();
+      negativeRod.geometry = positiveRod.geometry.clone();
+      negativeRod.material = positiveRod.material.clone();
+      negativeRod.material.color.setHex(TRANSFORM_GIZMO_DARK_AXIS_COLORS[axis]);
+      const rotation = axis === "Y"
+        ? new THREE.Matrix4().makeRotationX(Math.PI)
+        : new THREE.Matrix4().makeRotationY(Math.PI);
+      negativeRod.geometry.applyMatrix4(rotation);
+      negativeRod.userData.negativeAxisRod = true;
+      gizmoGroup.add(negativeRod);
+    });
+  });
+}
+
+addNegativeTransformGizmoRods();
+
+function addFullRotateGizmoAxisCircles() {
+  const rotateGizmo = transformControls._gizmo?.gizmo?.rotate;
+  if (!rotateGizmo) return;
+  ["X", "Y", "Z"].forEach((axis) => {
+    const geometry = new THREE.TorusGeometry(0.5, 0.0055, 3, 64);
+    if (axis === "X") geometry.applyMatrix4(new THREE.Matrix4().makeRotationY(Math.PI / 2));
+    if (axis === "Y") geometry.applyMatrix4(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+    const material = new THREE.MeshBasicMaterial({
+      color: TRANSFORM_GIZMO_DARK_AXIS_COLORS[axis],
+      depthTest: false,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+      transparent: true,
+      opacity: 0.72
+    });
+    const circle = new THREE.Mesh(geometry, material);
+    circle.name = axis;
+    circle.renderOrder = 9999;
+    circle.userData.fullRotateAxisCircle = true;
+    rotateGizmo.add(circle);
+  });
+}
+
+addFullRotateGizmoAxisCircles();
+
+function removeRotateFreeAxisRing() {
+  const transformGizmo = transformControls._gizmo;
+  if (!transformGizmo) return;
+  [transformGizmo.gizmo.rotate, transformGizmo.picker.rotate].forEach((group) => {
+    group.children
+      .filter((handle) => handle.name === "XYZE")
+      .forEach((handle) => group.remove(handle));
+  });
+}
+
+removeRotateFreeAxisRing();
+
+function deflateTransformGizmoPickers(factor) {
+  const pickerGroups = transformControls._gizmo?.picker;
+  if (!pickerGroups) return;
+  const adjustedGeometries = new Set();
+  Object.values(pickerGroups).forEach((pickerGroup) => {
+    pickerGroup.traverse((pickerHandle) => {
+      const geometry = pickerHandle.geometry;
+      if (!geometry || adjustedGeometries.has(geometry)) return;
+      adjustedGeometries.add(geometry);
+      if (geometry.type === "CylinderGeometry") {
+        const axisFactor = TRANSFORM_GIZMO_AXIS_PICKER_DEFLATION;
+        const axisScale = {
+          X: [1, axisFactor, axisFactor],
+          Y: [axisFactor, 1, axisFactor],
+          Z: [axisFactor, axisFactor, 1]
+        }[pickerHandle.name] ?? [axisFactor, axisFactor, axisFactor];
+        geometry.scale(...axisScale);
+      } else if (geometry.type === "TorusGeometry") {
+        const position = geometry.getAttribute("position");
+        const ringRadius = geometry.parameters.radius;
+        for (let index = 0; index < position.count; index += 1) {
+          const x = position.getX(index);
+          const y = position.getY(index);
+          const z = position.getZ(index);
+          const ringAxis = pickerHandle.name;
+          const radialDistance = ringAxis === "X"
+            ? Math.hypot(y, z)
+            : ringAxis === "Y"
+              ? Math.hypot(x, z)
+              : Math.hypot(x, y);
+          const deflatedRadius = ringRadius + (radialDistance - ringRadius) * factor;
+          const radialScale = radialDistance > 1e-6 ? deflatedRadius / radialDistance : 1;
+          if (ringAxis === "X") position.setXYZ(index, x * factor, y * radialScale, z * radialScale);
+          else if (ringAxis === "Y") position.setXYZ(index, x * radialScale, y * factor, z * radialScale);
+          else position.setXYZ(index, x * radialScale, y * radialScale, z * factor);
+        }
+        position.needsUpdate = true;
+      } else {
+        geometry.computeBoundingBox();
+        const center = geometry.boundingBox.getCenter(new THREE.Vector3());
+        geometry.translate(-center.x, -center.y, -center.z);
+        geometry.scale(factor, factor, factor);
+        geometry.translate(center.x, center.y, center.z);
+      }
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+    });
+  });
+}
+
+deflateTransformGizmoPickers(TRANSFORM_GIZMO_PICKER_DEFLATION);
+
 const pullTarget = new THREE.Object3D();
 const capsuleGuideLoopHandle = new THREE.Object3D();
 capsuleGuideLoopHandle.userData.capsuleGuideLoopHandle = true;
@@ -165,6 +449,21 @@ pullGuide.renderOrder = 90;
 scene.add(pullTarget, pullGuide, capsuleGuideLoopHandle);
 transformControls.addEventListener("dragging-changed", (event) => {
   transformDragging = event.value;
+  const reference = referenceImages.find((item) => item.id === transformControls.object?.userData.referenceImageId);
+  if (reference) {
+    if (event.value) {
+      pushUndoState();
+      referenceScaleDrag = transformControls.mode === "scale"
+        ? { startScale: transformControls.object.scale.clone(), axis: transformControls.axis }
+        : null;
+    } else {
+      syncReferenceImageFromMesh(reference);
+      referenceScaleDrag = null;
+      renderReferenceImagePanel();
+    }
+    updateInteractionLocks();
+    return;
+  }
   if (event.value && transformControls.mode === "scale") {
     const axis = transformControls.axis;
     uniformScaleDrag = ["XY", "XZ", "YZ", "XYZ"].includes(axis)
@@ -222,13 +521,24 @@ transformControls.addEventListener("dragging-changed", (event) => {
     flushPendingLockGeometryUpdates();
     activeHandleEdit = null;
     activeLatticeMultiEdit = null;
-    scheduleStrandCollisionResolve();
   }
 });
 transformControls.addEventListener("objectChange", () => {
   if (proportionalSizeEdit) return;
   const handle = transformControls.object;
   if (!handle) return;
+  const reference = referenceImages.find((item) => item.id === handle.userData.referenceImageId);
+  if (reference) {
+    if (referenceScaleDrag && transformControls.mode === "scale") {
+      const axis = String(referenceScaleDrag.axis || "X")[0].toLowerCase();
+      const start = referenceScaleDrag.startScale;
+      const factor = start[axis] ? handle.scale[axis] / start[axis] : 1;
+      handle.scale.copy(start).multiplyScalar(Math.max(0.05, factor));
+    }
+    syncReferenceImageFromMesh(reference);
+    renderReferenceImagePanel();
+    return;
+  }
   applyUniformTransformScale(handle);
   if (handle.userData.scalpBuilderLatticeIndex !== undefined) {
     updateScalpBuilderCurveLatticeFromHandle(handle);
@@ -333,6 +643,8 @@ viewPlaneGrid.visible = false;
 scene.add(viewPlaneGrid);
 const guideSurfaceGroup = new THREE.Group();
 scene.add(guideSurfaceGroup);
+const referenceImageGroup = new THREE.Group();
+scene.add(referenceImageGroup);
 const hairMaterialDefinitions = [{
   id: DEFAULT_HAIR_MATERIAL_ID,
   name: "Default Purple",
@@ -486,6 +798,7 @@ const strandGroupDefaults = Object.fromEntries(STRAND_GROUPS.map((group) => [gro
 const strandCreationDefaults = {
   width: 0.16,
   depth: 0.16,
+  hairCard: false,
   profileTrimLeft: 0,
   profileTrimRight: 0,
   profileTrimRoundness: 1,
@@ -1105,7 +1418,7 @@ const scalpBuilderTemplateOverlay = new THREE.Group();
 scalpBuilderTemplateOverlay.visible = false;
 scene.add(scalpBuilderTemplateOverlay);
 const drawStrandBrushCursor = new THREE.Mesh(
-  new THREE.RingGeometry(0.82, 1, 48),
+  new THREE.RingGeometry(0.91, 1, 48),
   new THREE.MeshBasicMaterial({
     color: 0x58f6ff,
     transparent: true,
@@ -1118,6 +1431,19 @@ const drawStrandBrushCursor = new THREE.Mesh(
 drawStrandBrushCursor.visible = false;
 drawStrandBrushCursor.renderOrder = 12;
 scene.add(drawStrandBrushCursor);
+
+function setDrawStrandBrushCursorScale(scale) {
+  const cursorScale = Math.max(0.04, Number(scale) || 0.04);
+  const ringThickness = THREE.MathUtils.clamp(0.09 / Math.sqrt(cursorScale), 0.05, 0.24);
+  if (Math.abs((drawStrandBrushCursor.userData.ringThickness ?? 0.09) - ringThickness) > 0.0001) {
+    const previousGeometry = drawStrandBrushCursor.geometry;
+    drawStrandBrushCursor.geometry = new THREE.RingGeometry(1 - ringThickness, 1, 48);
+    drawStrandBrushCursor.userData.ringThickness = ringThickness;
+    previousGeometry.dispose();
+  }
+  drawStrandBrushCursor.scale.setScalar(cursorScale);
+}
+
 const drawStrandPreview = new THREE.Line(
   new THREE.BufferGeometry(),
   new THREE.LineBasicMaterial({
@@ -1220,6 +1546,11 @@ let clumpViewportSelection = false;
 let selectedGuideId;
 let activeCurveLatticeGuideId = null;
 let lockIndex = 1;
+let referenceImageIndex = 1;
+let selectedReferenceImageId = null;
+let pendingReferenceImageType = null;
+let referenceScaleDrag = null;
+let referenceOverlayDrag = null;
 let activeTool = "select";
 let activeHandleEdit = null;
 let activeLatticeMultiEdit = null;
@@ -1232,9 +1563,6 @@ let mirrorXEditing = false;
 let recursiveHierarchyTransforms = false;
 let proportionalEditing = false;
 let proportionalRootLocked = false;
-let strandCollisionEnabled = false;
-let strandCollisionResolving = false;
-let strandCollisionFrame = null;
 let scalpShapeEditing = false;
 let scalpLatticeEditing = false;
 let scalpPaintEditing = false;
@@ -1291,6 +1619,14 @@ let placementPointer = null;
 let emptySelectionPointer = null;
 let proportionalSizeEdit = null;
 let proportionalHotkeyPress = null;
+let toolShortcutPress = null;
+let radialMenusEnabled = readRadialMenusPreference();
+let navigationTipsEnabled = readNavigationTipsPreference();
+let toolTipsEnabled = readToolTipsPreference();
+let viewportStatisticsEnabled = readViewportStatisticsPreference();
+let preferencesOpenSnapshot = null;
+let brushSizeDrag = null;
+let brushSizeHotkeyHeld = false;
 let viewSnapDrag = null;
 let activeViewportPointer = null;
 let shiftSnappedViewActive = false;
@@ -1310,6 +1646,7 @@ const lastPointer = { x: 0, y: 0 };
 let pendingPlacedLockId = null;
 const locks = [];
 const guides = [];
+const referenceImages = [];
 const surfaceGuideDefaults = {
   radius: 0.34,
   length: 1.7,
@@ -1324,8 +1661,15 @@ const undoHistory = new BoundedHistory(60);
 const redoHistory = new BoundedHistory(60);
 const strandGroupOpen = new Map(STRAND_GROUPS.map((group) => [group.id, true]));
 const strandLayerOpen = new Map();
+const referenceGroupOpen = new Map(["overlay", "front", "back", "left", "right"].map((id) => [id, true]));
 const clumpOpen = new Map();
+let activeOutlinerTab = "strands";
 let outlinerContextTarget = null;
+let strandRadialTargetId = null;
+let strandRadialGesture = null;
+let toolRadialGesture = null;
+let viewportEditMode = "strand";
+let duplicatePlacement = null;
 let restoringHistory = false;
 let inputUndoCaptured = false;
 const inputs = {
@@ -1340,7 +1684,13 @@ const inputs = {
   densityAggression: document.querySelector("#strandDensityAggression")
 };
 const strandLayerInput = document.querySelector("#strandLayer");
+const strandLayerControl = document.querySelector("#strandLayerControl");
 const strandDynamicDensityInput = document.querySelector("#strandDynamicDensity");
+const hairCardInput = document.querySelector("#hairCard");
+const hairCardControl = document.querySelector("#hairCardControl");
+const hairCardIncompatibleControls = [
+  "#strandSplitControls"
+].map((selector) => document.querySelector(selector));
 const mirrorXToggle = document.querySelector("#mirrorXToggle");
 const twistNumberInput = document.querySelector("#twistNumber");
 const hairMaterialSelect = document.querySelector("#hairMaterialSelect");
@@ -1370,9 +1720,28 @@ const toolButtons = [...document.querySelectorAll(".tool-button")];
 const spaceToggle = document.querySelector("#spaceToggle");
 const hierarchyToggle = document.querySelector("#hierarchyToggle");
 const proportionalToggle = document.querySelector("#proportionalToggle");
-const strandCollisionToggle = document.querySelector("#strandCollisionToggle");
 const appMenuTriggers = [...document.querySelectorAll(".app-menu-trigger")];
 const appMenuDropdowns = [...document.querySelectorAll(".app-menu-dropdown")];
+const viewportNavigationTips = document.querySelector("#viewportNavigationTips");
+const languageSelect = document.querySelector("#languageSelect");
+const appVersionLabel = document.querySelector("#appVersionLabel");
+const openPreferencesButton = document.querySelector("#openPreferences");
+const preferencesDialog = document.querySelector("#preferencesDialog");
+const closePreferencesButton = document.querySelector("#closePreferences");
+const cancelPreferencesButton = document.querySelector("#cancelPreferences");
+const savePreferencesButton = document.querySelector("#savePreferences");
+const preferencePageTitle = document.querySelector("#preferencePageTitle");
+const preferenceCategoryButtons = [...document.querySelectorAll("[data-preference-category]")];
+const preferencePanels = [...document.querySelectorAll("[data-preference-panel]")];
+const radialMenusPreferenceInput = document.querySelector("#radialMenusPreference");
+const navigationTipsPreferenceInput = document.querySelector("#navigationTipsPreference");
+const toolTipsPreferenceInput = document.querySelector("#toolTipsPreference");
+const viewportStatisticsPreferenceInput = document.querySelector("#viewportStatisticsPreference");
+const radialShortcutRows = [...document.querySelectorAll(".radial-shortcut-row")];
+const openShortcutsButton = document.querySelector("#openShortcuts");
+const shortcutsDialog = document.querySelector("#shortcutsDialog");
+const closeShortcutsButton = document.querySelector("#closeShortcuts");
+const dismissShortcutsButton = document.querySelector("#dismissShortcuts");
 const joinDiscordButton = document.querySelector("#joinDiscord");
 const scalpSetupToggle = document.querySelector("#scalpSetupToggle");
 const scalpSetupMenu = document.querySelector("#scalpSetupMenu");
@@ -1380,9 +1749,42 @@ const scalpPaintToggle = document.querySelector("#scalpPaintToggle");
 const headSetupMode = document.querySelector("#headSetupMode");
 const scalpBuilderMode = document.querySelector("#scalpBuilderMode");
 const capsuleGuideMode = document.querySelector("#capsuleGuideMode");
+const createViewportReferenceMenu = document.querySelector("#createViewportReferenceMenu");
+const createPlaneReferenceMenu = document.querySelector("#createPlaneReferenceMenu");
+const strandOutlinerTab = document.querySelector("#strandOutlinerTab");
+const guideOutlinerTab = document.querySelector("#guideOutlinerTab");
+const referenceOutlinerTab = document.querySelector("#referenceOutlinerTab");
+const lockList = document.querySelector("#lockList");
+const guideOutliner = document.querySelector("#guideOutliner");
+const referenceOutliner = document.querySelector("#referenceOutliner");
+const referenceImageFile = document.querySelector("#referenceImageFile");
+const viewportReferenceImages = document.querySelector("#viewportReferenceImages");
+const referenceImagePanel = document.querySelector("#referenceImagePanel");
+const viewportEditModeControl = document.querySelector("#viewportEditModeControl");
+const viewportEditModeInput = document.querySelector("#viewportEditMode");
+const closeReferenceImagePanel = document.querySelector("#closeReferenceImagePanel");
+const addViewportReference = document.querySelector("#addViewportReference");
+const addPlaneReference = document.querySelector("#addPlaneReference");
+const referenceImageList = document.querySelector("#referenceImageList");
+const referenceImageEmpty = document.querySelector("#referenceImageEmpty");
+const referenceImageControls = document.querySelector("#referenceImageControls");
+const referenceImageType = document.querySelector("#referenceImageType");
+const referenceImageVisible = document.querySelector("#referenceImageVisible");
+const referenceImageOpacity = document.querySelector("#referenceImageOpacity");
+const referenceImageOpacityValue = document.querySelector("#referenceImageOpacityValue");
+const referenceImageViewRow = document.querySelector("#referenceImageViewRow");
+const referenceImageView = document.querySelector("#referenceImageView");
+const referencePlaneInFrontRow = document.querySelector("#referencePlaneInFrontRow");
+const referencePlaneInFront = document.querySelector("#referencePlaneInFront");
+const referenceImageSnappedViewOnlyRow = document.querySelector("#referenceImageSnappedViewOnlyRow");
+const referenceImageSnappedViewOnlyLabel = document.querySelector("#referenceImageSnappedViewOnlyLabel");
+const referenceImageSnappedViewOnly = document.querySelector("#referenceImageSnappedViewOnly");
+const referencePlaneHint = document.querySelector("#referencePlaneHint");
+const deleteReferenceImage = document.querySelector("#deleteReferenceImage");
 const exitSetupEditor = document.querySelector("#exitSetupEditor");
 const exitSetupEditorLabel = document.querySelector("#exitSetupEditorLabel");
 const scalpGuideVisibilityToggle = document.querySelector("#scalpGuideVisibilityToggle");
+const orthographicViewToggle = document.querySelector("#orthographicViewToggle");
 const groupColorToggle = document.querySelector("#groupColorToggle");
 const lightAzimuthInput = document.querySelector("#lightAzimuth");
 const lightElevationInput = document.querySelector("#lightElevation");
@@ -1408,6 +1810,8 @@ const headTransformResetButtons = [...document.querySelectorAll("button[data-res
 const scalpRoughScaleInputs = [...document.querySelectorAll("input[data-scalp-rough-scale-axis]")];
 const scalpRoughScaleValues = [...document.querySelectorAll("output[data-scalp-rough-scale-value]")];
 const scalpRoughScaleResetButtons = [...document.querySelectorAll("button[data-reset-scalp-rough-scale]")];
+languageSelect.value = savedLanguage;
+appVersionLabel.textContent = APP_VERSION;
 const presetLibraryToggle = document.querySelector("#presetLibraryToggle");
 const presetLibrary = document.querySelector("#presetLibrary");
 const presetLibraryGrid = document.querySelector("#presetLibraryGrid");
@@ -1481,9 +1885,18 @@ const clumpShapeValues = {
   variation: document.querySelector("#clumpVariationValue")
 };
 const clumpContextMenu = document.querySelector("#clumpContextMenu");
+const editScalpOutlinerAction = document.querySelector("#editScalpOutlinerAction");
 const dissolveClumpAction = document.querySelector("#dissolveClumpAction");
 const mirrorInstanceAction = document.querySelector("#mirrorInstanceAction");
 const deleteOutlinerAction = document.querySelector("#deleteOutlinerAction");
+const strandRadialMenu = document.querySelector("#strandRadialMenu");
+const strandRadialActions = [...strandRadialMenu.querySelectorAll("[data-strand-radial-action]")];
+const strandRadialLine = document.querySelector("#strandRadialLine");
+const strandRadialCenter = document.querySelector("#strandRadialCenter");
+const toolRadialMenu = document.querySelector("#toolRadialMenu");
+const toolRadialActions = [...toolRadialMenu.querySelectorAll("[data-tool-radial-index]")];
+const toolRadialLine = document.querySelector("#toolRadialLine");
+const toolRadialCenter = document.querySelector("#toolRadialCenter");
 const toolPanel = document.querySelector(".tool-panel");
 const attributeEditorTabs = [...document.querySelectorAll("[data-attribute-tab]")];
 const attributeEditorPanels = [...document.querySelectorAll(".tool-panel > .panel-section")];
@@ -1529,6 +1942,8 @@ const drawStrandScalpOffsetInput = document.querySelector("#drawStrandScalpOffse
 const drawStrandScalpOffsetValue = document.querySelector("#drawStrandScalpOffsetValue");
 const drawSurfaceNormalInfluenceInput = document.querySelector("#drawSurfaceNormalInfluence");
 const drawSurfaceNormalInfluenceValue = document.querySelector("#drawSurfaceNormalInfluenceValue");
+const viewportDrawSettings = document.querySelector("#viewportDrawSettings");
+const viewportDrawLayerInput = document.querySelector("#viewportDrawLayer");
 const drawStrandSurfaceInput = document.querySelector("#drawStrandSurface");
 const drawAutoShowScalpInput = document.querySelector("#drawAutoShowScalp");
 const drawContinueFromTipInput = document.querySelector("#drawContinueFromTip");
@@ -1650,7 +2065,7 @@ const groupDynamicDensityInput = document.querySelector("#groupDynamicDensity");
 const groupTopologyStats = document.querySelector("#groupTopologyStats");
 const strandTopologyPanel = document.querySelector("#strandTopologyPanel");
 const strandTopologyStats = document.querySelector("#strandTopologyStats");
-const viewportStats = document.querySelector(".viewport-stats");
+const viewportStats = document.querySelector("#viewportStats");
 const viewportSelectedStats = document.querySelector("#viewportSelectedStats");
 const viewportTotalStats = document.querySelector("#viewportTotalStats");
 const viewportFps = document.querySelector("#viewportFps");
@@ -1666,6 +2081,7 @@ const profilePreviewPaths = {
   group: document.querySelector("#groupProfilePreview"),
   strand: document.querySelector("#strandProfilePreview")
 };
+const strandHairCardCoveragePreview = document.querySelector("#strandHairCardCoveragePreview");
 const sweepProfileEditor = document.querySelector("#sweepProfileEditor");
 const sweepProfileTarget = document.querySelector("#sweepProfileTarget");
 const sweepProfileCanvas = document.querySelector("#sweepProfileCanvas");
@@ -1681,6 +2097,7 @@ const sweepProfileTrimValues = {
 const sweepProfileTrimRoundness = document.querySelector("#sweepProfileTrimRoundness");
 const sweepProfileTrimRoundnessValue = document.querySelector("#sweepProfileTrimRoundnessValue");
 const sweepProfilePath = document.querySelector("#sweepProfilePath");
+const sweepProfileHairCardCoveragePath = document.querySelector("#sweepProfileHairCardCoveragePath");
 const sweepProfilePoints = document.querySelector("#sweepProfilePoints");
 const sweepPointInterpolation = document.querySelector("#sweepPointInterpolation");
 const sweepProfileMirrorX = document.querySelector("#sweepProfileMirrorX");
@@ -1777,6 +2194,24 @@ const shortcutTools = {
   p: "panel",
   g: "braid"
 };
+const APP_SHORTCUT_KEYS = new Set([
+  ...Object.keys(shortcutTools),
+  "s",
+  "b",
+  "o",
+  "h",
+  "f",
+  "z",
+  "x"
+]);
+
+function selectFocusShouldYieldToShortcut(event) {
+  if (document.activeElement?.tagName?.toLowerCase() !== "select") return false;
+  const key = event.key.toLowerCase();
+  if (event.ctrlKey || event.metaKey) return key === "z" || key === "y";
+  if (event.altKey) return false;
+  return APP_SHORTCUT_KEYS.has(key);
+}
 
 const presets = {
   front: { x: 0, y: 1.56, z: 0.9, length: 1.25, curve: -0.42, width: 0.24, taper: 0.48, twist: 0, color: "#2c223a", scalpRegion: "bangs" },
@@ -1963,10 +2398,19 @@ loadDefaultGuideModel().catch((error) => {
 });
 
 function braidTemplateFromEntries(entries) {
+  const faceVertexCounts = [];
   const geometries = entries.map((entry, partIndex) => {
     const geometry = entry.mesh.geometry.clone();
     geometry.applyMatrix4(entry.mesh.matrixWorld);
     const part = geometry.index ? geometry.toNonIndexed() : geometry;
+    const triangleCount = part.getAttribute("position").count / 3;
+    const authoredCounts = entry.mesh.userData.braidFaceVertexCounts || [];
+    const authoredTriangleCount = authoredCounts.reduce((total, count) => total + count - 2, 0);
+    faceVertexCounts.push(...(
+      authoredTriangleCount === triangleCount
+        ? authoredCounts
+        : new Array(triangleCount).fill(3)
+    ));
     part.setAttribute(
       "braidPart",
       new THREE.Float32BufferAttribute(new Array(part.getAttribute("position").count).fill(partIndex), 1)
@@ -1980,6 +2424,7 @@ function braidTemplateFromEntries(entries) {
   });
   return {
     geometry,
+    faceVertexCounts,
     bounds: new THREE.Box3().setFromBufferAttribute(geometry.getAttribute("position"))
   };
 }
@@ -2093,6 +2538,7 @@ function prepareBraidBodyCache(template) {
     sourceCenter,
     sourceMinY,
     sourceLength,
+    sourceFaceVertexCounts: template.faceVertexCounts,
     sourceUvBounds,
     uvHeight: Math.max(0.0001, sourceUvBounds.max.y - sourceUvBounds.min.y),
     seamData
@@ -2120,9 +2566,31 @@ function registerBraidMeshPreset(id, obj, { authoredCaps = false } = {}) {
   updatePlacementStatus();
 }
 
+function annotateBraidObjTopology(obj, faceVertexCounts) {
+  let faceCursor = 0;
+  obj.traverse((mesh) => {
+    if (!mesh.isMesh) return;
+    const targetTriangleCount = (mesh.geometry.index
+      ? mesh.geometry.getIndex().count
+      : mesh.geometry.getAttribute("position").count) / 3;
+    const counts = [];
+    let triangleCount = 0;
+    while (faceCursor < faceVertexCounts.length && triangleCount < targetTriangleCount) {
+      const count = faceVertexCounts[faceCursor++];
+      counts.push(count);
+      triangleCount += count - 2;
+    }
+    mesh.userData.braidFaceVertexCounts = triangleCount === targetTriangleCount
+      ? counts
+      : new Array(targetTriangleCount).fill(3);
+  });
+}
+
 function loadBraidMeshPreset(id, path, options) {
-  new OBJLoader().load(path, (obj) => {
+  new THREE.FileLoader().load(path, (content) => {
     try {
+      const obj = new OBJLoader().parse(content);
+      annotateBraidObjTopology(obj, parseObjFaceVertexCounts(content));
       registerBraidMeshPreset(id, obj, options);
     } catch (error) {
       console.error(`Could not prepare ${id} braid mesh preset`, error);
@@ -2151,6 +2619,7 @@ function createSplitControlHandle() {
 }
 
 function frameGuideModel({ distanceScale = 1, targetYOffset = 0.18 } = {}) {
+  shiftSnappedViewActive = false;
   const box = guideHeadBounds(guideModel);
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
@@ -2161,6 +2630,8 @@ function frameGuideModel({ distanceScale = 1, targetYOffset = 0.18 } = {}) {
   camera.position.set(center.x, center.y + 0.28, center.z + Math.max(4.2, radius * 2.8) * distanceScale);
   camera.near = 0.05;
   camera.far = 100;
+  if (orthographicView) syncOrthographicFramingFromDistance();
+  updateCameraProjectionForViewport();
   camera.updateProjectionMatrix();
 }
 
@@ -3427,12 +3898,18 @@ function updateScalpBuilderCurveLatticeFromHandle(handle) {
   updateScalpBuilderCurveLatticeGeometry();
 }
 
-function beginScalpBuilderCurveLatticeSelection() {
-  if (!scalpBuilderCurveLattice) return false;
+function scalpBuilderCurveLatticePointHit() {
+  if (!scalpBuilderCurveLattice) return null;
   const selectThroughHead = scalpBuilderEditing && scalpBuilderTransparentHeadInput.checked;
   const headHit = !selectThroughHead && guideModel ? raycaster.intersectObject(guideModel, true)[0] : null;
-  const hit = raycaster.intersectObjects(scalpBuilderCurveLattice.handles, false)
-    .find((candidate) => !headHit || candidate.distance <= headHit.distance + scalpBuilderCurveLattice.handleRadius * 0.75);
+  return raycaster.intersectObjects(scalpBuilderCurveLattice.handles, false)
+    .find((candidate) => !headHit || candidate.distance <= headHit.distance
+      + scalpBuilderCurveLattice.handleRadius * 0.75) || null;
+}
+
+function beginScalpBuilderCurveLatticeSelection() {
+  if (!scalpBuilderCurveLattice) return false;
+  const hit = scalpBuilderCurveLatticePointHit();
   if (!hit) {
     if (transformControls.object?.userData.scalpBuilderLatticeIndex !== undefined) transformControls.detach();
     scalpBuilderCurveLattice.selectedIndex = null;
@@ -3441,6 +3918,27 @@ function beginScalpBuilderCurveLatticeSelection() {
   }
   selectScalpBuilderCurveLatticePoint(hit.object.userData.scalpBuilderLatticeIndex);
   return true;
+}
+
+function prioritizeScalpBuilderPointSelection(event) {
+  if (
+    !scalpBuilderEditing
+    || event.button !== 0
+    || event.shiftKey
+    || event.ctrlKey
+    || event.altKey
+    || event.metaKey
+    || proportionalSizeEdit
+    || proportionalHotkeyPress
+  ) return;
+  rayFromViewportEvent(event);
+  const hit = scalpBuilderCurveLatticePointHit();
+  if (!hit) return;
+  const pointIndex = hit.object.userData.scalpBuilderLatticeIndex;
+  if (pointIndex === scalpBuilderCurveLattice.selectedIndex) return;
+  selectScalpBuilderCurveLatticePoint(pointIndex);
+  event.preventDefault();
+  event.stopImmediatePropagation();
 }
 
 async function createScalpBuilderCurveLattice() {
@@ -4493,6 +4991,7 @@ function updateScalpBuilderStroke() {}
 function finishScalpBuilderStroke() {}
 
 function setScalpBuilderEditing(enabled) {
+  if (enabled && viewportEditMode !== "guide") setViewportEditMode("guide");
   if (enabled) deselectStrandsForGuideEditor();
   if (enabled && scalpShapeEditing) setScalpShapeEditing(false);
   if (enabled && scalpPaintEditing) setScalpPaintEditing(false);
@@ -4500,6 +4999,7 @@ function setScalpBuilderEditing(enabled) {
   scalpBuilderEditing = Boolean(enabled);
   scalpBuilderGroup.visible = scalpBuilderEditing;
   if (enabled) {
+    if (["rotate", "scale"].includes(activeTool)) setActiveTool("select");
     setMirrorXEditing(true);
     setScalpGuideVisibility(false);
     createScalpBuilderCurveLattice();
@@ -4519,7 +5019,9 @@ function setScalpBuilderEditing(enabled) {
     0.18
   );
   updateScalpEditingVisibility();
+  updateAttributeEditorMode();
   updatePlacementStatus();
+  if (activeOutlinerTab === "guides") renderGuideOutliner();
 }
 
 function updateScalpEditingVisibility() {
@@ -4559,8 +5061,9 @@ function updateScalpEditingVisibility() {
   exitSetupEditorLabel.textContent = `Exit ${setupEditorName}`;
   modeToolButtons.forEach((button) => {
     const tool = button.dataset.tool;
-    const usefulInScalpEditor = (scalpBuilderEditing || capsuleGuideEditing)
-      && ["select", "move", "rotate", "scale"].includes(tool);
+    const usefulInScalpEditor = scalpBuilderEditing
+      ? ["select", "move"].includes(tool)
+      : capsuleGuideEditing && ["select", "move", "rotate", "scale"].includes(tool);
     button.classList.toggle("setup-tool-hidden", setupActive && !usefulInScalpEditor);
   });
   const scalpTransformEditing = scalpBuilderEditing || capsuleGuideEditing;
@@ -4601,6 +5104,7 @@ function updateScalpEditingVisibility() {
   activeMesh.material.needsUpdate = true;
   activeWire.material.needsUpdate = true;
   activeOutline.material.needsUpdate = true;
+  syncViewportDrawSettings();
   pinActiveToolSettingsPanel();
 }
 
@@ -4614,6 +5118,7 @@ function exitSetupEditors() {
 }
 
 function setCapsuleGuideEditing(enabled) {
+  if (enabled && viewportEditMode !== "guide") setViewportEditMode("guide");
   if (enabled) deselectStrandsForGuideEditor();
   capsuleGuideEditing = Boolean(enabled);
   if (capsuleGuideEditing) {
@@ -4665,6 +5170,1037 @@ function setScalpSetupMenuOpen(open) {
   setAppMenuOpen(scalpSetupToggle, scalpSetupMenu, open);
 }
 
+function selectedReferenceImage() {
+  return referenceImages.find((reference) => reference.id === selectedReferenceImageId) || null;
+}
+
+function referencePlaneFrontAxis(view = "front") {
+  return ({
+    front: { axis: "z", sign: 1 },
+    back: { axis: "z", sign: -1 },
+    left: { axis: "x", sign: 1 },
+    right: { axis: "x", sign: -1 }
+  })[view] || { axis: "z", sign: 1 };
+}
+
+function referencePlanePlacement(view = "front", inFront = true) {
+  const placements = {
+    front: { position: [0, 0.8, 2.4], rotation: [0, 0, 0] },
+    back: { position: [0, 0.8, -2.4], rotation: [0, Math.PI, 0] },
+    left: { position: [2.4, 0.8, 0], rotation: [0, -Math.PI / 2, 0] },
+    right: { position: [-2.4, 0.8, 0], rotation: [0, Math.PI / 2, 0] }
+  };
+  const placement = placements[view] || placements.front;
+  if (inFront) return placement;
+  const position = [...placement.position];
+  const { axis } = referencePlaneFrontAxis(view);
+  position[axis === "x" ? 0 : 2] *= -1;
+  return { position, rotation: [...placement.rotation] };
+}
+
+function migratedReferencePlanePosition(snapshot, view, placement) {
+  const position = snapshot.position;
+  if (!position || Number(snapshot.planePlacementVersion || 1) >= 2) return position;
+  const legacyZ = view === "front" ? -2.4 : view === "back" ? 2.4 : null;
+  const untouchedLegacyPlacement = legacyZ != null
+    && Math.abs(Number(position.x)) < 0.0001
+    && Math.abs(Number(position.y) - 0.8) < 0.0001
+    && Math.abs(Number(position.z) - legacyZ) < 0.0001;
+  if (!untouchedLegacyPlacement) return position;
+  return { x: placement.position[0], y: placement.position[1], z: placement.position[2] };
+}
+
+const REFERENCE_VIEW_BY_CAMERA_AXIS = Object.freeze({
+  "0,0,1": "front",
+  "0,0,-1": "back",
+  "1,0,0": "left",
+  "-1,0,0": "right"
+});
+
+function snappedReferenceImageView() {
+  const snapped = isCameraInSnappedView();
+  if (!orthographicView || !snapped) return null;
+  return REFERENCE_VIEW_BY_CAMERA_AXIS[cardinalAxisKey(viewPlaneNormal())] || null;
+}
+
+function updateReferencePlaneVisibility() {
+  const snappedView = snappedReferenceImageView();
+  referenceImages.forEach((reference) => {
+    if (reference.type !== "plane" || !reference.mesh) return;
+    const nextVisible = reference.visible
+      && (!reference.snappedViewOnly || reference.view === snappedView);
+    if (reference.mesh.visible === nextVisible) return;
+    reference.mesh.visible = nextVisible;
+    if (!nextVisible && transformControls.object === reference.mesh) {
+      transformControls.detach();
+    } else if (nextVisible && reference.id === selectedReferenceImageId) {
+      attachReferenceImageTransform();
+    }
+  });
+}
+
+function applyReferenceImageRuntime(reference) {
+  if (reference.type === "overlay" && reference.element) {
+    const viewportWidth = Math.max(1, viewport.clientWidth);
+    const viewportHeight = Math.max(1, viewport.clientHeight);
+    const aspect = Math.max(0.05, Number(reference.aspect || 1));
+    const baseWidth = Math.min(viewportWidth * 0.68, 900, viewportHeight * 0.88 * aspect);
+    reference.element.style.left = `${reference.x}%`;
+    reference.element.style.top = `${reference.y}%`;
+    reference.element.style.width = `${baseWidth * reference.scale}px`;
+    if (reference.imageElement) reference.imageElement.style.opacity = String(reference.opacity);
+    const topLeftAnchored = reference.overlayAnchor === "top-left";
+    reference.element.style.transform = topLeftAnchored ? "none" : "translate(-50%, -50%)";
+    reference.element.style.transformOrigin = topLeftAnchored ? "top left" : "center";
+    reference.element.hidden = !reference.visible;
+    return;
+  }
+  if (reference.type === "plane" && reference.mesh) {
+    reference.mesh.position.set(reference.position.x, reference.position.y, reference.position.z);
+    reference.mesh.rotation.set(reference.rotation.x, reference.rotation.y, reference.rotation.z);
+    reference.mesh.scale.setScalar(reference.scale);
+    reference.mesh.material.opacity = reference.opacity;
+    updateReferencePlaneVisibility();
+  }
+}
+
+function updateReferenceSelectionVisuals() {
+  referenceImages.forEach((reference) => {
+    const selected = reference.id === selectedReferenceImageId;
+    reference.element?.classList.toggle("selected-reference", selected);
+    if (reference.selectionOutline) reference.selectionOutline.visible = selected;
+  });
+}
+
+function createReferenceImageRuntime(reference) {
+  if (reference.type === "overlay") {
+    const frame = document.createElement("div");
+    frame.className = "viewport-reference-frame";
+    frame.dataset.referenceImageId = reference.id;
+    const image = document.createElement("img");
+    image.className = "viewport-reference-image";
+    image.src = reference.source;
+    image.alt = "";
+    image.draggable = false;
+    image.dataset.referenceImageId = reference.id;
+    frame.appendChild(image);
+    ["nw", "ne", "sw", "se"].forEach((corner) => {
+      const handle = document.createElement("span");
+      handle.className = "reference-overlay-scale-handle";
+      handle.dataset.overlayCorner = corner;
+      handle.setAttribute("aria-hidden", "true");
+      frame.appendChild(handle);
+    });
+    viewportReferenceImages.appendChild(frame);
+    reference.element = frame;
+    reference.imageElement = image;
+    applyReferenceImageRuntime(reference);
+    updateReferenceSelectionVisuals();
+    return;
+  }
+
+  const aspect = Math.max(0.05, Number(reference.aspect || 1));
+  const texture = new THREE.TextureLoader().load(reference.source);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const geometry = new THREE.PlaneGeometry(3 * aspect, 3);
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    opacity: reference.opacity,
+    side: THREE.DoubleSide,
+    depthTest: true,
+    depthWrite: false,
+    toneMapped: false
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  const selectionOutline = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry),
+    new THREE.LineBasicMaterial({
+      color: 0x58f6ff,
+      transparent: true,
+      opacity: 0.8,
+      depthTest: false,
+      depthWrite: false,
+      toneMapped: false
+    })
+  );
+  selectionOutline.visible = false;
+  selectionOutline.renderOrder = 1000;
+  selectionOutline.raycast = () => {};
+  mesh.add(selectionOutline);
+  mesh.userData.referenceImageId = reference.id;
+  mesh.renderOrder = 0;
+  reference.mesh = mesh;
+  reference.selectionOutline = selectionOutline;
+  referenceImageGroup.add(mesh);
+  applyReferenceImageRuntime(reference);
+  updateReferenceSelectionVisuals();
+}
+
+function addReferenceImage(snapshot, { select = true } = {}) {
+  if (!/^data:image\/(?:png|jpeg|webp|gif);base64,/i.test(String(snapshot.source || ""))) return null;
+  const type = snapshot.type === "plane" ? "plane" : "overlay";
+  const planeInFront = snapshot.planeInFront !== false;
+  const placement = referencePlanePlacement(snapshot.view, planeInFront);
+  const savedPlanePosition = migratedReferencePlanePosition(snapshot, snapshot.view, placement);
+  const newViewportOverlay = type === "overlay"
+    && snapshot.overlayAnchor == null
+    && snapshot.x == null
+    && snapshot.y == null;
+  const activeScale = THREE.MathUtils.clamp(Number(snapshot.scale ?? 1), 0.05, 20);
+  const reference = {
+    id: snapshot.id || `reference-${referenceImageIndex++}`,
+    name: snapshot.name || `Reference ${referenceImageIndex - 1}`,
+    type,
+    source: snapshot.source,
+    aspect: Math.max(0.05, Number(snapshot.aspect || 1)),
+    opacity: THREE.MathUtils.clamp(Number(snapshot.opacity ?? 0.55), 0.05, 1),
+    visible: snapshot.visible !== false,
+    snappedViewOnly: type === "plane" && Boolean(snapshot.snappedViewOnly),
+    planeInFront,
+    view: ["front", "back", "left", "right"].includes(snapshot.view) ? snapshot.view : "front",
+    overlayAnchor: snapshot.overlayAnchor === "top-left" || newViewportOverlay
+      ? "top-left"
+      : "center",
+    x: THREE.MathUtils.clamp(Number(snapshot.x ?? (newViewportOverlay ? 2 : 50)), 0, 100),
+    y: THREE.MathUtils.clamp(Number(snapshot.y ?? (newViewportOverlay ? 2 : 50)), 0, 100),
+    overlayConfigured: snapshot.overlayConfigured == null
+      ? type === "overlay"
+      : Boolean(snapshot.overlayConfigured),
+    planeConfigured: snapshot.planeConfigured == null
+      ? type === "plane"
+      : Boolean(snapshot.planeConfigured),
+    overlayScale: THREE.MathUtils.clamp(Number(snapshot.overlayScale ?? (type === "overlay" ? activeScale : 1)), 0.05, 20),
+    planeScale: THREE.MathUtils.clamp(Number(snapshot.planeScale ?? (type === "plane" ? activeScale : 1)), 0.05, 20),
+    scale: activeScale,
+    planePlacementVersion: 2,
+    position: { ...(savedPlanePosition || { x: placement.position[0], y: placement.position[1], z: placement.position[2] }) },
+    rotation: { ...(snapshot.rotation || { x: placement.rotation[0], y: placement.rotation[1], z: placement.rotation[2] }) }
+  };
+  const numericId = Number(reference.id.match(/\d+$/)?.[0]);
+  if (Number.isFinite(numericId)) referenceImageIndex = Math.max(referenceImageIndex, numericId + 1);
+  referenceImages.push(reference);
+  createReferenceImageRuntime(reference);
+  if (select) selectReferenceImage(reference.id);
+  else renderReferenceImagePanel();
+  return reference;
+}
+
+function disposeReferenceImageRuntime(reference) {
+  reference.element?.remove();
+  reference.element = null;
+  reference.imageElement = null;
+  if (reference.selectionOutline) {
+    reference.selectionOutline.geometry.dispose();
+    reference.selectionOutline.material.dispose();
+    reference.selectionOutline = null;
+  }
+  if (reference.mesh) {
+    referenceImageGroup.remove(reference.mesh);
+    reference.mesh.geometry.dispose();
+    reference.mesh.material.map?.dispose();
+    reference.mesh.material.dispose();
+  }
+  reference.mesh = null;
+}
+
+function disposeReferenceImage(reference) {
+  disposeReferenceImageRuntime(reference);
+}
+
+function clearReferenceImages() {
+  referenceImages.forEach(disposeReferenceImage);
+  referenceImages.length = 0;
+  selectedReferenceImageId = null;
+  if (referenceImagePanel) renderReferenceImagePanel();
+}
+
+function serializeReferenceImage(reference) {
+  return {
+    id: reference.id,
+    name: reference.name,
+    type: reference.type,
+    source: reference.source,
+    aspect: reference.aspect,
+    opacity: reference.opacity,
+    visible: reference.visible,
+    snappedViewOnly: Boolean(reference.snappedViewOnly),
+    planeInFront: reference.planeInFront !== false,
+    view: reference.view,
+    overlayAnchor: reference.overlayAnchor,
+    overlayConfigured: Boolean(reference.overlayConfigured),
+    planeConfigured: Boolean(reference.planeConfigured),
+    overlayScale: Number(reference.overlayScale ?? reference.scale),
+    planeScale: Number(reference.planeScale ?? reference.scale),
+    planePlacementVersion: 2,
+    x: reference.x,
+    y: reference.y,
+    scale: reference.scale,
+    position: { ...reference.position },
+    rotation: { ...reference.rotation }
+  };
+}
+
+function setReferenceImageType(reference, nextType) {
+  if (!reference || !["overlay", "plane"].includes(nextType) || reference.type === nextType) return;
+  const previousScale = reference.scale;
+  if (reference.type === "overlay") reference.overlayScale = previousScale;
+  else {
+    syncReferenceImageFromMesh(reference);
+    reference.planeScale = reference.scale;
+  }
+
+  if (transformControls.object === reference.mesh) transformControls.detach();
+  disposeReferenceImageRuntime(reference);
+  if (nextType === "overlay") {
+    if (!reference.overlayConfigured) {
+      reference.x = 2;
+      reference.y = 2;
+      reference.overlayAnchor = "top-left";
+      reference.overlayScale = previousScale;
+      reference.overlayConfigured = true;
+    }
+    reference.scale = reference.overlayScale;
+  } else {
+    if (!reference.planeConfigured) {
+      const placement = referencePlanePlacement(reference.view, reference.planeInFront);
+      reference.position = {
+        x: placement.position[0],
+        y: placement.position[1],
+        z: placement.position[2]
+      };
+      reference.rotation = {
+        x: placement.rotation[0],
+        y: placement.rotation[1],
+        z: placement.rotation[2]
+      };
+      reference.planeScale = previousScale;
+      reference.planeConfigured = true;
+    }
+    reference.scale = reference.planeScale;
+  }
+  reference.type = nextType;
+  createReferenceImageRuntime(reference);
+  selectReferenceImage(reference.id);
+  if (nextType === "plane") setOrthographicView(true);
+}
+
+function attachReferenceImageTransform() {
+  const reference = selectedReferenceImage();
+  if (
+    reference?.type !== "plane"
+    || !reference.mesh?.visible
+    || !["move", "scale"].includes(activeTool)
+  ) return;
+  configureTransformControls(activeTool);
+  transformControls.showX = true;
+  transformControls.showY = true;
+  transformControls.showZ = activeTool === "move";
+  transformControls.attach(reference.mesh);
+}
+
+function selectReferenceImage(id) {
+  setViewportEditMode("reference", { clearSelection: false, activateSelect: false });
+  selectedReferenceImageId = referenceImages.some((reference) => reference.id === id) ? id : null;
+  selectedId = undefined;
+  selectedGuideId = undefined;
+  selectedStrandGroup = null;
+  clearMultiPointSelection();
+  transformControls.detach();
+  updateReferenceSelectionVisuals();
+  locks.forEach((lock) => {
+    lock.mesh.material.emissive?.set(0x000000);
+    updateCurveObjects(lock, { visible: false });
+  });
+  attachReferenceImageTransform();
+  setOutlinerTab("references");
+  renderLockList();
+  updateGuideControlsVisibility();
+  updateAttributeEditorMode();
+  renderReferenceImagePanel();
+}
+
+function placeReferencePlane(reference, view) {
+  if (reference?.type !== "plane") return;
+  const placement = referencePlanePlacement(view, reference.planeInFront);
+  reference.view = view;
+  reference.position = { x: placement.position[0], y: placement.position[1], z: placement.position[2] };
+  reference.rotation = { x: placement.rotation[0], y: placement.rotation[1], z: placement.rotation[2] };
+  reference.planeConfigured = true;
+  applyReferenceImageRuntime(reference);
+  attachReferenceImageTransform();
+}
+
+function setReferencePlaneInFront(reference, inFront) {
+  if (reference?.type !== "plane") return;
+  const { axis, sign } = referencePlaneFrontAxis(reference.view);
+  const distance = Math.abs(Number(reference.position[axis])) || 2.4;
+  reference.planeInFront = Boolean(inFront);
+  reference.position[axis] = distance * sign * (reference.planeInFront ? 1 : -1);
+  applyReferenceImageRuntime(reference);
+  attachReferenceImageTransform();
+}
+
+function syncReferenceImageFromMesh(reference) {
+  if (!reference?.mesh) return;
+  reference.position = {
+    x: reference.mesh.position.x,
+    y: reference.mesh.position.y,
+    z: reference.mesh.position.z
+  };
+  reference.rotation = {
+    x: reference.mesh.rotation.x,
+    y: reference.mesh.rotation.y,
+    z: reference.mesh.rotation.z
+  };
+  reference.scale = reference.mesh.scale.x;
+  reference.planeScale = reference.scale;
+  const { axis, sign } = referencePlaneFrontAxis(reference.view);
+  const depthCoordinate = reference.position[axis] * sign;
+  if (Math.abs(depthCoordinate) > 0.0001) reference.planeInFront = depthCoordinate > 0;
+}
+
+function renderReferenceImagePanel() {
+  renderReferenceOutliner();
+  referenceImageList.replaceChildren();
+  referenceImages.forEach((reference) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.classList.toggle("active", reference.id === selectedReferenceImageId);
+    const name = document.createElement("span");
+    name.textContent = reference.name;
+    const kind = document.createElement("small");
+    kind.textContent = reference.type === "plane" ? `3D · ${reference.view}` : "Viewport";
+    button.append(name, kind);
+    button.addEventListener("click", () => selectReferenceImage(reference.id));
+    referenceImageList.appendChild(button);
+  });
+  const reference = selectedReferenceImage();
+  referenceImageEmpty.classList.toggle("hidden", referenceImages.length > 0);
+  referenceImageControls.classList.toggle("hidden", !reference);
+  if (!reference) return;
+  referenceImageType.value = reference.type;
+  referenceImageVisible.checked = reference.visible;
+  referenceImageOpacity.value = reference.opacity;
+  referenceImageOpacityValue.textContent = reference.opacity.toFixed(2);
+  const plane = reference.type === "plane";
+  referenceImageViewRow.classList.toggle("hidden", !plane);
+  referencePlaneInFrontRow.classList.toggle("hidden", !plane);
+  referenceImageSnappedViewOnlyRow.classList.toggle("hidden", !plane);
+  referencePlaneHint.classList.toggle("hidden", !plane);
+  referenceImageView.value = reference.view;
+  referencePlaneInFront.checked = reference.planeInFront !== false;
+  const viewLabel = {
+    front: "Front",
+    back: "Back",
+    left: "Left",
+    right: "Right"
+  }[reference.view] || "Front";
+  referenceImageSnappedViewOnlyLabel.textContent = `Only in ${viewLabel} Orthogonal view`;
+  referenceImageSnappedViewOnly.checked = Boolean(reference.snappedViewOnly);
+}
+
+const REFERENCE_OUTLINER_GROUPS = Object.freeze([
+  { id: "overlay", label: "Viewport Overlays" },
+  { id: "front", label: "Front" },
+  { id: "left", label: "Left" },
+  { id: "right", label: "Right" },
+  { id: "back", label: "Back" }
+]);
+
+function setOutlinerTab(tab) {
+  activeOutlinerTab = ["strands", "guides", "references"].includes(tab) ? tab : "strands";
+  const guidesActive = activeOutlinerTab === "guides";
+  const referencesActive = activeOutlinerTab === "references";
+  const strandsActive = activeOutlinerTab === "strands";
+  strandOutlinerTab.classList.toggle("active", strandsActive);
+  strandOutlinerTab.setAttribute("aria-selected", String(strandsActive));
+  guideOutlinerTab.classList.toggle("active", guidesActive);
+  guideOutlinerTab.setAttribute("aria-selected", String(guidesActive));
+  referenceOutlinerTab.classList.toggle("active", referencesActive);
+  referenceOutlinerTab.setAttribute("aria-selected", String(referencesActive));
+  lockList.classList.toggle("hidden", !strandsActive);
+  guideOutliner.classList.toggle("hidden", !guidesActive);
+  referenceOutliner.classList.toggle("hidden", !referencesActive);
+  if (guidesActive) renderGuideOutliner();
+  if (referencesActive) renderReferenceOutliner();
+}
+
+function setViewportEditMode(mode, options = {}) {
+  const nextMode = ["strand", "guide", "reference"].includes(mode) ? mode : "strand";
+  const switchingMode = nextMode !== viewportEditMode;
+  const clearSelection = options.clearSelection !== false;
+  const activateSelect = options.activateSelect !== false;
+  if (switchingMode && options.exitSetupEditors !== false) exitSetupEditors();
+  viewportEditMode = nextMode;
+  viewportEditModeInput.value = nextMode;
+  if (nextMode !== "reference") {
+    finishReferenceOverlayDrag(null, { cancel: true });
+    renderer.domElement.style.cursor = "";
+  }
+
+  if (clearSelection) {
+    const selectionMatchesMode = (
+      (nextMode === "strand" && Boolean(selectedId || selectedStrandGroup))
+      || (nextMode === "guide" && Boolean(selectedGuideId))
+      || (nextMode === "reference" && Boolean(selectedReferenceImageId))
+    );
+    if (!selectionMatchesMode) {
+      deselectStrands();
+      selectedReferenceImageId = null;
+      updateReferenceSelectionVisuals();
+      renderReferenceImagePanel();
+    }
+  }
+
+  setOutlinerTab(nextMode === "strand" ? "strands" : nextMode === "guide" ? "guides" : "references");
+  setReferenceImagePanelOpen(nextMode === "reference");
+  if (nextMode === "guide") setAttributeEditorTab("main");
+  if (activateSelect && activeTool !== "select") setActiveTool("select");
+  updateGuideControlsVisibility();
+  updateAttributeEditorMode();
+  updatePlacementStatus();
+}
+
+function createOutlinerVisibilityToggle({ visible, partial = false, label, onToggle }) {
+  const toggle = document.createElement("button");
+  toggle.className = `outliner-visibility-toggle${visible ? " visible" : ""}${partial ? " partial" : ""}`;
+  toggle.type = "button";
+  toggle.title = `${visible ? "Hide" : "Show"} ${label}`;
+  toggle.setAttribute("aria-label", toggle.title);
+  toggle.setAttribute("aria-pressed", String(visible));
+  toggle.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onToggle();
+  });
+  return toggle;
+}
+
+function setLocksOutlinerVisibility(targets, visible) {
+  targets.forEach((lock) => {
+    lock.outlinerVisible = Boolean(visible);
+    if (visible) {
+      visibleStrandRegions.add(lock.scalpRegion || "unassigned");
+      visibleStrandLayers.add(normalizeHairLayer(lock.hairLayer));
+    }
+  });
+  applyDisplayVisibilityFilters();
+  renderLockList();
+}
+
+function outlinerGuides() {
+  return CURVE_LATTICE_FEATURE_ENABLED
+    ? guides
+    : guides.filter((guide) => guide.type !== "curve-lattice");
+}
+
+function guideOutlinerLabel(guide, index) {
+  if (guide.type === "capsule") return guide.name || `Capsule Guide ${index + 1}`;
+  if (guide.type === "curve-lattice") {
+    const region = SCALP_REGIONS[guide.scalpRegion]?.label || guide.scalpRegion || "Group";
+    return `${region} Curve Lattice`;
+  }
+  return guide.name || `Curve Guide ${index + 1}`;
+}
+
+function createScalpGuideOutlinerRow() {
+  const row = document.createElement("div");
+  row.className = "guide-outliner-row";
+  const visibility = createOutlinerVisibilityToggle({
+    visible: scalpGuideVisible,
+    label: "Scalp Guide",
+    onToggle: () => setScalpGuideVisibility(!scalpGuideVisible)
+  });
+  const item = document.createElement("button");
+  item.className = `guide-outliner-item${scalpBuilderEditing ? " active" : ""}`;
+  item.type = "button";
+  item.title = "Scalp Guide";
+  item.setAttribute("aria-pressed", String(scalpBuilderEditing));
+  const icon = document.createElement("span");
+  icon.className = "guide-outliner-icon scalp-guide";
+  const name = document.createElement("span");
+  name.className = "guide-outliner-name";
+  name.textContent = "Scalp Guide";
+  const kind = document.createElement("span");
+  kind.className = "guide-outliner-kind";
+  kind.textContent = "Surface";
+  item.append(icon, name, kind);
+  item.addEventListener("click", () => {
+    setViewportEditMode("guide");
+    deselectStrands();
+    setScalpGuideVisibility(true);
+    updateAttributeEditorMode();
+  });
+  item.addEventListener("contextmenu", (event) => showOutlinerContextMenu(event, {
+    type: "scalp-guide"
+  }));
+  row.append(visibility, item);
+  return row;
+}
+
+function renderGuideOutliner() {
+  guideOutliner.replaceChildren();
+  guideOutliner.appendChild(createScalpGuideOutlinerRow());
+  const visibleGuides = outlinerGuides();
+  visibleGuides.forEach((guide, index) => {
+    const label = guideOutlinerLabel(guide, index);
+    const row = document.createElement("div");
+    row.className = "guide-outliner-row";
+    const visible = guide.outlinerVisible !== false
+      && (guide.type !== "capsule" || capsuleGuidesVisible);
+    const visibility = createOutlinerVisibilityToggle({
+      visible,
+      label,
+      onToggle: () => {
+        pushUndoState();
+        guide.outlinerVisible = !visible;
+        if (guide.outlinerVisible && guide.type === "capsule") capsuleGuidesVisible = true;
+        applyDisplayVisibilityFilters();
+        renderGuideOutliner();
+      }
+    });
+    const item = document.createElement("button");
+    item.className = `guide-outliner-item${guide.id === selectedGuideId ? " active" : ""}`;
+    item.type = "button";
+    item.title = label;
+    item.setAttribute("aria-pressed", String(guide.id === selectedGuideId));
+    const icon = document.createElement("span");
+    icon.className = `guide-outliner-icon${guide.type === "capsule" ? "" : " curve-guide"}`;
+    const name = document.createElement("span");
+    name.className = "guide-outliner-name";
+    name.textContent = label;
+    const kind = document.createElement("span");
+    kind.className = "guide-outliner-kind";
+    kind.textContent = guide.type === "capsule" ? "Surface" : "Curve";
+    item.append(icon, name, kind);
+    item.addEventListener("click", () => selectGuide(guide.id));
+    row.append(visibility, item);
+    guideOutliner.appendChild(row);
+  });
+}
+
+function referenceOutlinerGroup(reference) {
+  return reference.type === "overlay" ? "overlay" : reference.view;
+}
+
+function renderReferenceOutliner() {
+  referenceOutliner.replaceChildren();
+  REFERENCE_OUTLINER_GROUPS.forEach((group) => {
+    const references = referenceImages.filter((reference) => referenceOutlinerGroup(reference) === group.id);
+    const isOpen = referenceGroupOpen.get(group.id) !== false
+      || references.some((reference) => reference.id === selectedReferenceImageId);
+    const groupElement = document.createElement("div");
+    groupElement.className = `reference-outliner-group${isOpen ? " open" : ""}`;
+    groupElement.dataset.referenceGroup = group.id;
+
+    const header = document.createElement("div");
+    header.className = "reference-outliner-group-head";
+    header.dataset.referenceDropTarget = group.id;
+    const disclosure = document.createElement("button");
+    disclosure.className = "outliner-disclosure";
+    disclosure.type = "button";
+    disclosure.title = `${isOpen ? "Collapse" : "Expand"} ${group.label}`;
+    disclosure.setAttribute("aria-label", disclosure.title);
+    disclosure.setAttribute("aria-expanded", String(isOpen));
+    disclosure.textContent = ">";
+    disclosure.addEventListener("click", () => {
+      referenceGroupOpen.set(group.id, !isOpen);
+      renderReferenceOutliner();
+    });
+    const label = document.createElement("span");
+    label.className = "reference-outliner-group-label";
+    label.textContent = group.label;
+    const count = document.createElement("span");
+    count.className = "reference-outliner-group-count";
+    count.textContent = String(references.length);
+    const visibleCount = references.filter((reference) => reference.visible).length;
+    const groupVisibility = createOutlinerVisibilityToggle({
+      visible: references.length > 0 && visibleCount === references.length,
+      partial: visibleCount > 0 && visibleCount < references.length,
+      label: group.label,
+      onToggle: () => {
+        if (!references.length) return;
+        pushUndoState();
+        const nextVisible = visibleCount !== references.length;
+        references.forEach((reference) => {
+          reference.visible = nextVisible;
+          applyReferenceImageRuntime(reference);
+        });
+        renderReferenceImagePanel();
+      }
+    });
+    header.append(disclosure, groupVisibility, label, count);
+
+    const items = document.createElement("div");
+    items.className = "reference-outliner-group-items";
+    if (!references.length) {
+      const empty = document.createElement("span");
+      empty.className = "outliner-empty";
+      empty.textContent = "No references";
+      items.appendChild(empty);
+    }
+    references.forEach((reference) => {
+      const item = document.createElement("div");
+      item.className = `reference-outliner-item${reference.id === selectedReferenceImageId ? " active" : ""}`;
+      const visibility = createOutlinerVisibilityToggle({
+        visible: reference.visible,
+        label: reference.name,
+        onToggle: () => {
+          pushUndoState();
+          reference.visible = !reference.visible;
+          applyReferenceImageRuntime(reference);
+          renderReferenceImagePanel();
+        }
+      });
+      const select = document.createElement("button");
+      select.className = "reference-outliner-select";
+      select.type = "button";
+      select.title = reference.name;
+      select.setAttribute("aria-label", reference.name);
+      const thumbnail = document.createElement("img");
+      thumbnail.className = "reference-outliner-thumbnail";
+      thumbnail.src = reference.source;
+      thumbnail.alt = "";
+      thumbnail.draggable = false;
+      const status = document.createElement("span");
+      status.className = "reference-outliner-status";
+      status.textContent = reference.type === "overlay"
+        ? "Viewport"
+        : reference.snappedViewOnly ? "Ortho Only" : "All Views";
+      select.append(thumbnail, status);
+      select.addEventListener("click", () => {
+        selectReferenceImage(reference.id);
+        setReferenceImagePanelOpen(true);
+      });
+      item.append(visibility, select);
+      items.appendChild(item);
+    });
+    groupElement.append(header, items);
+    referenceOutliner.appendChild(groupElement);
+  });
+}
+
+function setReferenceImagePanelOpen(open) {
+  referenceImagePanel.classList.toggle("hidden", !open);
+  if (open) renderReferenceImagePanel();
+}
+
+function readReferenceImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error("Could not read reference image"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error("Unsupported reference image"));
+      image.onload = () => resolve({
+        source: String(reader.result),
+        aspect: image.naturalWidth / Math.max(1, image.naturalHeight)
+      });
+      image.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+const SUPPORTED_REFERENCE_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif"
+]);
+
+function isSupportedReferenceImageFile(file) {
+  return Boolean(file) && (
+    SUPPORTED_REFERENCE_IMAGE_TYPES.has(String(file.type).toLowerCase())
+    || /\.(?:png|jpe?g|webp|gif)$/i.test(String(file.name))
+  );
+}
+
+async function addReferenceImagesFromFiles(
+  files,
+  type = "overlay",
+  { view = "front", overlayPosition = null } = {}
+) {
+  const candidates = [...files].filter(isSupportedReferenceImageFile);
+  if (!candidates.length) return [];
+  const decoded = await Promise.allSettled(candidates.map(async (file) => ({
+    file,
+    image: await readReferenceImageFile(file)
+  })));
+  const successful = decoded
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value);
+  decoded
+    .filter((result) => result.status === "rejected")
+    .forEach((result) => console.error("Could not add dropped reference image", result.reason));
+  if (!successful.length) throw decoded.find((result) => result.status === "rejected")?.reason
+    || new Error("No supported reference images were found");
+
+  pushUndoState();
+  const added = successful.map(({ file, image }) => {
+    const overlayPlacement = type === "overlay" && overlayPosition
+      ? {
+          overlayAnchor: "center",
+          overlayConfigured: true,
+          x: overlayPosition.x,
+          y: overlayPosition.y
+        }
+      : {};
+    return addReferenceImage({
+      ...image,
+      type,
+      view: type === "plane" ? view : undefined,
+      ...overlayPlacement,
+      name: file.name.replace(/\.[^.]+$/, "") || "Reference"
+    }, { select: false });
+  }).filter(Boolean);
+  const lastAdded = added.at(-1);
+  if (lastAdded) selectReferenceImage(lastAdded.id);
+  if (type === "plane" && added.length) setOrthographicView(true);
+  setReferenceImagePanelOpen(true);
+  return added;
+}
+
+function dragContainsReferenceImage(event) {
+  const items = [...(event.dataTransfer?.items || [])].filter((item) => item.kind === "file");
+  if (!items.length) return false;
+  return items.some((item) => !item.type || SUPPORTED_REFERENCE_IMAGE_TYPES.has(item.type.toLowerCase()));
+}
+
+function setReferenceImageDragActive(active) {
+  const nextActive = Boolean(active);
+  viewportPanel.classList.toggle("reference-image-drag-active", nextActive);
+  document.body.classList.toggle("reference-image-drag-active", nextActive);
+  referenceImageDropTarget.setAttribute("aria-hidden", String(!nextActive));
+  if (!nextActive) setReferenceDropHover();
+}
+
+function prepareReferenceImageDrop() {
+  if (viewportEditMode !== "reference") {
+    setViewportEditMode("reference");
+    return;
+  }
+  if (activeOutlinerTab !== "references") setOutlinerTab("references");
+  if (referenceImagePanel.classList.contains("hidden")) setReferenceImagePanelOpen(true);
+}
+
+function referenceDropDestination(event) {
+  const destination = event.target.closest?.("[data-reference-drop-target]")?.dataset.referenceDropTarget;
+  if (["overlay", "front", "back", "left", "right"].includes(destination)) return destination;
+  return viewportPanel.contains(event.target) ? "overlay" : null;
+}
+
+function viewportOverlayDropPosition(event) {
+  if (!viewportPanel.contains(event.target)) return null;
+  const bounds = viewport.getBoundingClientRect();
+  return {
+    x: THREE.MathUtils.clamp((event.clientX - bounds.left) / Math.max(1, bounds.width) * 100, 0, 100),
+    y: THREE.MathUtils.clamp((event.clientY - bounds.top) / Math.max(1, bounds.height) * 100, 0, 100)
+  };
+}
+
+function setReferenceDropHover(event = null) {
+  document.querySelectorAll("[data-reference-drop-target].reference-drop-hover").forEach((element) => {
+    element.classList.remove("reference-drop-hover");
+  });
+  referenceOverlayDropMarker.classList.remove("visible");
+  if (!event) return;
+  const directTarget = event.target.closest?.("[data-reference-drop-target]");
+  if (directTarget) {
+    directTarget.classList.add("reference-drop-hover");
+    return;
+  }
+  if (!viewportPanel.contains(event.target)) return;
+  const bounds = referenceImageDropTarget.getBoundingClientRect();
+  referenceOverlayDropMarker.style.left = `${event.clientX - bounds.left}px`;
+  referenceOverlayDropMarker.style.top = `${event.clientY - bounds.top}px`;
+  referenceOverlayDropMarker.classList.add("visible");
+}
+
+function referencePlaneHitFromPointer({ ignoreOcclusion = false } = {}) {
+  const planeHit = raycaster.intersectObjects(
+    referenceImages
+      .filter((reference) => reference.type === "plane" && reference.mesh?.visible)
+      .map((reference) => reference.mesh),
+    false
+  )[0] || null;
+  if (!planeHit || ignoreOcclusion) return planeHit;
+  const occluders = [
+    ...locks.filter(strandVisibleForDisplay).map((lock) => lock.mesh),
+    ...guides.flatMap((guide) => [guide.mesh, guide.rootMesh, guide.bottomMesh]),
+    ...headMeshes(),
+    scalpSurfaceGroup.visible ? activeScalpSurfaceMesh() : null
+  ].filter((object) => object?.visible !== false);
+  const occluderHit = raycaster.intersectObjects(occluders, false)[0] || null;
+  return occluderHit && occluderHit.distance < planeHit.distance ? null : planeHit;
+}
+
+const REFERENCE_OVERLAY_HANDLE_HIT_RADIUS = 22;
+
+function referenceOverlayAtPointer(event) {
+  const selectedReference = selectedReferenceImage();
+  if (
+    selectedReference?.type === "overlay"
+    && selectedReference.visible !== false
+    && selectedReference.element
+    && referenceOverlayCornerAtPointer(event, selectedReference.element.getBoundingClientRect())
+  ) return selectedReference;
+  return [...referenceImages].reverse().find((reference) => {
+    if (reference.type !== "overlay" || reference.visible === false || !reference.element) return false;
+    const bounds = reference.element.getBoundingClientRect();
+    return event.clientX >= bounds.left
+      && event.clientX <= bounds.right
+      && event.clientY >= bounds.top
+      && event.clientY <= bounds.bottom;
+  }) || null;
+}
+
+function referenceOverlayCornerAtPointer(event, bounds) {
+  const corners = {
+    nw: { x: bounds.left, y: bounds.top },
+    ne: { x: bounds.right, y: bounds.top },
+    sw: { x: bounds.left, y: bounds.bottom },
+    se: { x: bounds.right, y: bounds.bottom }
+  };
+  return Object.entries(corners).find(([, point]) => (
+    Math.hypot(event.clientX - point.x, event.clientY - point.y) <= REFERENCE_OVERLAY_HANDLE_HIT_RADIUS
+  ))?.[0] || null;
+}
+
+function beginReferenceOverlayDrag(event, reference) {
+  if (
+    referenceOverlayDrag
+    || viewportEditMode !== "reference"
+    || activeTool !== "select"
+    || reference?.type !== "overlay"
+    || !reference.element
+    || event.button !== 0
+    || event.shiftKey
+    || event.ctrlKey
+    || event.altKey
+    || event.metaKey
+  ) return false;
+  const bounds = reference.element.getBoundingClientRect();
+  const corner = referenceOverlayCornerAtPointer(event, bounds);
+  const opposite = {
+    nw: { x: bounds.right, y: bounds.bottom },
+    ne: { x: bounds.left, y: bounds.bottom },
+    sw: { x: bounds.right, y: bounds.top },
+    se: { x: bounds.left, y: bounds.top }
+  }[corner] || null;
+  referenceOverlayDrag = {
+    pointerId: event.pointerId,
+    referenceId: reference.id,
+    mode: corner ? "scale" : "move",
+    corner,
+    opposite,
+    startPointerX: event.clientX,
+    startPointerY: event.clientY,
+    startX: reference.x,
+    startY: reference.y,
+    startScale: reference.scale,
+    startConfigured: reference.overlayConfigured,
+    startBounds: bounds,
+    committed: false
+  };
+  renderer.domElement.setPointerCapture?.(event.pointerId);
+  renderer.domElement.style.cursor = corner
+    ? (["nw", "se"].includes(corner) ? "nwse-resize" : "nesw-resize")
+    : "move";
+  updateInteractionLocks();
+  event.preventDefault();
+  return true;
+}
+
+function updateReferenceOverlayDrag(event) {
+  const drag = referenceOverlayDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const reference = referenceImages.find((item) => item.id === drag.referenceId);
+  if (!reference?.element) return;
+  const dx = event.clientX - drag.startPointerX;
+  const dy = event.clientY - drag.startPointerY;
+  if (!drag.committed && Math.hypot(dx, dy) >= 1) {
+    pushUndoState();
+    drag.committed = true;
+  }
+  if (!drag.committed) return;
+  const viewportBounds = viewport.getBoundingClientRect();
+  if (drag.mode === "move") {
+    reference.x = THREE.MathUtils.clamp(drag.startX + dx / viewportBounds.width * 100, 0, 100);
+    reference.y = THREE.MathUtils.clamp(drag.startY + dy / viewportBounds.height * 100, 0, 100);
+  } else {
+    const startDistance = Math.max(1, Math.hypot(
+      drag.startPointerX - drag.opposite.x,
+      drag.startPointerY - drag.opposite.y
+    ));
+    const distance = Math.max(1, Math.hypot(
+      event.clientX - drag.opposite.x,
+      event.clientY - drag.opposite.y
+    ));
+    const nextScale = THREE.MathUtils.clamp(drag.startScale * distance / startDistance, 0.05, 20);
+    const ratio = nextScale / drag.startScale;
+    const width = drag.startBounds.width * ratio;
+    const height = drag.startBounds.height * ratio;
+    const left = ["nw", "sw"].includes(drag.corner)
+      ? drag.opposite.x - width
+      : drag.startBounds.left;
+    const top = ["nw", "ne"].includes(drag.corner)
+      ? drag.opposite.y - height
+      : drag.startBounds.top;
+    reference.scale = nextScale;
+    reference.overlayScale = nextScale;
+    if (reference.overlayAnchor === "top-left") {
+      reference.x = THREE.MathUtils.clamp((left - viewportBounds.left) / viewportBounds.width * 100, 0, 100);
+      reference.y = THREE.MathUtils.clamp((top - viewportBounds.top) / viewportBounds.height * 100, 0, 100);
+    } else {
+      reference.x = THREE.MathUtils.clamp((left + width * 0.5 - viewportBounds.left) / viewportBounds.width * 100, 0, 100);
+      reference.y = THREE.MathUtils.clamp((top + height * 0.5 - viewportBounds.top) / viewportBounds.height * 100, 0, 100);
+    }
+  }
+  reference.overlayConfigured = true;
+  applyReferenceImageRuntime(reference);
+  event.preventDefault();
+}
+
+function finishReferenceOverlayDrag(event, { cancel = false } = {}) {
+  const drag = referenceOverlayDrag;
+  if (!drag || (event?.pointerId !== undefined && event.pointerId !== drag.pointerId)) return false;
+  referenceOverlayDrag = null;
+  const reference = referenceImages.find((item) => item.id === drag.referenceId);
+  if (cancel && reference && drag.committed) {
+    reference.x = drag.startX;
+    reference.y = drag.startY;
+    reference.scale = drag.startScale;
+    reference.overlayScale = drag.startScale;
+    reference.overlayConfigured = drag.startConfigured;
+    applyReferenceImageRuntime(reference);
+  }
+  renderer.domElement.releasePointerCapture?.(drag.pointerId);
+  renderer.domElement.style.cursor = "";
+  updateInteractionLocks();
+  renderReferenceImagePanel();
+  event?.preventDefault();
+  return true;
+}
+
+function updateReferenceOverlayCursor(event) {
+  if (referenceOverlayDrag || viewportEditMode !== "reference" || activeTool !== "select") return;
+  const reference = selectedReferenceImage();
+  if (reference?.type !== "overlay" || !reference.element || reference.visible === false) {
+    renderer.domElement.style.cursor = "";
+    return;
+  }
+  const bounds = reference.element.getBoundingClientRect();
+  const corner = referenceOverlayCornerAtPointer(event, bounds);
+  if (corner) {
+    renderer.domElement.style.cursor = ["nw", "se"].includes(corner) ? "nwse-resize" : "nesw-resize";
+  } else {
+    const inside = event.clientX >= bounds.left && event.clientX <= bounds.right
+      && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+    renderer.domElement.style.cursor = inside ? "move" : "";
+  }
+}
+
 function setHeadSetupEditing(enabled) {
   if (enabled) deselectStrandsForGuideEditor();
   if (enabled && scalpBuilderEditing) setScalpBuilderEditing(false);
@@ -4708,13 +6244,16 @@ function setScalpGuideVisibility(visible) {
   scalpGuideVisibilityToggle.setAttribute("aria-label", scalpGuideVisibilityToggle.title);
   syncDisplayVisibilityInputs();
   updateScalpEditingVisibility();
+  if (activeOutlinerTab === "guides") renderGuideOutliner();
 }
 
 function strandVisibleForDisplay(lock) {
   if (!lock) return false;
   const region = lock.scalpRegion || "unassigned";
   const layer = normalizeHairLayer(lock.hairLayer);
-  return visibleStrandRegions.has(region) && visibleStrandLayers.has(layer);
+  return lock.outlinerVisible !== false
+    && visibleStrandRegions.has(region)
+    && visibleStrandLayers.has(layer);
 }
 
 function syncVisibilityParent(parent, children) {
@@ -4753,27 +6292,42 @@ function applyStrandDisplayVisibility() {
 
 function applyCapsuleGuideDisplayVisibility() {
   guides.filter((guide) => guide.type === "capsule").forEach((guide) => {
-    guide.mesh.visible = capsuleGuidesVisible;
-    if (guide.wire) guide.wire.visible = capsuleGuidesVisible;
-    if (guide.controlWire) guide.controlWire.visible = capsuleGuidesVisible;
+    const visible = capsuleGuidesVisible && guide.outlinerVisible !== false;
+    guide.mesh.visible = visible;
+    if (guide.wire) guide.wire.visible = visible;
+    if (guide.controlWire) guide.controlWire.visible = visible;
     if (guide.handlesGroup) {
-      guide.handlesGroup.visible = capsuleGuidesVisible
+      guide.handlesGroup.visible = visible
         && guide.id === selectedGuideId
         && capsuleGuideEditing;
     }
     if (guide.loopLinesGroup) {
-      guide.loopLinesGroup.visible = capsuleGuidesVisible
+      guide.loopLinesGroup.visible = visible
         && guide.id === selectedGuideId
         && capsuleGuideEditing;
     }
   });
-  if (!capsuleGuidesVisible && getSelectedGuide()?.type === "capsule") transformControls.detach();
+  const selected = getSelectedGuide();
+  if (selected?.type === "capsule" && (!capsuleGuidesVisible || selected.outlinerVisible === false)) {
+    transformControls.detach();
+  }
+}
+
+function applyOtherGuideDisplayVisibility() {
+  guides.filter((guide) => guide.type !== "capsule" && guide.type !== "curve-lattice").forEach((guide) => {
+    const visible = guide.outlinerVisible !== false;
+    guide.mesh.visible = visible;
+    if (guide.wire) guide.wire.visible = visible;
+  });
 }
 
 function applyDisplayVisibilityFilters() {
   applyStrandDisplayVisibility();
   applyCapsuleGuideDisplayVisibility();
+  applyOtherGuideDisplayVisibility();
   syncDisplayVisibilityInputs();
+  renderLockList();
+  renderGuideOutliner();
 }
 
 function setScalpLatticeEditing(enabled) {
@@ -7080,6 +8634,7 @@ function addCapsuleGuide(overrides = {}, { deferUi = false } = {}) {
     opacity: Number(overrides.opacity ?? surfaceGuideDefaults.opacity),
     fresnel: overrides.fresnel ?? surfaceGuideDefaults.fresnel,
     centerVisibility: THREE.MathUtils.clamp(Number(overrides.centerVisibility ?? surfaceGuideDefaults.centerVisibility), 0, 1),
+    outlinerVisible: overrides.outlinerVisible !== false,
     bend: 0,
     verticalBend: 0,
     topCurve: 0,
@@ -7144,6 +8699,7 @@ function addGuide(overrides = {}) {
     bottomCurve: 0,
     density: 12,
     opacity: 0.28,
+    outlinerVisible: overrides.outlinerVisible !== false,
     ...overrides
   };
   guide.mesh = new THREE.Mesh(
@@ -7228,6 +8784,7 @@ function createGuideGeometry(guide) {
 }
 
 function selectGuide(id) {
+  setViewportEditMode("guide", { clearSelection: false, activateSelect: false });
   capsuleGuideLoopSelection = null;
   activeCapsuleGuideLoopTransform = null;
   clearMultiPointSelection();
@@ -7235,8 +8792,10 @@ function selectGuide(id) {
   clumpViewportSelection = false;
   selectedStrandGroup = null;
   selectedGuideId = id;
+  selectedReferenceImageId = null;
   selectedPoint = null;
   selectedCurveLatticePoint = null;
+  setOutlinerTab("guides");
   updateSelectedPointLabel();
   const guide = getSelectedGuide();
   if (guide?.type === "curve-lattice") activeCurveLatticeGuideId = guide.id;
@@ -7251,6 +8810,7 @@ function selectGuide(id) {
     updateCurveObjects(lock, { visible: false });
   });
   renderLockList();
+  renderGuideOutliner();
   updateAttributeEditorMode();
   guides.forEach((item) => {
     const selected = item.id === id;
@@ -7301,6 +8861,51 @@ function updateGuideControlsVisibility() {
 
 function getSelectedGuide() {
   return guides.find((guide) => guide.id === selectedGuideId);
+}
+
+function selectedViewportFocusBounds() {
+  const lock = getSelectedLock();
+  const guide = getSelectedGuide();
+  const objects = lock?.mesh
+    ? [lock.mesh]
+    : guide
+      ? [guide.mesh, guide.rootMesh, guide.bottomMesh].filter(Boolean)
+      : [];
+  if (!objects.length) return null;
+  const bounds = new THREE.Box3();
+  objects.forEach((object) => bounds.expandByObject(object, true));
+  return bounds.isEmpty() ? null : bounds;
+}
+
+function centerViewportOnSelectedItem() {
+  const bounds = selectedViewportFocusBounds();
+  if (!bounds) return false;
+  const sphere = bounds.getBoundingSphere(new THREE.Sphere());
+  const center = sphere.center;
+  const radius = Math.max(0.08, sphere.radius);
+  const viewDirection = camera.position.clone().sub(controls.target);
+  const currentDistance = Math.max(0.1, viewDirection.length());
+  if (viewDirection.lengthSq() < 0.000001) {
+    camera.getWorldDirection(viewDirection);
+    viewDirection.negate();
+  }
+  viewDirection.normalize();
+  shiftSnappedViewActive = false;
+  controls.target.copy(center);
+  if (orthographicView) {
+    orthographicHalfHeight = radius * 1.16;
+    orthographicCamera.zoom = 1;
+    camera.position.copy(center).addScaledVector(viewDirection, currentDistance);
+    updateCameraProjectionForViewport();
+  } else {
+    const verticalFov = THREE.MathUtils.degToRad(perspectiveCamera.fov);
+    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov * 0.5) * Math.max(0.01, perspectiveCamera.aspect));
+    const limitingFov = Math.min(verticalFov, horizontalFov);
+    const distance = radius / Math.max(0.01, Math.sin(limitingFov * 0.5)) * 1.16;
+    camera.position.copy(center).addScaledVector(viewDirection, distance);
+  }
+  controls.update();
+  return true;
 }
 
 function syncGuideInputs(guide) {
@@ -7371,10 +8976,13 @@ function setActiveTool(tool) {
     setCapsuleGuideEditing(true);
     return;
   }
-  if (capsuleGuideEditing && !["select", "move", "rotate", "scale"].includes(tool)) return;
+  const setupTransformTool = ["select", "move", "rotate", "scale"].includes(tool);
+  const scalpBuilderTool = ["select", "move"].includes(tool);
+  if (capsuleGuideEditing && !setupTransformTool) return;
+  if (scalpBuilderEditing && setupTransformTool && !scalpBuilderTool) return;
   // Place Strand is retained internally for legacy project compatibility only.
   if (tool === "place") tool = "select";
-  if (scalpBuilderEditing || scalpPaintEditing || headSetupEditing || scalpShapeEditing) {
+  if ((scalpBuilderEditing && !setupTransformTool) || scalpPaintEditing || headSetupEditing || scalpShapeEditing) {
     exitSetupEditors();
   }
   if (tool !== "place") finishPlacementFlow();
@@ -7384,10 +8992,7 @@ function setActiveTool(tool) {
   if (tool !== "move") endViewPlaneMove();
   activeTool = tool;
   autoShowScalpGuideForActiveTool();
-  if (tool !== "select") {
-    altOrbitDrag = null;
-    selectPointerCapture = null;
-  }
+  if (tool !== "select") selectPointerCapture = null;
   updateInteractionLocks();
   updateScalpEditingVisibility();
   modeToolButtons.forEach((button) => {
@@ -7401,6 +9006,13 @@ function setActiveTool(tool) {
     if (!capsuleGuideEditing) updateCapsuleGuideHandleColors(guide);
   });
   if (!["relax", "place", "draw", "braid", "panel"].includes(tool)) configureTransformControls(tool);
+  if (["move", "scale"].includes(tool) && selectedReferenceImage()?.type === "plane") {
+    attachReferenceImageTransform();
+  }
+  if (scalpBuilderEditing && tool === "move") {
+    const handle = scalpBuilderCurveLattice?.handles[scalpBuilderCurveLattice.selectedIndex];
+    if (handle) transformControls.attach(handle);
+  }
   if (capsuleGuideEditing && capsuleGuideLoopSelection) attachCapsuleGuideLoopTransform();
   locks.forEach((lock) => updateCurveObjects(lock, { visible: lock.id === selectedId }));
   if (["move", "rotate", "scale"].includes(tool) && selectedControlPoints.length) {
@@ -7522,9 +9134,98 @@ function refreshProportionalPreview() {
   refreshCapsuleGuideLoopInfluence();
 }
 
+function activeBrushSizeInput() {
+  if (scalpPaintEditing) return scalpBrushSizeInput;
+  if (activeTool === "draw") return drawToolSizeInput;
+  if (activeTool === "braid") return braidToolSizeInput;
+  if (activeTool === "panel") return panelToolSizeInput;
+  return null;
+}
+
+function refreshActiveBrushSizeCursor(event) {
+  if (scalpPaintEditing) {
+    updateScalpBrushCursor(scalpHitFromEvent(event));
+    return;
+  }
+  updateDrawStrandBrushCursor(event);
+}
+
+function refreshActiveBrushSizeScale() {
+  if (scalpPaintEditing) {
+    const averageScale = (
+      scalpSurfaceGroup.scale.x
+      + scalpSurfaceGroup.scale.y
+      + scalpSurfaceGroup.scale.z
+    ) / 3;
+    scalpBrushCursor.scale.setScalar(Number(scalpBrushSizeInput.value) * averageScale);
+    return;
+  }
+  const cursorScale = activeStrokeBrushSize() * (braidStrokeActive() ? 1 / 3 : 1);
+  setDrawStrandBrushCursorScale(cursorScale);
+}
+
+function beginBrushSizeDrag(event) {
+  if (
+    !brushSizeHotkeyHeld
+    || event.button !== 0
+    || event.shiftKey
+    || event.ctrlKey
+    || event.altKey
+    || event.metaKey
+  ) return false;
+  const input = activeBrushSizeInput();
+  if (!input) return false;
+  brushSizeDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    startValue: Number(input.value),
+    input
+  };
+  renderer.domElement.setPointerCapture?.(event.pointerId);
+  refreshActiveBrushSizeCursor(event);
+  updateInteractionLocks();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  return true;
+}
+
+function updateBrushSizeDrag(event) {
+  if (!brushSizeDrag || event.pointerId !== brushSizeDrag.pointerId) return;
+  const { input, startValue, startX, startY } = brushSizeDrag;
+  const exponent = ((event.clientX - startX) - (event.clientY - startY)) / 180;
+  const minimum = Number(input.min);
+  const maximum = Number(input.max);
+  const step = Math.max(Number(input.step) || 0.01, 0.0001);
+  const unclamped = startValue * Math.exp(exponent);
+  const nextValue = THREE.MathUtils.clamp(
+    Math.round(unclamped / step) * step,
+    minimum,
+    maximum
+  );
+  input.value = String(nextValue);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  refreshActiveBrushSizeScale();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function finishBrushSizeDrag(event) {
+  if (
+    !brushSizeDrag
+    || (event?.pointerId !== undefined && event.pointerId !== brushSizeDrag.pointerId)
+  ) return;
+  const pointerId = brushSizeDrag.pointerId;
+  brushSizeDrag = null;
+  renderer.domElement.releasePointerCapture?.(pointerId);
+  updateInteractionLocks();
+  event?.preventDefault();
+  event?.stopImmediatePropagation();
+}
+
 function updateInteractionLocks() {
-  controls.enabled = !selectPointerCapture && !transformDragging && !relaxEdit && !proportionalSizeEdit && !proportionalHotkeyPress && !scalpLatticeDrag && !scalpPaintDrag && !scalpBuilderStroke && !viewSnapDrag && !viewPlaneMoveDrag && !drawStrandStroke && !selectionMarqueeDrag && !panelSplitDrag && !capsuleGuideLoopDrag;
-  transformControls.enabled = !proportionalSizeEdit && !proportionalHotkeyPress && !scalpBuilderStroke && !viewSnapDrag && !viewPlaneMoveDrag && !drawStrandStroke && !panelSplitDrag && !capsuleGuideLoopDrag;
+  controls.enabled = !toolRadialGesture && !strandRadialGesture && !duplicatePlacement && !referenceOverlayDrag && !selectPointerCapture && !transformDragging && !relaxEdit && !proportionalSizeEdit && !proportionalHotkeyPress && !brushSizeDrag && !scalpLatticeDrag && !scalpPaintDrag && !scalpBuilderStroke && !viewSnapDrag && !viewPlaneMoveDrag && !drawStrandStroke && !selectionMarqueeDrag && !panelSplitDrag && !capsuleGuideLoopDrag;
+  transformControls.enabled = !toolRadialGesture && !strandRadialGesture && !duplicatePlacement && !referenceOverlayDrag && !altOrbitDrag && !proportionalSizeEdit && !proportionalHotkeyPress && !brushSizeDrag && !scalpBuilderStroke && !viewSnapDrag && !viewPlaneMoveDrag && !drawStrandStroke && !panelSplitDrag && !capsuleGuideLoopDrag;
 }
 
 function configureTransformControls(tool) {
@@ -7922,7 +9623,6 @@ function endViewPlaneMove(event) {
   commitClumpMemberRestState(mirrorPartnerFor(editedLock));
   viewPlaneMoveDrag = null;
   flushPendingLockGeometryUpdates();
-  scheduleStrandCollisionResolve();
   activeHandleEdit = null;
   activeLatticeMultiEdit = null;
   if (renderer.domElement.hasPointerCapture?.(pointerId)) renderer.domElement.releasePointerCapture(pointerId);
@@ -8128,7 +9828,6 @@ function endRelaxEdit() {
   commitClumpMemberRestState(mirrorPartnerFor(editedLock));
   relaxEdit = null;
   flushPendingLockGeometryUpdates();
-  scheduleStrandCollisionResolve();
   updateInteractionLocks();
 }
 
@@ -8246,6 +9945,7 @@ function createBraidGeometry(lock) {
     sourceCenter,
     sourceMinY,
     sourceLength,
+    sourceFaceVertexCounts,
     sourceUvBounds,
     uvHeight,
     seamData
@@ -8261,6 +9961,8 @@ function createBraidGeometry(lock) {
   const uvs = [];
   const colors = [];
   const indices = [];
+  const authoredFaces = [];
+  const triangleEdgeMasks = [];
   const vertexMap = new Map();
   const boundaryVertices = { start: new Map(), end: new Map() };
   const quantize = (value, precision = 10000) => Math.round(value * precision);
@@ -8350,12 +10052,35 @@ function createBraidGeometry(lock) {
   }
 
   for (let segmentIndex = 0; segmentIndex < repeatCount; segmentIndex += 1) {
-    for (let sourceIndex = 0; sourceIndex < sourcePosition.count; sourceIndex += 3) {
-      indices.push(
-        outputVertex(segmentIndex, sourceIndex),
-        outputVertex(segmentIndex, sourceIndex + 1),
-        outputVertex(segmentIndex, sourceIndex + 2)
-      );
+    let sourceCursor = 0;
+    sourceFaceVertexCounts.forEach((faceVertexCount) => {
+      const face = [];
+      const masks = fanTriangleEdgeMasks(faceVertexCount);
+      masks.forEach((mask) => {
+        const triangle = [
+          outputVertex(segmentIndex, sourceCursor),
+          outputVertex(segmentIndex, sourceCursor + 1),
+          outputVertex(segmentIndex, sourceCursor + 2)
+        ];
+        indices.push(...triangle);
+        triangleEdgeMasks.push(mask);
+        triangle.forEach((vertexIndex) => {
+          if (!face.includes(vertexIndex)) face.push(vertexIndex);
+        });
+        sourceCursor += 3;
+      });
+      if (face.length >= 3) authoredFaces.push(face);
+    });
+    while (sourceCursor + 2 < sourcePosition.count) {
+      const triangle = [
+        outputVertex(segmentIndex, sourceCursor),
+        outputVertex(segmentIndex, sourceCursor + 1),
+        outputVertex(segmentIndex, sourceCursor + 2)
+      ];
+      indices.push(...triangle);
+      triangleEdgeMasks.push([1, 1, 1]);
+      authoredFaces.push(triangle);
+      sourceCursor += 3;
     }
   }
 
@@ -8365,10 +10090,23 @@ function createBraidGeometry(lock) {
     const capNormal = template.geometry.getAttribute("normal");
     const capUv = template.geometry.getAttribute("uv");
     const seamY = atStart ? template.bounds.max.y : template.bounds.min.y;
-    for (let sourceIndex = 0; sourceIndex < capPosition.count; sourceIndex += 1) {
+    const capVertexMap = new Map();
+    const outputCapVertex = (sourceIndex) => {
       const sourceX = capPosition.getX(sourceIndex);
       const sourceY = capPosition.getY(sourceIndex);
       const sourceZ = capPosition.getZ(sourceIndex);
+      const normalX = capNormal ? capNormal.getX(sourceIndex) : 0;
+      const normalY = capNormal ? capNormal.getY(sourceIndex) : 0;
+      const normalZ = capNormal ? capNormal.getZ(sourceIndex) : 1;
+      const uvX = capUv ? capUv.getX(sourceIndex) : 0.5;
+      const uvY = capUv ? capUv.getY(sourceIndex) : 0.5;
+      const key = [
+        quantize(sourceX), quantize(sourceY), quantize(sourceZ),
+        quantize(normalX), quantize(normalY), quantize(normalZ),
+        quantize(uvX, 100000), quantize(uvY, 100000)
+      ].join("|");
+      const existing = capVertexMap.get(key);
+      if (existing !== undefined) return existing;
       const moduleOffset = (sourceY - seamY) / sourceLength;
       const t = atStart ? moduleOffset / repeatCount : 1 + moduleOffset / repeatCount;
       const { frame, width, depth, sampleT } = deformationAt(t, true);
@@ -8378,22 +10116,50 @@ function createBraidGeometry(lock) {
       const position = frame.point.clone()
         .addScaledVector(frame.x, profilePosition.x * width)
         .addScaledVector(frame.z, profilePosition.y * depth);
-      const normalX = capNormal ? capNormal.getX(sourceIndex) : normalizedX;
-      const normalY = capNormal ? capNormal.getY(sourceIndex) : 0;
-      const normalZ = capNormal ? capNormal.getZ(sourceIndex) : normalizedZ;
       const longitudinalScale = curveLength / repeatCount / sourceLength;
       const worldNormal = new THREE.Vector3()
         .addScaledVector(frame.x, normalX / Math.max(0.0001, width * projectThroughProfile.scaleX / sourceSize.x))
         .addScaledVector(frame.y, normalY / Math.max(0.0001, longitudinalScale))
         .addScaledVector(frame.z, normalZ / Math.max(0.0001, depth * projectThroughProfile.scaleZ / sourceSize.z))
         .normalize();
+      const outputIndex = vertices.length / 3;
+      capVertexMap.set(key, outputIndex);
       vertices.push(position.x, position.y, position.z);
       normals.push(worldNormal.x, worldNormal.y, worldNormal.z);
       tangents.push(frame.y.x, frame.y.y, frame.y.z, 1);
-      uvs.push(capUv ? capUv.getX(sourceIndex) : normalizedX + 0.5, capUv ? capUv.getY(sourceIndex) : sampleT);
+      uvs.push(capUv ? uvX : normalizedX + 0.5, capUv ? uvY : sampleT);
       const color = strandInfluenceColor(lock, sampleT);
       colors.push(color.r, color.g, color.b);
-      indices.push(vertices.length / 3 - 1);
+      return outputIndex;
+    };
+    let sourceCursor = 0;
+    (template.faceVertexCounts || []).forEach((faceVertexCount) => {
+      const face = [];
+      fanTriangleEdgeMasks(faceVertexCount).forEach((mask) => {
+        const triangle = [
+          outputCapVertex(sourceCursor),
+          outputCapVertex(sourceCursor + 1),
+          outputCapVertex(sourceCursor + 2)
+        ];
+        indices.push(...triangle);
+        triangleEdgeMasks.push(mask);
+        triangle.forEach((vertexIndex) => {
+          if (!face.includes(vertexIndex)) face.push(vertexIndex);
+        });
+        sourceCursor += 3;
+      });
+      if (face.length >= 3) authoredFaces.push(face);
+    });
+    while (sourceCursor + 2 < capPosition.count) {
+      const triangle = [
+        outputCapVertex(sourceCursor),
+        outputCapVertex(sourceCursor + 1),
+        outputCapVertex(sourceCursor + 2)
+      ];
+      indices.push(...triangle);
+      triangleEdgeMasks.push([1, 1, 1]);
+      authoredFaces.push(triangle);
+      sourceCursor += 3;
     }
   }
 
@@ -8433,11 +10199,13 @@ function createBraidGeometry(lock) {
       uvs.push(0.5, t * repeatCount);
       const color = strandInfluenceColor(lock, t);
       colors.push(color.r, color.g, color.b);
+      authoredFaces.push(reverse ? [...capRing].reverse() : [...capRing]);
       for (let index = 0; index < capRing.length; index += 1) {
         const current = capRing[index];
         const next = capRing[(index + 1) % capRing.length];
         if (reverse) indices.push(centerIndex, next, current);
         else indices.push(centerIndex, current, next);
+        triangleEdgeMasks.push([1, 0, 0]);
       }
     });
   }
@@ -8455,7 +10223,10 @@ function createBraidGeometry(lock) {
   geometry.setIndex(indices);
   geometry.userData.braidRepeatCount = repeatCount;
   geometry.userData.braidMeshPreset = preset.id;
-  geometry.userData.sideTriangleCount = indices.length / 3;
+  geometry.userData.quadFaces = authoredFaces;
+  geometry.userData.triangleEdgeMasks = triangleEdgeMasks;
+  geometry.userData.sideTriangleCount = 0;
+  geometry.userData.topology = "authored-polygons";
   return geometry;
 }
 
@@ -8918,16 +10689,112 @@ function createSplitStrandGeometry(lock, curve, profilePoints) {
   return geometry;
 }
 
+function createHairCardGeometry(lock, curve, profilePoints) {
+  const profileCurve = createSmoothSweepProfileCurve(profilePoints);
+  const radialSegments = THREE.MathUtils.clamp(Math.round(lock.radialSegments || 10), 4, 24);
+  const closedTopology = createSweepProfileTopology(profilePoints, radialSegments, profileCurve);
+  const arcIndices = upperProfileArcIndices(closedTopology.samples.map((sample) => sample.point));
+  const arcSamples = arcIndices.map((index) => closedTopology.samples[index]);
+  const arcDistances = [0];
+  for (let index = 1; index < arcSamples.length; index += 1) {
+    arcDistances.push(arcDistances.at(-1) + arcSamples[index - 1].point.distanceTo(arcSamples[index].point));
+  }
+  const arcLength = Math.max(0.0001, arcDistances.at(-1));
+  let profileVertexCount = 0;
+  const profileSamples = arcSamples.map((sample, index) => {
+    const interiorHardPoint = sample.hard && index > 0 && index < arcSamples.length - 1;
+    const incomingSlot = profileVertexCount++;
+    const outgoingSlot = interiorHardPoint ? profileVertexCount++ : incomingSlot;
+    return {
+      ...sample,
+      u: arcDistances[index] / arcLength,
+      incomingSlot,
+      outgoingSlot
+    };
+  });
+  const profileSlots = Array(profileVertexCount);
+  profileSamples.forEach((sample) => {
+    profileSlots[sample.incomingSlot] = sample;
+    profileSlots[sample.outgoingSlot] = sample;
+  });
+  const profileEdges = profileSamples.slice(0, -1).map((sample, index) => ({
+    start: sample.outgoingSlot,
+    end: profileSamples[index + 1].incomingSlot
+  }));
+  const curlSegments = lock.curlEnabled ? Math.ceil(Number(lock.curlCount ?? 4) * 14) : 0;
+  const lengthSegments = THREE.MathUtils.clamp(
+    Math.max(Math.round(lock.lengthSegments || 26), curlSegments),
+    4,
+    256
+  );
+  const curveParameters = strandCurveParameters(lock, curve, lengthSegments);
+  const actualLengthSegments = curveParameters.length - 1;
+  const vertices = [];
+  const tangents = [];
+  const uvs = [];
+  const colors = [];
+  const indices = [];
+  const quadFaces = [];
+  let previousFrame = null;
+
+  curveParameters.forEach((t) => {
+    const point = curve.getPoint(t);
+    const frame = strandGeometryFrameAt(lock, curve, t, previousFrame);
+    previousFrame = frame;
+    const scaleX = sampleScale(lock.pointScales, t, "x");
+    const scaleZ = sampleScale(lock.pointScales, t, "z");
+    const radiusX = strandRadiusAt(lock, t, "x");
+    const radiusZ = strandRadiusAt(lock, t, "z");
+    const color = strandInfluenceColor(lock, t);
+    profileSlots.forEach((profileSample) => {
+      const profile = profileSample.point;
+      const vertex = point.clone()
+        .addScaledVector(frame.x, profile.x * radiusX * scaleX)
+        .addScaledVector(frame.z, profile.z * radiusZ * scaleZ);
+      vertices.push(vertex.x, vertex.y, vertex.z);
+      tangents.push(frame.y.x, frame.y.y, frame.y.z, 1);
+      uvs.push(profileSample.u, t);
+      colors.push(color.r, color.g, color.b);
+    });
+  });
+
+  for (let row = 0; row < actualLengthSegments; row += 1) {
+    profileEdges.forEach((edge) => {
+      const a = row * profileVertexCount + edge.start;
+      const b = row * profileVertexCount + edge.end;
+      const c = (row + 1) * profileVertexCount + edge.start;
+      const d = (row + 1) * profileVertexCount + edge.end;
+      indices.push(a, c, b, b, c, d);
+      quadFaces.push([a, c, d, b]);
+    });
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute("tangent", new THREE.Float32BufferAttribute(tangents, 4));
+  geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setIndex(indices);
+  geometry.userData.quadFaces = quadFaces;
+  geometry.userData.sideTriangleCount = actualLengthSegments * profileEdges.length * 2;
+  geometry.userData.actualLengthSegments = actualLengthSegments;
+  geometry.userData.openSurface = true;
+  geometry.computeVertexNormals();
+  geometry.computeBoundingSphere();
+  return geometry;
+}
+
 function createHairGeometry(lock) {
   if (lock.geometryType === "panel") return createPanelStrandGeometry(lock);
   if (lock.geometryType === "braid") {
     const braidGeometry = createBraidGeometry(lock);
-    if (braidGeometry) return braidGeometry;
+      if (braidGeometry) return braidGeometry;
   }
   const curve = strandGeometryCurve(lock);
   const baseProfilePoints = (lock.sweepProfile?.length >= 4 ? lock.sweepProfile : DEFAULT_SWEEP_PROFILE)
     .map((point) => ({ ...point, z: point.z + Number(lock.profileOffset || 0) }));
   const profilePoints = trimmedSweepProfile(baseProfilePoints, lock);
+  if (lock.geometryType === "strand" && lock.hairCard) return createHairCardGeometry(lock, curve, profilePoints);
   if (lock.geometryType === "strand" && lock.strandSplitEnabled) {
     const splitGeometry = createSplitStrandGeometry(lock, curve, profilePoints);
     if (splitGeometry) return splitGeometry;
@@ -9561,6 +11428,29 @@ function renderProfilePreview(path, profile, offset = 0, target = null) {
     y: 43 - (point.z + offset) * 30
   }));
   path.setAttribute("d", `${sampled.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ")} Z`);
+  if (path === profilePreviewPaths.strand) {
+    renderHairCardCoveragePath(
+      strandHairCardCoveragePreview,
+      visibleProfile,
+      Boolean(target?.hairCard),
+      (point) => ({ x: 43 + point.x * 30, y: 43 - (point.z + offset) * 30 })
+    );
+  }
+}
+
+function renderHairCardCoveragePath(path, profile, visible, mapPoint) {
+  if (!path) return;
+  if (!visible || !profile?.length) {
+    path.setAttribute("d", "");
+    return;
+  }
+  const topology = createSweepProfileTopology(profile, 96);
+  const arc = upperProfileArcIndices(topology.samples.map((sample) => sample.point))
+    .map((index) => mapPoint(topology.samples[index].point));
+  path.setAttribute(
+    "d",
+    arc.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ")
+  );
 }
 
 function activeTaperCurve() {
@@ -9780,6 +11670,12 @@ function renderSweepProfileEditor() {
   const sampled = Array.from({ length: 97 }, (_, index) => sampleSweepProfile(visibleProfile, index / 96, smoothCurve))
     .map((point) => profileToCanvas({ x: point.x, z: point.z }));
   sweepProfilePath.setAttribute("d", `${sampled.map((point, index) => `${index ? "L" : "M"}${point.x.toFixed(2)},${point.y.toFixed(2)}`).join(" ")} Z`);
+  renderHairCardCoveragePath(
+    sweepProfileHairCardCoveragePath,
+    visibleProfile,
+    Boolean(target?.hairCard),
+    (point) => profileToCanvas({ x: point.x, z: point.z })
+  );
   sweepProfilePoints.replaceChildren();
   visibleProfile.forEach((point, index) => {
     const canvasPoint = profileToCanvas(point);
@@ -9874,6 +11770,7 @@ function addLock(presetName, overrides = {}, options = {}) {
     ...base,
     scalpRegion,
     materialId: base.materialId || DEFAULT_HAIR_MATERIAL_ID,
+    outlinerVisible: base.outlinerVisible !== false,
     name: nextStrandName(scalpRegion)
   };
   lockIndex += 1;
@@ -9890,6 +11787,7 @@ function addLock(presetName, overrides = {}, options = {}) {
   lock.profileTrimLeft = THREE.MathUtils.clamp(Number(base.profileTrimLeft ?? 0), 0, 1);
   lock.profileTrimRight = THREE.MathUtils.clamp(Number(base.profileTrimRight ?? 0), 0, 1);
   lock.profileTrimRoundness = THREE.MathUtils.clamp(Number(base.profileTrimRoundness ?? 1), 0, 1);
+  lock.hairCard = Boolean(base.hairCard);
   lock.strandSplitEnabled = Boolean(base.strandSplitEnabled);
   lock.strandSplitPosition = THREE.MathUtils.clamp(Number(base.strandSplitPosition ?? 0), -0.8, 0.8);
   lock.strandSplitHeight = THREE.MathUtils.clamp(Number(base.strandSplitHeight ?? 0.3), 0.02, 0.8);
@@ -9948,6 +11846,9 @@ function addLock(presetName, overrides = {}, options = {}) {
     createHairGeometry(lock),
     createHairMaterial(lock)
   );
+  lock.mesh.material.side = lock.geometryType === "braid" || lock.hairCard
+    ? THREE.DoubleSide
+    : THREE.FrontSide;
   lock.wireOverlay = createHairTopologyOverlay(lock.mesh.geometry);
   lock.mesh.add(lock.wireOverlay);
   lock.mesh.castShadow = true;
@@ -10034,6 +11935,7 @@ function createMirrorPartner(lock, options = {}) {
     profileTrimLeft: lock.profileTrimRight,
     profileTrimRight: lock.profileTrimLeft,
     profileTrimRoundness: lock.profileTrimRoundness,
+    hairCard: Boolean(lock.hairCard),
     strandSplitEnabled: Boolean(lock.strandSplitEnabled),
     strandSplitPosition: -Number(lock.strandSplitPosition ?? 0),
     strandSplitHeight: Number(lock.strandSplitHeight ?? 0.3),
@@ -10080,6 +11982,7 @@ function createMirrorPartner(lock, options = {}) {
 
 function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), options = {}) {
   if (!lock || !partner || partner === lock) return null;
+  partner.outlinerVisible = lock.outlinerVisible !== false;
   partner.materialId = lock.materialId || DEFAULT_HAIR_MATERIAL_ID;
   partner.scalpRegion = mirroredScalpRegion(lock.scalpRegion);
   partner.hairLayer = normalizeHairLayer(lock.hairLayer);
@@ -10112,6 +12015,7 @@ function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), optio
   partner.profileTrimLeft = Number(lock.profileTrimRight ?? 0);
   partner.profileTrimRight = Number(lock.profileTrimLeft ?? 0);
   partner.profileTrimRoundness = Number(lock.profileTrimRoundness ?? 1);
+  partner.hairCard = Boolean(lock.hairCard);
   partner.strandSplitEnabled = Boolean(lock.strandSplitEnabled);
   partner.strandSplitPosition = -Number(lock.strandSplitPosition ?? 0);
   partner.strandSplitHeight = Number(lock.strandSplitHeight ?? 0.3);
@@ -10196,12 +12100,17 @@ function setMirrorXEditing(enabled) {
 function snapshotState() {
   return {
     scalpAttachmentVersion: 4,
+    visibleStrandRegions: [...visibleStrandRegions],
+    visibleStrandLayers: [...visibleStrandLayers],
+    capsuleGuidesVisible,
     lockIndex,
+    referenceImageIndex,
     hairMaterialIndex,
     hairMaterials: hairMaterialDefinitions.map((material) => ({ ...material })),
     selectedId,
     clumpViewportSelection,
     selectedGuideId,
+    selectedReferenceImageId,
     activeCurveLatticeGuideId,
     selectedStrandGroup,
     selectedPoint: selectedPoint ? { ...selectedPoint } : null,
@@ -10209,7 +12118,6 @@ function snapshotState() {
     selectedControlPoints: selectedControlPoints.map((point) => ({ ...point })),
     pendingPlacedLockId,
     mirrorXEditing,
-    strandCollisionEnabled,
     headTransform: { ...headTransform },
     scalpRoughScale: { ...scalpRoughScale },
     scalpBuilderEditedPoints: (scalpBuilderCurveLattice?.points || scalpBuilderEditedPoints || []).map(vectorToData),
@@ -10228,10 +12136,13 @@ function snapshotState() {
       depthCurve: defaults.depthCurve.map((point) => ({ ...point })),
       sweepProfile: defaults.sweepProfile.map((point) => ({ ...point }))
     }])),
-    locks: locks.map((lock) => ({
+    locks: locks
+      .filter((lock) => lock.id !== duplicatePlacement?.lockId)
+      .map((lock) => ({
       id: lock.id,
       mirrorPartnerId: lock.mirrorPartnerId || null,
       name: lock.name,
+      outlinerVisible: lock.outlinerVisible !== false,
       materialId: lock.materialId || DEFAULT_HAIR_MATERIAL_ID,
       x: lock.x,
       y: lock.y,
@@ -10255,6 +12166,7 @@ function snapshotState() {
       profileTrimLeft: Number(lock.profileTrimLeft ?? 0),
       profileTrimRight: Number(lock.profileTrimRight ?? 0),
       profileTrimRoundness: Number(lock.profileTrimRoundness ?? 1),
+      hairCard: Boolean(lock.hairCard),
       strandSplitEnabled: Boolean(lock.strandSplitEnabled),
       strandSplitPosition: Number(lock.strandSplitPosition ?? 0),
       strandSplitHeight: Number(lock.strandSplitHeight ?? 0.3),
@@ -10318,10 +12230,12 @@ function snapshotState() {
       groupLatticeBasePoints: lock.groupLatticeBasePoints?.map(vectorToData) || null,
       placementFrame: lock.placementFrame ? frameToData(lock.placementFrame) : null
     })),
+    referenceImages: referenceImages.map(serializeReferenceImage),
     guides: guides.map((guide) => guide.type === "capsule" ? {
       id: guide.id,
       type: guide.type,
       name: guide.name,
+      outlinerVisible: guide.outlinerVisible !== false,
       start: vectorToData(guide.start),
       end: vectorToData(guide.end),
       radius: guide.radius,
@@ -10336,6 +12250,7 @@ function snapshotState() {
     } : guide.type === "curve-lattice" ? {
       id: guide.id,
       type: guide.type,
+      outlinerVisible: guide.outlinerVisible !== false,
       columns: guide.columns,
       rows: guide.rows,
       opacity: guide.opacity,
@@ -10351,6 +12266,7 @@ function snapshotState() {
       deformRestBottomPoints: (guide.deformRestBottomPoints || guide.bottomPoints || []).map(vectorToData)
     } : ({
       id: guide.id,
+      outlinerVisible: guide.outlinerVisible !== false,
       x: guide.x,
       y: guide.y,
       z: guide.z,
@@ -10587,23 +12503,16 @@ function applyRootAttachmentLocalCurves(lock) {
   return true;
 }
 
-function rebindLoadedRootsToAuthoredScalp() {
-  const reboundLocks = [];
-  clumpUpdateInProgress = true;
-  try {
-    locks.forEach((lock) => {
-      if (!applyRootAttachmentLocalCurves(lock)) return;
-      syncLockFromCurve(lock);
-      reboundLocks.push(lock);
-    });
-  } finally {
-    clumpUpdateInProgress = false;
-  }
-
-  reboundLocks.forEach((lock) => updateLockGeometry(lock, { immediate: true }));
-  const selectedLock = getSelectedLock();
-  if (selectedLock) syncInputs(selectedLock);
-  updateTopologyStats();
+function refreshLoadedRootAttachmentsOnAuthoredScalp() {
+  locks.forEach((lock) => {
+    if (lock.rootAttachmentEnabled === false || !lock.points?.length) return;
+    const sourcePoint = lock.rootSurfacePoint?.clone() || lock.points[0].clone();
+    lock.rootAttachment = createRootAttachment(lock, sourcePoint);
+    if (!lock.rootAttachment) return;
+    lock.rootSurfacePoint = lock.rootAttachment.surfacePoint.clone();
+    lock.rootSurfaceNormal = lock.rootAttachment.normal.clone();
+    syncRootAttachmentMetadata(lock);
+  });
 }
 
 function createRootAttachment(lock, sourceOverride = null) {
@@ -10691,7 +12600,7 @@ function rootAttachmentToData(attachment) {
   };
 }
 
-function rootAttachmentFromData(data, lock) {
+function rootAttachmentFromData(data, lock, { resolveSurface = true } = {}) {
   if (!data) return createRootAttachment(lock);
   const normal = dataToVector(data.normal || vectorToData(lock.rootSurfaceNormal || new THREE.Vector3(0, 1, 0))).normalize();
   const tangent = dataToVector(data.tangent || { x: 0, y: -1, z: 0 }).normalize();
@@ -10720,7 +12629,7 @@ function rootAttachmentFromData(data, lock) {
     hairLayer: normalizeHairLayer(data.hairLayer ?? lock.hairLayer),
     localOffset: Number(data.localOffset ?? lock.rootScalpOffset ?? 0)
   };
-  const resolved = resolveRootAttachment(attachment);
+  const resolved = resolveSurface ? resolveRootAttachment(attachment) : null;
   if (resolved) {
     attachment.surfacePoint.copy(resolved.point);
     if (resolved.normal) attachment.normal.copy(resolved.normal);
@@ -10974,6 +12883,9 @@ function updateHistoryButtons() {
 function restoreState(state, { preservePlacement = false, deferRootAttachments = false } = {}) {
   restoringHistory = true;
   transformControls.detach();
+  duplicatePlacement = null;
+  hideStrandRadialMenu();
+  hideToolRadialMenu();
   placeEdit = null;
   transformDragging = false;
   updateInteractionLocks();
@@ -10981,6 +12893,14 @@ function restoreState(state, { preservePlacement = false, deferRootAttachments =
   locks.length = 0;
   guides.length = 0;
   lockIndex = state.lockIndex;
+  referenceImageIndex = state.referenceImageIndex || 1;
+  visibleStrandRegions.clear();
+  (state.visibleStrandRegions || STRAND_GROUPS.map((group) => group.id))
+    .forEach((region) => visibleStrandRegions.add(region));
+  visibleStrandLayers.clear();
+  (state.visibleStrandLayers || HAIR_LAYERS.map((layer) => layer.id))
+    .forEach((layer) => visibleStrandLayers.add(layer));
+  capsuleGuidesVisible = state.capsuleGuidesVisible !== false;
   hairMaterialIndex = state.hairMaterialIndex || 1;
   hairMaterialDefinitions.splice(
     0,
@@ -10997,13 +12917,13 @@ function restoreState(state, { preservePlacement = false, deferRootAttachments =
   selectedId = state.selectedId;
   clumpViewportSelection = Boolean(state.clumpViewportSelection);
   selectedGuideId = state.selectedGuideId;
+  selectedReferenceImageId = state.selectedReferenceImageId || null;
   activeCurveLatticeGuideId = state.activeCurveLatticeGuideId || null;
   selectedStrandGroup = state.selectedStrandGroup || null;
   selectedPoint = state.selectedPoint ? { ...state.selectedPoint } : null;
   selectedCurveLatticePoint = state.selectedCurveLatticePoint ? { ...state.selectedCurveLatticePoint } : null;
   pendingPlacedLockId = state.pendingPlacedLockId;
   setMirrorXEditing(Boolean(state.mirrorXEditing));
-  setStrandCollisionEnabled(Boolean(state.strandCollisionEnabled), { resolve: false });
   if (!preservePlacement) {
     scalpBuilderEditedPoints = state.scalpBuilderEditedPoints?.map(dataToVector) || null;
     if (scalpBuilderCurveLattice && scalpBuilderEditedPoints?.length === scalpBuilderCurveLattice.points.length) {
@@ -11035,9 +12955,9 @@ function restoreState(state, { preservePlacement = false, deferRootAttachments =
         editedScalpRegions = [...state.editedScalpRegions];
         writeEditedScalpRegionColors();
       }
-      // Locks are restored synchronously below. Rebind them once the authored scalp
-      // has finished rebuilding so triangle attachments never resolve on stale geometry.
-      rebindLoadedRootsToAuthoredScalp();
+      // Project points are already authored world-space data. Refresh attachment
+      // metadata on the rebuilt scalp without reconstructing or moving the curves.
+      refreshLoadedRootAttachmentsOnAuthoredScalp();
     }).catch((error) => console.error("Could not restore the authored scalp surface", error));
     if (state.scalpSurface) Object.assign(scalpSurface, state.scalpSurface);
     if (state.scalpArtistShape) Object.assign(scalpArtistShape, state.scalpArtistShape);
@@ -11074,14 +12994,19 @@ function restoreState(state, { preservePlacement = false, deferRootAttachments =
     updateScalpLatticeObjects();
   }
 
-  state.locks.forEach((snapshot) => restoreLock(snapshot, { deferRootAttachment: deferRootAttachments }));
+  state.locks.forEach((snapshot) => restoreLock(snapshot, {
+    deferRootAttachment: deferRootAttachments,
+    remapRootAttachment: preservePlacement
+  }));
   state.guides.forEach((snapshot) => restoreGuide(snapshot));
+  (state.referenceImages || []).forEach((snapshot) => addReferenceImage(snapshot, { select: false }));
 
   if (!locks.some((lock) => lock.id === selectedId)) {
     selectedId = undefined;
     clumpViewportSelection = false;
   }
   if (!guides.some((guide) => guide.id === selectedGuideId)) selectedGuideId = undefined;
+  if (!referenceImages.some((reference) => reference.id === selectedReferenceImageId)) selectedReferenceImageId = null;
   if (!guides.some((guide) => guide.id === activeCurveLatticeGuideId && guide.type === "curve-lattice")) activeCurveLatticeGuideId = null;
   if (!CURVE_LATTICE_FEATURE_ENABLED) {
     if (guides.some((guide) => guide.id === selectedGuideId && guide.type === "curve-lattice")) {
@@ -11096,7 +13021,8 @@ function restoreState(state, { preservePlacement = false, deferRootAttachments =
   const pointToRestore = selectedPoint ? { ...selectedPoint } : null;
   const latticePointToRestore = selectedCurveLatticePoint ? { ...selectedCurveLatticePoint } : null;
   const controlsToRestore = (state.selectedControlPoints || []).map((point) => ({ ...point }));
-  if (selectedId) selectLock(selectedId, { individualClumpMember: !clumpViewportSelection });
+  if (selectedReferenceImageId) selectReferenceImage(selectedReferenceImageId);
+  else if (selectedId) selectLock(selectedId, { individualClumpMember: !clumpViewportSelection });
   else if (selectedStrandGroup) {
     const groupToRestore = selectedStrandGroup;
     selectedStrandGroup = null;
@@ -11134,6 +13060,7 @@ function restoreState(state, { preservePlacement = false, deferRootAttachments =
 }
 
 function disposeAllEditableObjects() {
+  clearReferenceImages();
   locks.forEach((lock) => {
     hairGroup.remove(lock.mesh);
     curveGroup.remove(lock.curveObjects.group);
@@ -11149,7 +13076,7 @@ function disposeAllEditableObjects() {
   });
 }
 
-function restoreLock(snapshot, { deferRootAttachment = false } = {}) {
+function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachment = false } = {}) {
   const legacyUniformLayerOffset = snapshot.layerOffsetRootFactorApplied == null;
   const lock = {
     ...snapshot,
@@ -11167,6 +13094,7 @@ function restoreLock(snapshot, { deferRootAttachment = false } = {}) {
     profileTrimLeft: THREE.MathUtils.clamp(Number(snapshot.profileTrimLeft ?? 0), 0, 1),
     profileTrimRight: THREE.MathUtils.clamp(Number(snapshot.profileTrimRight ?? 0), 0, 1),
     profileTrimRoundness: THREE.MathUtils.clamp(Number(snapshot.profileTrimRoundness ?? 1), 0, 1),
+    hairCard: Boolean(snapshot.hairCard),
     strandSplitEnabled: Boolean(snapshot.strandSplitEnabled),
     strandSplitPosition: THREE.MathUtils.clamp(Number(snapshot.strandSplitPosition ?? 0), -0.8, 0.8),
     strandSplitHeight: THREE.MathUtils.clamp(Number(snapshot.strandSplitHeight ?? 0.3), 0.02, 0.8),
@@ -11233,11 +13161,13 @@ function restoreLock(snapshot, { deferRootAttachment = false } = {}) {
     placementFrame: snapshot.placementFrame ? frameFromData(snapshot.placementFrame) : null
   };
   lock.rootAttachment = lock.rootAttachmentEnabled && !deferRootAttachment
-    ? rootAttachmentFromData(snapshot.rootAttachment || null, lock)
+    ? rootAttachmentFromData(snapshot.rootAttachment || null, lock, {
+      resolveSurface: remapRootAttachment
+    })
     : null;
   lock.rootSurfacePoint = lock.rootAttachment?.surfacePoint?.clone() || lock.rootSurfacePoint;
   lock.rootSurfaceNormal = lock.rootAttachment?.normal?.clone() || lock.rootSurfaceNormal;
-  applyRootAttachmentLocalCurves(lock);
+  if (remapRootAttachment) applyRootAttachmentLocalCurves(lock);
   lock.radialSegments = lock.radialSegments || 10;
   lock.lengthSegments = lock.lengthSegments || 26;
   if (legacyUniformLayerOffset) applyLayerOffset(lock, lock.layerOffsetApplied);
@@ -11245,6 +13175,9 @@ function restoreLock(snapshot, { deferRootAttachment = false } = {}) {
     createHairGeometry(lock),
     createHairMaterial(lock)
   );
+  lock.mesh.material.side = lock.geometryType === "braid" || lock.hairCard
+    ? THREE.DoubleSide
+    : THREE.FrontSide;
   lock.wireOverlay = createHairTopologyOverlay(lock.mesh.geometry);
   lock.mesh.add(lock.wireOverlay);
   lock.mesh.castShadow = true;
@@ -12828,6 +14761,12 @@ function activeStrokeBrushSize() {
   return Number(strandCreationDefaults.width) * Number(drawToolSizeInput.value);
 }
 
+function activeStrokeBrushDepth() {
+  if (braidStrokeActive()) return Number(braidCreationDefaults.braidDepth) * Number(braidToolSizeInput.value);
+  if (panelStrokeActive()) return Number(panelCreationDefaults.panelThickness) * Number(panelToolSizeInput.value);
+  return Number(strandCreationDefaults.depth) * Number(drawToolSizeInput.value);
+}
+
 function strokeSurfaceIsContextual(surfaceMode = activeStrokeSurfaceValue()) {
   return surfaceMode === "contextual-plane"
     || surfaceMode.endsWith("-contextual")
@@ -12931,7 +14870,7 @@ function updateDrawStrandBrushCursor(event) {
     drawStrandBrushCursor.visible = true;
     drawStrandBrushCursor.position.copy(extensionLock.points.at(-1));
     drawStrandBrushCursor.quaternion.copy(camera.quaternion);
-    drawStrandBrushCursor.scale.setScalar(Math.max(0.04, cursorScale));
+    setDrawStrandBrushCursorScale(cursorScale);
     return;
   }
   const hit = drawSurfaceHitFromEvent(event, { root: true });
@@ -12946,7 +14885,7 @@ function updateDrawStrandBrushCursor(event) {
     0.006 + activeStrokeScalpOffset() * ROOT_SCALP_OFFSET_DISTANCE
   );
   drawStrandBrushCursor.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-  drawStrandBrushCursor.scale.setScalar(cursorScale);
+  setDrawStrandBrushCursorScale(cursorScale);
 }
 
 function strokeLength(samples) {
@@ -13470,6 +15409,7 @@ function updateDrawStrandPreview() {
       : sampledNormals,
     baseWidth: extensionLock?.baseWidth || drawStrandStroke.brushSize,
     width: extensionLock?.width || drawStrandStroke.brushSize,
+    depth: extensionLock?.depth ?? drawStrandStroke.brushDepth,
     braidMeshPreset: extensionLock?.braidMeshPreset || drawStrandStroke.braidMeshPreset || DEFAULT_BRAID_MESH_PRESET,
     braidWidth: extensionLock?.braidWidth || drawStrandStroke.braidWidth,
     braidDepth: extensionLock?.braidDepth || drawStrandStroke.braidDepth,
@@ -13484,6 +15424,7 @@ function updateDrawStrandPreview() {
     profileTrimLeft: extensionLock?.profileTrimLeft ?? drawStrandStroke.profileTrimLeft,
     profileTrimRight: extensionLock?.profileTrimRight ?? drawStrandStroke.profileTrimRight,
     profileTrimRoundness: extensionLock?.profileTrimRoundness ?? drawStrandStroke.profileTrimRoundness,
+    hairCard: extensionLock?.hairCard ?? drawStrandStroke.hairCard,
     strandSplitEnabled: extensionLock?.strandSplitEnabled ?? drawStrandStroke.strandSplitEnabled,
     strandSplitPosition: extensionLock?.strandSplitPosition ?? drawStrandStroke.strandSplitPosition,
     strandSplitHeight: extensionLock?.strandSplitHeight ?? drawStrandStroke.strandSplitHeight,
@@ -13622,12 +15563,13 @@ function beginDrawStrandStroke(event, hit, extensionLock = null) {
     surfaceMode,
     scalpRegion,
     brushSize: activeStrokeBrushSize(),
+    brushDepth: activeStrokeBrushDepth(),
     braidMeshPreset: braidCreationDefaults.braidMeshPreset,
     braidWidth: Number(braidCreationDefaults.braidWidth) * Number(braidToolSizeInput.value),
     braidDepth: Number(braidCreationDefaults.braidDepth) * Number(braidToolSizeInput.value),
     braidSegmentLength: Number(braidCreationDefaults.braidSegmentLength) * Number(braidToolSizeInput.value),
     braidRotation: Number(braidCreationDefaults.braidRotation),
-    panelThickness: Number(panelCreationDefaults.panelThickness),
+    panelThickness: activeStrokeBrushDepth(),
     panelLengthLoops: Number(panelCreationDefaults.panelLengthLoops),
     panelWidthLoops: Number(panelCreationDefaults.panelWidthLoops),
     panelCurvature: Number(panelCreationDefaults.panelCurvature),
@@ -13636,6 +15578,7 @@ function beginDrawStrandStroke(event, hit, extensionLock = null) {
     profileTrimLeft: Number(strandCreationDefaults.profileTrimLeft),
     profileTrimRight: Number(strandCreationDefaults.profileTrimRight),
     profileTrimRoundness: Number(strandCreationDefaults.profileTrimRoundness),
+    hairCard: extensionLock?.hairCard ?? Boolean(strandCreationDefaults.hairCard),
     strandSplitEnabled: Boolean(strandCreationDefaults.strandSplitEnabled),
     strandSplitPosition: Number(strandCreationDefaults.strandSplitPosition),
     strandSplitHeight: Number(strandCreationDefaults.strandSplitHeight),
@@ -13750,13 +15693,14 @@ function createDrawnLock(stroke, points, pointSurfaceNormals, width, isCenter, s
     profileTrimLeft: Number(stroke.profileTrimLeft ?? strandCreationDefaults.profileTrimLeft),
     profileTrimRight: Number(stroke.profileTrimRight ?? strandCreationDefaults.profileTrimRight),
     profileTrimRoundness: Number(stroke.profileTrimRoundness ?? strandCreationDefaults.profileTrimRoundness),
+    hairCard: Boolean(stroke.hairCard ?? strandCreationDefaults.hairCard),
     strandSplitEnabled: Boolean(stroke.strandSplitEnabled ?? strandCreationDefaults.strandSplitEnabled),
     strandSplitPosition: Number(stroke.strandSplitPosition ?? strandCreationDefaults.strandSplitPosition),
     strandSplitHeight: Number(stroke.strandSplitHeight ?? strandCreationDefaults.strandSplitHeight),
     strandSplitGap: Number(stroke.strandSplitGap ?? strandCreationDefaults.strandSplitGap),
     depth: shapeTemplate && clumpTemplate
       ? stroke.brushSize * ((shapeTemplate.depth ?? shapeTemplate.width) / clumpTemplate.baseWidth)
-      : strandCreationDefaults.depth,
+      : stroke.brushDepth,
     sweepProfile: cloneShapePresetValue(clumpTemplate?.sweepProfile || (stroke.curlEnabled ? ROUND_SWEEP_PROFILE : strandCreationDefaults.sweepProfile)),
     profileOffset: strandCreationDefaults.profileOffset,
     curlEnabled: Boolean(stroke.curlEnabled),
@@ -13976,7 +15920,6 @@ function finishDrawStrandStroke(event, options = {}) {
     else createDrawnStrand(stroke);
   }
   updateInteractionLocks();
-  scheduleStrandCollisionResolve();
   updateAttributeEditorMode();
   updatePlacementStatus();
   event?.preventDefault();
@@ -14269,7 +16212,6 @@ function finishPlacementFlow(options = {}) {
   placeEdit = null;
   pendingPlacedLockId = null;
   updateInteractionLocks();
-  scheduleStrandCollisionResolve();
   if (options.deselect && selectedId === placedId) {
     deselectStrands();
   } else if (options.keepSelected && placedId) {
@@ -14281,7 +16223,9 @@ function finishPlacementFlow(options = {}) {
 function updatePlacementStatus() {
   if (!placementStatus) return;
   let message = "";
-  if (proportionalSizeEdit) {
+  if (duplicatePlacement) {
+    message = "Duplicate strand: move the pointer to position its root, then left-click to place. Press Esc to cancel.";
+  } else if (proportionalSizeEdit) {
     message = `Proportional influence: ${Number(proportionalRadiusInput.value).toFixed(1)}. Release B to finish.`;
   } else if (scalpBuilderEditing) {
     message = scalpBuilderCurveLattice
@@ -14334,13 +16278,13 @@ function updatePlacementStatus() {
   } else if (activeTool === "panel") {
     const surfaceMode = activeStrokeSurfaceValue();
     if (surfaceMode === "contextual-plane") {
-      message = "Draw panel: draw its center path on the contextual 2D plane.";
+      message = "Split Panel: draw its center path on the contextual 2D plane.";
     } else if (surfaceMode.endsWith("-conform") || liveSurfaceGuideId(surfaceMode)) {
-      message = "Draw panel: drag across the selected surface. The center path remains conformed to it.";
+      message = "Split Panel: drag across the selected surface. The center path remains conformed to it.";
     } else {
       message = drawStrandStroke
-        ? "Draw panel: drag across the live surface. Beyond its boundary, continue on the contextual plane."
-        : "Draw panel: drag a center path from the chosen live surface.";
+        ? "Split Panel: drag across the live surface. Beyond its boundary, continue on the contextual plane."
+        : "Split Panel: drag a center path from the chosen live surface.";
     }
   } else if (capsuleGuideEditing) {
     message = "Capsule guide: select a horizontal loop, then use Move, Rotate, or Scale to edit the entire loop.";
@@ -14356,8 +16300,9 @@ function updatePlacementStatus() {
     message = "Object space: gizmo is aligned to the selected curve point. Press O for world space.";
   }
   placementStatus.textContent = message;
-  placementStatus.classList.toggle("hidden", !message);
-  placementStatus.classList.toggle("bottom-left", capsuleGuideEditing && Boolean(message));
+  const hidden = !toolTipsEnabled || !message;
+  placementStatus.classList.toggle("hidden", hidden);
+  placementStatus.setAttribute("aria-hidden", String(hidden));
 }
 
 function deselectStrands() {
@@ -14421,11 +16366,13 @@ function beginSelectionMarquee(event, surface = null) {
 function beginAltOrbit(event) {
   if (event.button !== 0 || !event.altKey) return;
   altOrbitDrag = { pointerId: event.pointerId };
+  controls.enableRotate = true;
   if (selectionMarqueeDrag) {
     selectionMarqueeDrag = null;
     selectionMarquee.classList.add("hidden");
   }
   updateInteractionLocks();
+  event.preventDefault();
 }
 
 function prepareSelectPointerCapture(event) {
@@ -14443,6 +16390,7 @@ function endSelectPointerCapture(event) {
 function endAltOrbit(event) {
   if (!altOrbitDrag || event.pointerId !== altOrbitDrag.pointerId) return;
   altOrbitDrag = null;
+  controls.enableRotate = false;
   updateInteractionLocks();
 }
 
@@ -14620,7 +16568,11 @@ function createCurveObjects(lock) {
     const pointScale = lock.pointScales?.[index] || { x: 1, z: 1 };
     const frame = curveFrameAtPoint(lock, index);
     const handle = new THREE.Mesh(
-      new THREE.SphereGeometry(index === 0 ? 0.065 : 0.052, 18, 12),
+      new THREE.SphereGeometry(
+        0.052 * STRAND_CONTROL_POINT_RADIUS_SCALE,
+        18,
+        12
+      ),
       new THREE.MeshBasicMaterial({ color: 0x58f6ff, depthTest: false, transparent: true, opacity: 0.78 })
     );
     handle.position.copy(point);
@@ -14746,7 +16698,7 @@ function updateCurveObjects(lock, options = {}) {
     }
     line.geometry = new THREE.BufferGeometry().setFromPoints(points);
   });
-  const strandSplitVisible = lock.geometryType === "strand" && Boolean(lock.strandSplitEnabled);
+  const strandSplitVisible = lock.geometryType === "strand" && !lock.hairCard && Boolean(lock.strandSplitEnabled);
   const strandSplitHandle = lock.curveObjects.strandSplitHandle;
   const strandSplitLine = lock.curveObjects.strandSplitLine;
   if (strandSplitHandle) {
@@ -14923,11 +16875,16 @@ function handleColor(lock, index) {
   const selectedHandle = selectedPoint?.lockId === lock.id && selectedPoint.pointIndex === index;
   const hierarchyAffected = hierarchyEditing && selectedPoint?.lockId === lock.id && index > selectedPoint.pointIndex;
   const proportionalAffected = proportionalEditing && selectedPoint?.lockId === lock.id && proportionalWeight(index, selectedPoint.pointIndex) > 0;
-  if (selectedHandle) return 0x58f6ff;
+  const endpointColor = index === 0
+    ? 0x8298ff
+    : index === lock.points.length - 1
+      ? 0x62edb0
+      : 0x58f6ff;
+  if (selectedHandle) return endpointColor;
   if (hierarchyAffected) return 0xf0d95d;
   if (proportionalAffected) return 0x8affcf;
   if (activeTool === "relax") return 0x80ffcf;
-  return 0x58f6ff;
+  return endpointColor;
 }
 
 function isAffectedCurvePoint(lock, index) {
@@ -14965,149 +16922,6 @@ function labelForPreset(name) {
   return document.querySelector(`#preset option[value="${name}"]`).textContent;
 }
 
-function strandCollisionRadius(lock, t) {
-  const pointScales = lock.pointScales?.length ? lock.pointScales : lock.points.map(() => ({ x: 1, z: 1 }));
-  const pointPosition = THREE.MathUtils.clamp(t, 0, 1) * Math.max(1, pointScales.length - 1);
-  const leftIndex = Math.floor(pointPosition);
-  const rightIndex = Math.min(pointScales.length - 1, leftIndex + 1);
-  const amount = pointPosition - leftIndex;
-  const leftScale = pointScales[leftIndex] || { x: 1, z: 1 };
-  const rightScale = pointScales[rightIndex] || leftScale;
-  const scaleX = THREE.MathUtils.lerp(Number(leftScale.x ?? 1), Number(rightScale.x ?? 1), amount);
-  const scaleZ = THREE.MathUtils.lerp(Number(leftScale.z ?? 1), Number(rightScale.z ?? 1), amount);
-  const width = strandRadiusAt(lock, t, "x") * scaleX;
-  const depth = strandRadiusAt(lock, t, "z") * scaleZ;
-  return Math.max(0.025, Math.max(width, depth) * 0.82);
-}
-
-function collisionSegments() {
-  const segments = [];
-  locks.forEach((lock) => {
-    if (lock.geometryType === "braid" || !lock.mesh?.visible || lock.points.length < 2) return;
-    for (let index = 0; index < lock.points.length - 1; index += 1) {
-      const t = (index + 0.5) / (lock.points.length - 1);
-      const radius = strandCollisionRadius(lock, t);
-      const start = lock.points[index];
-      const end = lock.points[index + 1];
-      segments.push({
-        lock,
-        index,
-        start,
-        end,
-        radius,
-        min: new THREE.Vector3(
-          Math.min(start.x, end.x) - radius,
-          Math.min(start.y, end.y) - radius,
-          Math.min(start.z, end.z) - radius
-        ),
-        max: new THREE.Vector3(
-          Math.max(start.x, end.x) + radius,
-          Math.max(start.y, end.y) + radius,
-          Math.max(start.z, end.z) + radius
-        )
-      });
-    }
-  });
-  return segments;
-}
-
-function addCollisionPointOffset(offsets, lock, pointIndex, direction, weight) {
-  if (pointIndex <= 0 || weight <= 0.0001) return 0;
-  let entry = offsets.get(lock.id);
-  if (!entry) {
-    entry = lock.points.map(() => ({ offset: new THREE.Vector3(), weight: 0 }));
-    offsets.set(lock.id, entry);
-  }
-  entry[pointIndex].offset.addScaledVector(direction, weight);
-  entry[pointIndex].weight += weight;
-  return weight;
-}
-
-function resolveStrandCollisions({ iterations = 2 } = {}) {
-  if (!strandCollisionEnabled || strandCollisionResolving) return;
-  strandCollisionResolving = true;
-  const changedLocks = new Set();
-  try {
-    for (let iteration = 0; iteration < iterations; iteration += 1) {
-      const segments = collisionSegments();
-      const pairs = findSpatialCollisionPairs(segments);
-      const offsets = new Map();
-      pairs.forEach(([indexA, indexB]) => {
-        const segmentA = segments[indexA];
-        const segmentB = segments[indexB];
-        const closest = closestPointsOnSegments(segmentA.start, segmentA.end, segmentB.start, segmentB.end);
-        const separation = closest.pointA.clone().sub(closest.pointB);
-        const distance = separation.length();
-        const requiredDistance = segmentA.radius + segmentB.radius;
-        if (distance >= requiredDistance) return;
-        if (distance < 0.0001) {
-          separation.copy(segmentA.end).sub(segmentA.start).cross(
-            segmentB.end.clone().sub(segmentB.start)
-          );
-          if (separation.lengthSq() < 0.0001) {
-            separation.copy(closest.pointA).add(closest.pointB).multiplyScalar(0.5).setY(0);
-          }
-          if (separation.lengthSq() < 0.0001) separation.set(1, 0, 0);
-        }
-        separation.normalize();
-        const correction = Math.min(0.09, (requiredDistance - distance) * 0.58);
-        const directionA = separation.clone().multiplyScalar(correction * 0.5);
-        const directionB = separation.clone().multiplyScalar(-correction * 0.5);
-        const movableA = addCollisionPointOffset(offsets, segmentA.lock, segmentA.index, directionA, 1 - closest.amountA)
-          + addCollisionPointOffset(offsets, segmentA.lock, segmentA.index + 1, directionA, closest.amountA);
-        const movableB = addCollisionPointOffset(offsets, segmentB.lock, segmentB.index, directionB, 1 - closest.amountB)
-          + addCollisionPointOffset(offsets, segmentB.lock, segmentB.index + 1, directionB, closest.amountB);
-        if (!movableA && movableB) {
-          addCollisionPointOffset(offsets, segmentB.lock, segmentB.index, directionB, (1 - closest.amountB) * 2);
-          addCollisionPointOffset(offsets, segmentB.lock, segmentB.index + 1, directionB, closest.amountB * 2);
-        } else if (!movableB && movableA) {
-          addCollisionPointOffset(offsets, segmentA.lock, segmentA.index, directionA, (1 - closest.amountA) * 2);
-          addCollisionPointOffset(offsets, segmentA.lock, segmentA.index + 1, directionA, closest.amountA * 2);
-        }
-      });
-      if (!offsets.size) break;
-      offsets.forEach((entries, lockId) => {
-        const lock = locks.find((item) => item.id === lockId);
-        if (!lock) return;
-        entries.forEach((entry, pointIndex) => {
-          if (pointIndex === 0 || entry.weight <= 0) return;
-          const offset = entry.offset.multiplyScalar(1 / entry.weight);
-          if (offset.length() > 0.075) offset.setLength(0.075);
-          lock.points[pointIndex].add(offset);
-        });
-        syncLockFromCurve(lock);
-        changedLocks.add(lock);
-      });
-    }
-    changedLocks.forEach((lock) => rebuildLockGeometry(lock));
-    if (changedLocks.size) updateTopologyStats();
-  } finally {
-    strandCollisionResolving = false;
-  }
-}
-
-function scheduleStrandCollisionResolve() {
-  if (!strandCollisionEnabled || strandCollisionResolving || restoringHistory) return;
-  if (strandCollisionFrame !== null) cancelAnimationFrame(strandCollisionFrame);
-  strandCollisionFrame = requestAnimationFrame(() => {
-    strandCollisionFrame = null;
-    if (transformDragging || viewPlaneMoveDrag || relaxEdit || drawStrandStroke || placeEdit) return;
-    resolveStrandCollisions({ iterations: 1 });
-  });
-}
-
-function setStrandCollisionEnabled(enabled, options = {}) {
-  strandCollisionEnabled = Boolean(enabled);
-  strandCollisionToggle.classList.toggle("active", strandCollisionEnabled);
-  strandCollisionToggle.setAttribute("aria-pressed", String(strandCollisionEnabled));
-  const label = strandCollisionEnabled
-    ? "Disable lightweight strand collision"
-    : "Enable lightweight strand collision";
-  strandCollisionToggle.title = label;
-  strandCollisionToggle.setAttribute("aria-label", label);
-  if (strandCollisionEnabled && options.resolve !== false) resolveStrandCollisions({ iterations: 3 });
-}
-
 function rebuildLockGeometry(lock) {
   const previousGeometry = lock.mesh.geometry;
   lock.mesh.geometry = createHairGeometry(lock);
@@ -15118,7 +16932,9 @@ function rebuildLockGeometry(lock) {
   }
   const showingProportionalRamp = proportionalEditing && selectedPoint?.lockId === lock.id;
   setAnimeHairBaseColor(lock.mesh.material, showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
-  lock.mesh.material.side = lock.geometryType === "braid" ? THREE.DoubleSide : THREE.FrontSide;
+  lock.mesh.material.side = lock.geometryType === "braid" || lock.hairCard
+    ? THREE.DoubleSide
+    : THREE.FrontSide;
   lock.mesh.material.needsUpdate = true;
   updateCurveObjects(lock);
   if (!clumpUpdateInProgress && lock.clumpGuide) updateClumpMembers(lock);
@@ -15190,6 +17006,8 @@ function updateStrandSelectionHighlight() {
 }
 
 function selectLock(id, options = {}) {
+  setViewportEditMode("strand", { clearSelection: false, activateSelect: false });
+  setOutlinerTab("strands");
   const requestedLock = locks.find((lock) => lock.id === id);
   const requestedGuide = clumpGuideForLock(requestedLock);
   const selectWholeClump = Boolean(requestedLock?.clumpId && requestedGuide && !options.individualClumpMember);
@@ -15199,6 +17017,7 @@ function selectLock(id, options = {}) {
   clumpViewportSelection = selectWholeClump;
   selectedStrandGroup = null;
   selectedGuideId = undefined;
+  selectedReferenceImageId = null;
   selectedCurveLatticePoint = null;
   curveLatticeToggle.classList.remove("active");
   curveLatticeToggle.setAttribute("aria-pressed", "false");
@@ -15417,6 +17236,7 @@ function syncCreationShapeInputs() {
     drawStrandCurlDisplacementValue.textContent = Number(defaults.curlDisplacement).toFixed(2);
     syncStrandSplitInputs(defaults);
   }
+  syncHairCardControls(defaults);
   if (defaults === braidCreationDefaults) {
     braidMeshPresetInput.value = defaults.braidMeshPreset;
     braidSegmentLengthInput.value = defaults.braidSegmentLength;
@@ -15426,6 +17246,20 @@ function syncCreationShapeInputs() {
   }
   if (defaults === panelCreationDefaults) syncPanelShapeInputs(defaults);
   syncShapePresetSelects();
+  syncViewportDrawSettings();
+}
+
+function syncViewportDrawSettings() {
+  const drawSettingsVisible = !scalpBuilderEditing
+    && !scalpPaintEditing
+    && !scalpShapeEditing
+    && !headSetupEditing
+    && !capsuleGuideEditing;
+  viewportEditModeControl.classList.remove("hidden");
+  viewportEditModeControl.setAttribute("aria-hidden", "false");
+  viewportDrawSettings.classList.toggle("hidden", !drawSettingsVisible);
+  viewportDrawSettings.setAttribute("aria-hidden", String(!drawSettingsVisible));
+  viewportDrawLayerInput.value = normalizeHairLayer(strandCreationDefaults.hairLayer);
 }
 
 function syncPanelShapeInputs(target = activeStrandShapeTarget()) {
@@ -15463,9 +17297,27 @@ function syncStrandSplitInputs(target = activeStrandShapeTarget()) {
   strandSplitValues.strandSplitGap.textContent = gap.toFixed(2);
 }
 
+function syncHairCardControls(target = activeStrandShapeTarget()) {
+  const strandTarget = target === strandCreationDefaults || target?.geometryType === "strand";
+  const enabled = strandTarget && Boolean(target.hairCard);
+  hairCardControl.classList.toggle("hair-card-hidden", !strandTarget);
+  hairCardInput.checked = enabled;
+  hairCardIncompatibleControls.forEach((control) => control.classList.toggle("hair-card-hidden", enabled));
+}
+
 function updateAttributeEditorMode() {
   const editingGroup = Boolean(selectedStrandGroup);
   const editingStrand = Boolean(getSelectedLock());
+  const selectedGuide = getSelectedGuide();
+  const editingGuide = viewportEditMode === "guide" && Boolean(selectedGuide);
+  const editingCapsuleGuide = editingGuide && selectedGuide.type === "capsule";
+  const editingLegacyGuide = editingGuide && !editingCapsuleGuide;
+  const canCreateCapsuleGuide = viewportEditMode === "guide"
+    && !selectedGuide
+    && !scalpBuilderEditing
+    && !scalpPaintEditing
+    && !headSetupEditing
+    && !scalpShapeEditing;
   const editingSelection = editingGroup || editingStrand;
   const editingCreationShape = creationToolActive() && !editingStrand;
   const selectedBraid = getSelectedLock()?.geometryType === "braid" ? getSelectedLock() : null;
@@ -15477,9 +17329,9 @@ function updateAttributeEditorMode() {
   const hierarchyToolActive = ["move", "rotate", "scale"].includes(activeTool) && !pullMoveActive();
   const proportionalToolActive = hierarchyToolActive || activeTool === "relax";
   groupSettingsPanel.classList.toggle("hidden", !editingGroup);
-  guidePanel.classList.add("hidden");
-  guidePanel.hidden = true;
-  guidePanel.setAttribute("aria-hidden", "true");
+  guidePanel.classList.toggle("hidden", !editingLegacyGuide);
+  guidePanel.hidden = !editingLegacyGuide;
+  guidePanel.setAttribute("aria-hidden", String(!editingLegacyGuide));
   presetPanel.classList.add("hidden");
   selectedStrandPanel.classList.toggle("hidden", !editingStrand);
   if (!editingStrand) clumpGuidePanel.classList.add("hidden");
@@ -15489,7 +17341,10 @@ function updateAttributeEditorMode() {
   drawStrandToolPanel.classList.toggle("hidden", activeTool !== "draw");
   braidToolPanel.classList.toggle("hidden", activeTool !== "braid");
   panelStrandToolPanel.classList.toggle("hidden", activeTool !== "panel");
-  surfaceGuideToolPanel.classList.toggle("hidden", !capsuleGuideEditing);
+  surfaceGuideToolPanel.classList.toggle(
+    "hidden",
+    !capsuleGuideEditing && !editingCapsuleGuide && !canCreateCapsuleGuide
+  );
   strandShapePanel.classList.toggle(
     "braid-context",
     Boolean(selectedBraid) || (!editingStrand && activeTool === "braid")
@@ -15539,11 +17394,14 @@ function updateAttributeEditorMode() {
   );
   proportionalLockRootRow.classList.toggle("hidden", scalpBuilderEditing || capsuleGuideEditing);
   hierarchyPanel.classList.toggle("hidden", !editingStrand || !hierarchyToolActive || !hierarchyEditing);
+  strandLayerControl.classList.toggle("hidden", editingCreationShape && activeTool === "draw");
   strandShapePanel.classList.toggle("hidden", !editingStrand && !editingCreationShape);
   strandShapeTitle.textContent = editingCreationShape
     ? (activeTool === "braid" ? "Braid Shape" : activeTool === "panel" ? "Panel Shape" : "Strand Shape")
     : (selectedBraid ? "Braid Shape" : selectedPanel ? "Panel Shape" : "Strand Shape");
   if (editingCreationShape) syncCreationShapeInputs();
+  else syncHairCardControls(getSelectedLock());
+  syncViewportDrawSettings();
   pinActiveToolSettingsPanel();
 }
 
@@ -15559,7 +17417,7 @@ function pinActiveToolSettingsPanel() {
   else if (activeTool === "draw") panel = drawStrandToolPanel;
   else if (activeTool === "braid") panel = braidToolPanel;
   else if (activeTool === "panel") panel = panelStrandToolPanel;
-  else if (capsuleGuideEditing) panel = surfaceGuideToolPanel;
+  else if (capsuleGuideEditing || (viewportEditMode === "guide" && getSelectedGuide()?.type === "capsule")) panel = surfaceGuideToolPanel;
   else if (["move", "rotate", "scale"].includes(activeTool)) panel = transformToolPanel;
   if (panel && !panel.classList.contains("hidden")) {
     panel.classList.add("active-tool-settings");
@@ -15651,6 +17509,7 @@ function showCurveLatticeForGroup(region) {
 
 function selectStrandGroup(region) {
   if (!strandGroupDefaults[region]) return;
+  setOutlinerTab("strands");
   if (selectedStrandGroup === region) {
     selectedStrandGroup = null;
     selectedGuideId = undefined;
@@ -15761,7 +17620,13 @@ function syncInputs(lock) {
   syncShapePresetSelects();
   syncClumpGuidePanel(lock);
   if (lock.geometryType === "panel") syncPanelShapeInputs(lock);
-  if (lock.geometryType === "strand") syncStrandSplitInputs(lock);
+  if (lock.geometryType === "strand") {
+    syncStrandSplitInputs(lock);
+    syncHairCardControls(lock);
+  } else {
+    syncHairCardControls(lock);
+  }
+  if (["move", "rotate", "scale"].includes(activeTool)) configureTransformControls(activeTool);
 }
 
 function syncClumpGuidePanel(lock = getSelectedLock()) {
@@ -15805,13 +17670,19 @@ function showOutlinerContextMenu(event, target) {
   event.stopPropagation();
   outlinerContextTarget = target;
   const isClump = target.type === "clump";
+  const isScalpGuide = target.type === "scalp-guide";
   const strand = target.type === "strand" ? locks.find((lock) => lock.id === target.lockId) : null;
   const hasMirrorPartner = Boolean(mirrorPartnerFor(strand));
+  editScalpOutlinerAction.classList.toggle("hidden", !isScalpGuide);
   dissolveClumpAction.classList.toggle("hidden", !isClump);
   mirrorInstanceAction.classList.toggle("hidden", !strand);
   mirrorInstanceAction.textContent = hasMirrorPartner ? "Decouple mirror instance" : "Create mirror instance";
   deleteOutlinerAction.textContent = isClump ? "Delete clump" : "Delete strand";
-  clumpContextMenu.setAttribute("aria-label", isClump ? "Clump actions" : "Strand actions");
+  deleteOutlinerAction.classList.toggle("hidden", isScalpGuide);
+  clumpContextMenu.setAttribute(
+    "aria-label",
+    isScalpGuide ? "Scalp guide actions" : isClump ? "Clump actions" : "Strand actions"
+  );
   clumpContextMenu.classList.remove("hidden");
   const margin = 8;
   const left = Math.min(event.clientX, window.innerWidth - clumpContextMenu.offsetWidth - margin);
@@ -15819,6 +17690,509 @@ function showOutlinerContextMenu(event, target) {
   clumpContextMenu.style.left = `${Math.max(margin, left)}px`;
   clumpContextMenu.style.top = `${Math.max(margin, top)}px`;
   clumpContextMenu.querySelector("button:not(.hidden)")?.focus();
+}
+
+function hideStrandRadialMenu() {
+  strandRadialTargetId = null;
+  strandRadialGesture = null;
+  strandRadialMenu.classList.add("hidden");
+  strandRadialActions.forEach((button) => button.classList.remove("selected"));
+  strandRadialLine.style.width = "0px";
+  strandRadialLine.style.opacity = "0";
+}
+
+function contextualRadialOptions(kind) {
+  if (kind === "mode") {
+    return [
+      { action: "mode-strand", label: "Strand Editor", angle: -Math.PI * 0.5 },
+      { action: "mode-guide", label: "Guide Editor", angle: Math.PI / 6 },
+      { action: "mode-reference", label: "Reference Editor", angle: Math.PI * 5 / 6 }
+    ];
+  }
+  return [
+    { action: "mirror", label: "Mirror strand", angle: -Math.PI * 0.5 },
+    { action: "duplicate", label: "Duplicate strand", angle: Math.PI / 6 },
+    { action: "delete", label: "Delete strand", angle: Math.PI * 5 / 6 }
+  ];
+}
+
+function configureContextualRadialMenu(kind, options) {
+  strandRadialMenu.setAttribute("aria-label", kind === "mode" ? "Edit Mode" : "Strand actions");
+  strandRadialCenter.textContent = kind === "mode" ? "Edit Mode" : "Strand";
+  strandRadialActions.forEach((button, index) => {
+    const option = options[index];
+    button.dataset.strandRadialAction = option.action;
+    button.textContent = option.label;
+    button.classList.toggle("danger", option.action === "delete");
+  });
+}
+
+function beginStrandRadialGesture() {
+  if (!radialMenusEnabled || strandRadialGesture || duplicatePlacement) return false;
+  const lock = getSelectedLock();
+  const hasOtherSelection = Boolean(selectedStrandGroup || getSelectedGuide() || selectedReferenceImage());
+  if (!lock && hasOtherSelection) return false;
+  const kind = lock ? "strand" : "mode";
+  const options = contextualRadialOptions(kind);
+  hideOutlinerContextMenu();
+  strandRadialTargetId = lock?.id || null;
+  strandRadialGesture = {
+    centerX: lastPointer.x,
+    centerY: lastPointer.y,
+    action: null,
+    kind,
+    options
+  };
+  configureContextualRadialMenu(kind, options);
+  strandRadialMenu.classList.remove("hidden");
+  strandRadialMenu.style.left = `${lastPointer.x}px`;
+  strandRadialMenu.style.top = `${lastPointer.y}px`;
+  strandRadialActions.forEach((button) => button.classList.remove("selected"));
+  strandRadialLine.style.width = "0px";
+  strandRadialLine.style.opacity = "0";
+  updateInteractionLocks();
+  return true;
+}
+
+function updateStrandRadialGesture(event) {
+  const gesture = strandRadialGesture;
+  if (!gesture) return;
+  const dx = event.clientX - gesture.centerX;
+  const dy = event.clientY - gesture.centerY;
+  const distance = Math.hypot(dx, dy);
+  const angle = Math.atan2(dy, dx);
+  gesture.action = distance <= 34
+    ? null
+    : gesture.options.reduce((closest, option) => {
+      const difference = Math.abs(Math.atan2(
+        Math.sin(angle - option.angle),
+        Math.cos(angle - option.angle)
+      ));
+      return !closest || difference < closest.difference
+        ? { ...option, difference }
+        : closest;
+    }, null)?.action || null;
+  strandRadialActions.forEach((button) => {
+    button.classList.toggle("selected", button.dataset.strandRadialAction === gesture.action);
+  });
+  strandRadialLine.style.width = `${Math.min(distance, 96)}px`;
+  strandRadialLine.style.transform = `translateY(-50%) rotate(${angle}rad)`;
+  strandRadialLine.style.opacity = distance > 4 ? "1" : "0";
+  event.preventDefault();
+}
+
+function performStrandRadialAction(action, lockId) {
+  if (action?.startsWith("mode-")) {
+    setViewportEditMode(action.slice("mode-".length));
+    return true;
+  }
+  const lock = locks.find((item) => item.id === lockId);
+  if (!lock || !action) return false;
+  if (action === "mirror") {
+    const existing = mirrorPartnerFor(lock);
+    if (existing) {
+      selectLock(existing.id, { individualClumpMember: true });
+      return true;
+    }
+    pushUndoState();
+    const mirrored = createMirrorPartner(lock);
+    if (mirrored) selectLock(mirrored.id, { individualClumpMember: true });
+    return Boolean(mirrored);
+  }
+  if (action === "duplicate") {
+    return Boolean(beginDuplicatePlacement(lock));
+  }
+  if (action === "delete") {
+    pushUndoState();
+    deleteLocks([lock]);
+    return true;
+  }
+  return false;
+}
+
+function finishStrandRadialGesture() {
+  if (!strandRadialGesture) return false;
+  const action = strandRadialGesture.action;
+  const lockId = strandRadialTargetId;
+  hideStrandRadialMenu();
+  updateInteractionLocks();
+  if (action) performStrandRadialAction(action, lockId);
+  return true;
+}
+
+function cancelStrandRadialGesture() {
+  if (!strandRadialGesture) return false;
+  hideStrandRadialMenu();
+  updateInteractionLocks();
+  return true;
+}
+
+function blockPointerDuringStrandRadialGesture(event) {
+  if (!strandRadialGesture && !toolRadialGesture) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function setPullMoveEnabled(enabled) {
+  pullMoveEnabled = Boolean(enabled);
+  pullMoveInput.checked = pullMoveEnabled;
+  activeHandleEdit = null;
+  transformControls.detach();
+  setActiveTool("move");
+}
+
+function toolRadialOptions() {
+  if (activeTool === "select") {
+    return [
+      { action: "select-strand", label: "Strand Select" },
+      { action: "select-guide", label: "Guide Select" },
+      { action: "select-reference", label: "Reference Select" }
+    ];
+  }
+  if (activeTool === "move") {
+    return [
+      { action: "world-space", label: "World Space" },
+      { action: "object-space", label: "Object Space" },
+      { action: "contextual-2d", label: viewPlaneMoveEnabled ? "Disable 2D Translation" : "2D Translation" },
+      { action: "pull-strand", label: pullMoveEnabled ? "Disable Pull Strand" : "Pull Strand" }
+    ];
+  }
+  if (["rotate", "scale"].includes(activeTool)) {
+    return [
+      { action: "world-space", label: "World Space" },
+      { action: "object-space", label: "Object Space" }
+    ];
+  }
+  return [];
+}
+
+function hideToolRadialMenu() {
+  toolRadialGesture = null;
+  toolRadialMenu.classList.add("hidden");
+  toolRadialActions.forEach((button) => {
+    button.classList.remove("selected");
+    button.classList.add("hidden");
+  });
+  toolRadialLine.style.width = "0px";
+  toolRadialLine.style.opacity = "0";
+}
+
+function beginToolRadialGesture() {
+  if (!radialMenusEnabled || toolRadialGesture || strandRadialGesture || duplicatePlacement) return false;
+  const options = toolRadialOptions();
+  if (!options.length) return false;
+  const step = Math.PI * 2 / options.length;
+  options.forEach((option, index) => {
+    option.angle = -Math.PI * 0.5 + step * index;
+    const button = toolRadialActions[index];
+    button.textContent = option.label;
+    button.dataset.toolRadialAction = option.action;
+    button.style.setProperty("--radial-angle", `${option.angle}rad`);
+    button.style.setProperty("--radial-counter-angle", `${-option.angle}rad`);
+    button.classList.remove("hidden", "selected");
+  });
+  toolRadialActions.slice(options.length).forEach((button) => button.classList.add("hidden"));
+  toolRadialGesture = {
+    centerX: lastPointer.x,
+    centerY: lastPointer.y,
+    action: null,
+    options
+  };
+  toolRadialCenter.textContent = activeTool[0].toUpperCase() + activeTool.slice(1);
+  toolRadialMenu.style.left = `${lastPointer.x}px`;
+  toolRadialMenu.style.top = `${lastPointer.y}px`;
+  toolRadialMenu.classList.remove("hidden");
+  updateInteractionLocks();
+  return true;
+}
+
+function beginToolShortcutPress(key, tool) {
+  if (toolShortcutPress || toolRadialGesture || strandRadialGesture || duplicatePlacement) return;
+  setActiveTool(tool);
+  if (!radialMenusEnabled) return;
+  toolShortcutPress = {
+    key,
+    tool,
+    opened: false,
+    holdTimer: window.setTimeout(() => {
+      if (!toolShortcutPress || toolShortcutPress.key !== key) return;
+      toolShortcutPress.opened = beginToolRadialGesture();
+    }, 180)
+  };
+}
+
+function finishToolShortcutPress(key) {
+  if (!toolShortcutPress || toolShortcutPress.key !== key) return false;
+  const press = toolShortcutPress;
+  toolShortcutPress = null;
+  window.clearTimeout(press.holdTimer);
+  if (press.opened) finishToolRadialGesture();
+  return true;
+}
+
+function cancelToolShortcutPress() {
+  if (!toolShortcutPress) return false;
+  window.clearTimeout(toolShortcutPress.holdTimer);
+  toolShortcutPress = null;
+  cancelToolRadialGesture();
+  return true;
+}
+
+function setRadialMenusEnabled(enabled, { persist = true } = {}) {
+  radialMenusEnabled = Boolean(enabled);
+  radialMenusPreferenceInput.checked = radialMenusEnabled;
+  radialShortcutRows.forEach((row) => row.classList.toggle("hidden", !radialMenusEnabled));
+  if (!radialMenusEnabled) {
+    cancelToolShortcutPress();
+    cancelToolRadialGesture();
+    cancelStrandRadialGesture();
+  }
+  if (persist) saveRadialMenusPreference(radialMenusEnabled);
+  updateInteractionLocks();
+}
+
+function setNavigationTipsEnabled(enabled, { persist = true } = {}) {
+  navigationTipsEnabled = Boolean(enabled);
+  navigationTipsPreferenceInput.checked = navigationTipsEnabled;
+  viewportNavigationTips.classList.toggle("hidden", !navigationTipsEnabled);
+  viewportPanel.classList.toggle("navigation-tips-visible", navigationTipsEnabled);
+  if (persist) saveNavigationTipsPreference(navigationTipsEnabled);
+}
+
+function setToolTipsEnabled(enabled, { persist = true } = {}) {
+  toolTipsEnabled = Boolean(enabled);
+  toolTipsPreferenceInput.checked = toolTipsEnabled;
+  updatePlacementStatus();
+  if (persist) saveToolTipsPreference(toolTipsEnabled);
+}
+
+function setViewportStatisticsEnabled(enabled, { persist = true } = {}) {
+  viewportStatisticsEnabled = Boolean(enabled);
+  viewportStatisticsPreferenceInput.checked = viewportStatisticsEnabled;
+  viewportStats.classList.toggle("hidden", !viewportStatisticsEnabled);
+  viewportStats.setAttribute("aria-hidden", String(!viewportStatisticsEnabled));
+  if (persist) saveViewportStatisticsPreference(viewportStatisticsEnabled);
+}
+
+function setPreferenceCategory(category) {
+  const nextCategory = ["viewport", "experimental"].includes(category) ? category : "viewport";
+  preferenceCategoryButtons.forEach((button) => {
+    const active = button.dataset.preferenceCategory === nextCategory;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-selected", String(active));
+  });
+  preferencePanels.forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.preferencePanel !== nextCategory);
+  });
+  preferencePageTitle.textContent = nextCategory === "experimental" ? "Experimental Features" : "Viewport";
+}
+
+function openPreferencesDialog() {
+  preferencesOpenSnapshot = {
+    radialMenusEnabled,
+    navigationTipsEnabled,
+    toolTipsEnabled,
+    viewportStatisticsEnabled
+  };
+  setPreferenceCategory("viewport");
+  preferencesDialog.showModal();
+}
+
+function savePreferencesDialog() {
+  saveRadialMenusPreference(radialMenusEnabled);
+  saveNavigationTipsPreference(navigationTipsEnabled);
+  saveToolTipsPreference(toolTipsEnabled);
+  saveViewportStatisticsPreference(viewportStatisticsEnabled);
+  preferencesOpenSnapshot = null;
+  preferencesDialog.close();
+}
+
+function cancelPreferencesDialog() {
+  if (preferencesOpenSnapshot) {
+    setRadialMenusEnabled(preferencesOpenSnapshot.radialMenusEnabled, { persist: false });
+    setNavigationTipsEnabled(preferencesOpenSnapshot.navigationTipsEnabled, { persist: false });
+    setToolTipsEnabled(preferencesOpenSnapshot.toolTipsEnabled, { persist: false });
+    setViewportStatisticsEnabled(preferencesOpenSnapshot.viewportStatisticsEnabled, { persist: false });
+  }
+  preferencesOpenSnapshot = null;
+  preferencesDialog.close();
+}
+
+function updateToolRadialGesture(event) {
+  const gesture = toolRadialGesture;
+  if (!gesture) return;
+  const dx = event.clientX - gesture.centerX;
+  const dy = event.clientY - gesture.centerY;
+  const distance = Math.hypot(dx, dy);
+  const angle = Math.atan2(dy, dx);
+  gesture.action = distance <= 34
+    ? null
+    : gesture.options.reduce((closest, option) => {
+      const difference = Math.abs(Math.atan2(
+        Math.sin(angle - option.angle),
+        Math.cos(angle - option.angle)
+      ));
+      return !closest || difference < closest.difference
+        ? { ...option, difference }
+        : closest;
+    }, null)?.action || null;
+  toolRadialActions.forEach((button) => {
+    button.classList.toggle("selected", button.dataset.toolRadialAction === gesture.action);
+  });
+  toolRadialLine.style.width = `${Math.min(distance, 96)}px`;
+  toolRadialLine.style.transform = `translateY(-50%) rotate(${angle}rad)`;
+  toolRadialLine.style.opacity = distance > 4 ? "1" : "0";
+  event.preventDefault();
+}
+
+function performToolRadialAction(action) {
+  if (action === "select-strand") setViewportEditMode("strand");
+  else if (action === "select-guide") setViewportEditMode("guide");
+  else if (action === "select-reference") setViewportEditMode("reference");
+  else if (action === "world-space") setObjectSpaceEditing(false);
+  else if (action === "object-space") setObjectSpaceEditing(true);
+  else if (action === "contextual-2d") setViewPlaneMove(!viewPlaneMoveEnabled);
+  else if (action === "pull-strand") setPullMoveEnabled(!pullMoveEnabled);
+}
+
+function finishToolRadialGesture() {
+  if (!toolRadialGesture) return false;
+  const action = toolRadialGesture.action;
+  hideToolRadialMenu();
+  updateInteractionLocks();
+  if (action) performToolRadialAction(action);
+  return true;
+}
+
+function cancelToolRadialGesture() {
+  if (!toolRadialGesture) return false;
+  hideToolRadialMenu();
+  updateInteractionLocks();
+  return true;
+}
+
+function duplicatePlacementTarget(event, placement) {
+  const ray = rayFromViewportEvent(event);
+  const scalpHit = raycaster.intersectObject(activeScalpSurfaceMesh(), false)[0] || null;
+  if (scalpHit) {
+    const normal = worldNormalAtHit(scalpHit);
+    return {
+      root: scalpHit.point.clone().addScaledVector(
+        normal,
+        rootScalpOffsetDistance(placement.lock.rootScalpOffset)
+          + layerOffsetForLock(placement.lock) * layerRootOffsetFactor(placement.lock.hairLayer)
+      ),
+      surfacePoint: scalpHit.point.clone(),
+      surfaceNormal: normal,
+      attached: placement.sourceAttachmentEnabled
+    };
+  }
+  const root = ray.intersectPlane(placement.viewPlane, new THREE.Vector3());
+  if (!root) return null;
+  return {
+    root,
+    surfacePoint: root.clone(),
+    surfaceNormal: placement.lock.rootSurfaceNormal?.clone() || viewPlaneNormal(),
+    attached: false
+  };
+}
+
+function updateDuplicatePlacement(event) {
+  const placement = duplicatePlacement;
+  if (!placement) return;
+  const lock = locks.find((item) => item.id === placement.lockId);
+  if (!lock?.points?.length) {
+    duplicatePlacement = null;
+    updateInteractionLocks();
+    return;
+  }
+  placement.lock = lock;
+  const target = duplicatePlacementTarget(event, placement);
+  if (!target) return;
+  const delta = target.root.clone().sub(lock.points[0]);
+  lock.points.forEach((point) => point.add(delta));
+  lock.placementFrame?.root?.add(delta);
+  lock.rootSurfacePoint = target.surfacePoint;
+  lock.rootSurfaceNormal = target.surfaceNormal.normalize();
+  lock.rootAttachmentEnabled = target.attached;
+  lock.rootAttachment = target.attached
+    ? createRootAttachment(lock, target.surfacePoint)
+    : null;
+  syncLockFromCurve(lock);
+  updateLockGeometry(lock, { immediate: true });
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}
+
+function beginDuplicatePlacement(source) {
+  if (!source || duplicatePlacement) return null;
+  const undoState = snapshotState();
+  const sourceSnapshot = undoState.locks.find((lock) => lock.id === source.id);
+  if (!sourceSnapshot) return null;
+  const duplicateId = crypto.randomUUID();
+  const duplicateSnapshot = {
+    ...sourceSnapshot,
+    id: duplicateId,
+    name: `${source.name} Copy`,
+    mirrorPartnerId: null,
+    clumpId: null,
+    clumpName: null,
+    clumpGuide: false,
+    clumpGuideId: null,
+    clumpRestPoints: null,
+    clumpGuideRestPoints: null,
+    clumpRestTwists: null,
+    clumpGuideRestTwists: null,
+    clumpRestScales: null,
+    clumpGuideRestScales: null,
+    curveLatticeBinding: null,
+    groupLatticeBasePoints: null
+  };
+  restoreLock(duplicateSnapshot);
+  const duplicate = locks.find((lock) => lock.id === duplicateId);
+  if (!duplicate) return null;
+  duplicatePlacement = {
+    lockId: duplicate.id,
+    lock: duplicate,
+    sourceAttachmentEnabled: source.rootAttachmentEnabled !== false,
+    undoState,
+    viewPlane: new THREE.Plane().setFromNormalAndCoplanarPoint(
+      viewPlaneNormal(),
+      duplicate.points[0]
+    )
+  };
+  selectLock(duplicate.id, { individualClumpMember: true });
+  renderLockList();
+  updateCount();
+  updateInteractionLocks();
+  updatePlacementStatus();
+  return duplicate;
+}
+
+function confirmDuplicatePlacement(event) {
+  if (!duplicatePlacement || event.button !== 0) return false;
+  updateDuplicatePlacement(event);
+  const { lockId, undoState } = duplicatePlacement;
+  duplicatePlacement = null;
+  undoHistory.push(undoState);
+  redoHistory.clear();
+  updateHistoryButtons();
+  updateInteractionLocks();
+  selectLock(lockId, { individualClumpMember: true });
+  updatePlacementStatus();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  return true;
+}
+
+function cancelDuplicatePlacement() {
+  if (!duplicatePlacement) return false;
+  const duplicate = locks.find((lock) => lock.id === duplicatePlacement.lockId);
+  duplicatePlacement = null;
+  if (duplicate) deleteLocks([duplicate]);
+  updateInteractionLocks();
+  updatePlacementStatus();
+  return true;
 }
 
 function outlinerClumpLocks(guide) {
@@ -15849,12 +18223,23 @@ function handleOutlinerClumpDrop(event, targetLock) {
 }
 
 function createOutlinerStrandButton(lock, options = {}) {
+  const shell = document.createElement("div");
+  shell.className = `lock-item-shell${options.nested ? " clump-child" : ""}`;
+  const visible = strandVisibleForDisplay(lock);
+  const visibility = createOutlinerVisibilityToggle({
+    visible,
+    label: lock.name,
+    onToggle: () => {
+      pushUndoState();
+      setLocksOutlinerVisibility([lock], !visible);
+    }
+  });
   const button = document.createElement("button");
   const selectedLock = getSelectedLock();
   const clumpHighlighted = clumpViewportSelection
     && selectedLock?.clumpId
     && lock.clumpId === selectedLock.clumpId;
-  button.className = `lock-item${options.nested ? " clump-child" : ""}${lock.id === selectedId || clumpHighlighted ? " active" : ""}`;
+  button.className = `lock-item${lock.id === selectedId || clumpHighlighted ? " active" : ""}`;
   button.type = "button";
   button.draggable = !lock.clumpGuide;
   const mirrorPartner = mirrorPartnerFor(lock);
@@ -15898,7 +18283,8 @@ function createOutlinerStrandButton(lock, options = {}) {
     button.classList.remove("drop-target");
     handleOutlinerClumpDrop(event, lock);
   });
-  return button;
+  shell.append(visibility, button);
+  return shell;
 }
 
 function createOutlinerClump(guide) {
@@ -15922,6 +18308,16 @@ function createOutlinerClump(guide) {
   disclosure.addEventListener("click", () => {
     clumpOpen.set(guide.clumpId, !isOpen);
     renderLockList();
+  });
+  const clumpVisibleCount = clumpLocks.filter(strandVisibleForDisplay).length;
+  const visibility = createOutlinerVisibilityToggle({
+    visible: clumpLocks.length > 0 && clumpVisibleCount === clumpLocks.length,
+    partial: clumpVisibleCount > 0 && clumpVisibleCount < clumpLocks.length,
+    label: guide.clumpName || "Clump",
+    onToggle: () => {
+      pushUndoState();
+      setLocksOutlinerVisibility(clumpLocks, clumpVisibleCount !== clumpLocks.length);
+    }
   });
   const select = document.createElement("button");
   select.type = "button";
@@ -15949,7 +18345,7 @@ function createOutlinerClump(guide) {
       handleOutlinerClumpDrop(event, guide);
     });
   });
-  header.append(disclosure, select);
+  header.append(disclosure, visibility, select);
   header.addEventListener("contextmenu", (event) => showOutlinerContextMenu(event, {
     type: "clump",
     clumpId: guide.clumpId,
@@ -15990,6 +18386,23 @@ function renderLockList() {
       strandGroupOpen.set(group.id, !isOpen);
       renderLockList();
     });
+    const groupVisibleCount = groupLocks.filter(strandVisibleForDisplay).length;
+    const groupVisibility = createOutlinerVisibilityToggle({
+      visible: groupLocks.length > 0 && groupVisibleCount === groupLocks.length,
+      partial: groupVisibleCount > 0 && groupVisibleCount < groupLocks.length,
+      label: group.label,
+      onToggle: () => {
+        pushUndoState();
+        if (!groupLocks.length) {
+          if (visibleStrandRegions.has(group.id)) visibleStrandRegions.delete(group.id);
+          else visibleStrandRegions.add(group.id);
+          applyDisplayVisibilityFilters();
+          renderLockList();
+          return;
+        }
+        setLocksOutlinerVisibility(groupLocks, groupVisibleCount !== groupLocks.length);
+      }
+    });
     const selectGroup = document.createElement("button");
     selectGroup.className = "outliner-group-select";
     selectGroup.type = "button";
@@ -16005,7 +18418,7 @@ function renderLockList() {
     count.className = "outliner-group-count";
     count.textContent = groupLocks.length;
     selectGroup.append(groupSwatch, label, count);
-    header.append(disclosure, selectGroup);
+    header.append(disclosure, groupVisibility, selectGroup);
     groupElement.appendChild(header);
 
     const items = document.createElement("div");
@@ -16024,14 +18437,33 @@ function renderLockList() {
       const layerOpen = strandLayerOpen.get(layerKey) !== false || layerRoots.some((lock) => lock.id === selectedId || (lock.clumpId && lock.clumpId === getSelectedLock()?.clumpId));
       const layerElement = document.createElement("div");
       layerElement.className = `outliner-layer${layerOpen ? " open" : ""}`;
-      const layerHeader = document.createElement("button");
+      const layerHeader = document.createElement("div");
       layerHeader.className = "outliner-layer-head";
-      layerHeader.type = "button";
-      layerHeader.setAttribute("aria-expanded", String(layerOpen));
-      layerHeader.title = `${layerOpen ? "Collapse" : "Expand"} ${layer.label} layer`;
-      const layerDisclosure = document.createElement("span");
+      const layerDisclosure = document.createElement("button");
       layerDisclosure.className = "outliner-layer-disclosure";
+      layerDisclosure.type = "button";
       layerDisclosure.textContent = ">";
+      layerDisclosure.title = `${layerOpen ? "Collapse" : "Expand"} ${layer.label} layer`;
+      layerDisclosure.setAttribute("aria-label", layerDisclosure.title);
+      layerDisclosure.setAttribute("aria-expanded", String(layerOpen));
+      layerDisclosure.addEventListener("click", () => {
+        strandLayerOpen.set(layerKey, !layerOpen);
+        renderLockList();
+      });
+      const layerLocks = layerRoots.flatMap((lock) => lock.clumpGuide ? outlinerClumpLocks(lock) : [lock]);
+      const layerVisibleCount = layerLocks.filter(strandVisibleForDisplay).length;
+      const layerVisibility = createOutlinerVisibilityToggle({
+        visible: layerLocks.length > 0 && layerVisibleCount === layerLocks.length,
+        partial: layerVisibleCount > 0 && layerVisibleCount < layerLocks.length,
+        label: `${group.label} ${layer.label}`,
+        onToggle: () => {
+          pushUndoState();
+          setLocksOutlinerVisibility(layerLocks, layerVisibleCount !== layerLocks.length);
+        }
+      });
+      const layerSelect = document.createElement("button");
+      layerSelect.className = "outliner-layer-select";
+      layerSelect.type = "button";
       const layerSwatch = document.createElement("span");
       layerSwatch.className = "outliner-layer-swatch";
       layerSwatch.style.background = strandDisplayColor(layerRoots[0]);
@@ -16040,11 +18472,12 @@ function renderLockList() {
       const layerCount = document.createElement("span");
       layerCount.className = "outliner-layer-count";
       layerCount.textContent = layerLockCount;
-      layerHeader.append(layerDisclosure, layerSwatch, layerLabel, layerCount);
-      layerHeader.addEventListener("click", () => {
+      layerSelect.append(layerSwatch, layerLabel, layerCount);
+      layerSelect.addEventListener("click", () => {
         strandLayerOpen.set(layerKey, !layerOpen);
         renderLockList();
       });
+      layerHeader.append(layerDisclosure, layerVisibility, layerSelect);
       const layerItems = document.createElement("div");
       layerItems.className = "outliner-layer-items";
       layerRoots.forEach((lock) => {
@@ -16066,6 +18499,7 @@ function updateCount() {
     : guides.filter((guide) => guide.type !== "curve-lattice").length;
   const guideText = `${accessibleGuideCount} ${accessibleGuideCount === 1 ? "guide" : "guides"}`;
   document.querySelector("#strandCount").textContent = `${guideText}, ${lockText}`;
+  renderGuideOutliner();
   updateTopologyStats();
 }
 
@@ -16140,6 +18574,7 @@ strandLayerInput.addEventListener("change", () => {
   const lock = getSelectedLock();
   if (!lock && creationToolActive()) {
     activeCreationShapeDefaults().hairLayer = layerId;
+    syncViewportDrawSettings();
     if (drawStrandStroke) updateDrawStrandPreview();
     return;
   }
@@ -16149,6 +18584,14 @@ strandLayerInput.addEventListener("change", () => {
   syncActiveMirror(lock, { refreshUi: true });
   renderLockList();
   updateTopologyStats();
+});
+
+viewportDrawLayerInput.addEventListener("change", () => {
+  const layerId = normalizeHairLayer(viewportDrawLayerInput.value);
+  strandCreationDefaults.hairLayer = layerId;
+  if (activeTool === "draw" && !getSelectedLock()) strandLayerInput.value = layerId;
+  if (drawStrandStroke?.outputType === "strand") updateDrawStrandPreview();
+  updatePlacementStatus();
 });
 
 bindUndoCapture(clumpInfluenceInput);
@@ -16186,6 +18629,13 @@ Object.entries(clumpShapeInputs).forEach(([key, input]) => {
     const mirroredGuide = syncActiveMirror(guide);
     if (mirroredGuide?.clumpGuide) updateClumpMembers(mirroredGuide);
   });
+});
+
+editScalpOutlinerAction.addEventListener("click", () => {
+  hideOutlinerContextMenu();
+  setViewportEditMode("guide");
+  setScalpBuilderEditing(true);
+  setScalpSetupMenuOpen(false);
 });
 
 dissolveClumpAction.addEventListener("click", () => {
@@ -16238,6 +18688,12 @@ deleteOutlinerAction.addEventListener("click", () => {
 document.addEventListener("pointerdown", (event) => {
   if (!clumpContextMenu.classList.contains("hidden") && !clumpContextMenu.contains(event.target)) {
     hideOutlinerContextMenu();
+  }
+  if (!strandRadialMenu.classList.contains("hidden") && !strandRadialMenu.contains(event.target)) {
+    cancelStrandRadialGesture();
+  }
+  if (!toolRadialMenu.classList.contains("hidden") && !toolRadialMenu.contains(event.target)) {
+    cancelToolRadialGesture();
   }
 });
 
@@ -16907,20 +19363,13 @@ exitSetupEditor.addEventListener("click", exitSetupEditors);
 
 spaceToggle.addEventListener("click", () => setObjectSpaceEditing(!objectSpaceEditing));
 mirrorXToggle.addEventListener("click", () => setMirrorXEditing(!mirrorXEditing));
-strandCollisionToggle.addEventListener("click", () => {
-  if (!strandCollisionEnabled) pushUndoState();
-  setStrandCollisionEnabled(!strandCollisionEnabled);
-});
 transformSpaceButtons.forEach((button) => {
   button.addEventListener("click", () => setObjectSpaceEditing(button.dataset.transformSpace === "object"));
 });
 viewPlaneMoveInput.addEventListener("change", () => setViewPlaneMove(viewPlaneMoveInput.checked));
 viewPlaneMoveSnappedOnlyInput.addEventListener("change", () => setViewPlaneMoveSnappedOnly(viewPlaneMoveSnappedOnlyInput.checked));
 pullMoveInput.addEventListener("change", () => {
-  pullMoveEnabled = pullMoveInput.checked;
-  activeHandleEdit = null;
-  transformControls.detach();
-  setActiveTool("move");
+  setPullMoveEnabled(pullMoveInput.checked);
 });
 pullRigidityInput.addEventListener("input", () => {
   pullRigidity = Number(pullRigidityInput.value);
@@ -16934,7 +19383,7 @@ placeStrandScalpOffsetInput.addEventListener("input", () => {
 });
 drawStrandBrushSizeInput.addEventListener("input", () => {
   drawStrandBrushSizeValue.textContent = Number(drawStrandBrushSizeInput.value).toFixed(2);
-  drawStrandBrushCursor.scale.setScalar(activeStrokeBrushSize());
+  setDrawStrandBrushCursorScale(activeStrokeBrushSize());
   if (drawStrandStroke?.outputType === "strand") {
     drawStrandStroke.brushSize = activeStrokeBrushSize();
     updateDrawStrandPreview();
@@ -16958,9 +19407,13 @@ drawStrandBrushSizeInput.addEventListener("input", () => {
 });
 drawToolSizeInput.addEventListener("input", () => {
   drawToolSizeValue.textContent = Number(drawToolSizeInput.value).toFixed(2);
-  drawStrandBrushCursor.scale.setScalar(activeStrokeBrushSize());
+  setDrawStrandBrushCursorScale(activeStrokeBrushSize());
   if (drawStrandStroke && drawStrandStroke.outputType !== "braid") {
     drawStrandStroke.brushSize = activeStrokeBrushSize();
+    drawStrandStroke.brushDepth = activeStrokeBrushDepth();
+    if (drawStrandStroke.outputType === "panel") {
+      drawStrandStroke.panelThickness = activeStrokeBrushDepth();
+    }
     updateDrawStrandPreview();
   }
 });
@@ -17046,6 +19499,8 @@ drawStrandSurfaceInput.addEventListener("change", () => {
     output.textContent = Number(input.value).toFixed(digits);
     if (!drawStrandStroke || drawStrandStroke.outputType !== "panel") return;
     drawStrandStroke.brushSize = Number(panelCreationDefaults.width) * Number(panelToolSizeInput.value);
+    drawStrandStroke.brushDepth = Number(panelCreationDefaults.panelThickness) * Number(panelToolSizeInput.value);
+    drawStrandStroke.panelThickness = drawStrandStroke.brushDepth;
     drawStrandStroke.smoothing = Number(panelSmoothingInput.value);
     drawStrandStroke.curveStep = Number(panelCurveStepInput.value);
     drawStrandStroke.scalpOffset = Number(panelScalpOffsetInput.value);
@@ -17082,6 +19537,29 @@ Object.entries(strandSplitInputs).forEach(([key, input]) => {
       updateTopologyStats();
     }
   });
+});
+
+bindUndoCapture(hairCardInput);
+hairCardInput.addEventListener("change", () => {
+  const selected = getSelectedLock();
+  const target = selected?.geometryType === "strand"
+    ? selected
+    : activeTool === "draw" ? strandCreationDefaults : null;
+  if (!target) return;
+  target.hairCard = hairCardInput.checked;
+  syncHairCardControls(target);
+  renderProfilePreview(profilePreviewPaths.strand, target.sweepProfile, target.profileOffset, target);
+  if (selected && ["move", "rotate", "scale"].includes(activeTool)) configureTransformControls(activeTool);
+  if (drawStrandStroke?.outputType === "strand" && target === strandCreationDefaults) {
+    drawStrandStroke.hairCard = target.hairCard;
+    updateDrawStrandPreview();
+  }
+  if (selected?.geometryType === "strand") {
+    updateLockGeometry(selected, { immediate: true });
+    updateCurveObjects(selected, { visible: selected.id === selectedId });
+    syncActiveMirror(selected, { refreshUi: true });
+    updateTopologyStats();
+  }
 });
 
 Object.entries(panelShapeInputs).forEach(([key, input]) => {
@@ -17224,6 +19702,7 @@ function creationPresetSnapshot(source, type) {
     profileTrimLeft: Number(source.profileTrimLeft ?? 0),
     profileTrimRight: Number(source.profileTrimRight ?? 0),
     profileTrimRoundness: Number(source.profileTrimRoundness ?? 1),
+    hairCard: Boolean(source.hairCard),
     strandSplitEnabled: Boolean(source.strandSplitEnabled),
     strandSplitPosition: Number(source.strandSplitPosition ?? 0),
     strandSplitHeight: Number(source.strandSplitHeight ?? 0.3),
@@ -17300,7 +19779,7 @@ function populateCreationPresetSelect(select, type, selectedValue = select.value
 
 function applyCreationPresetSnapshot(target, snapshot, type) {
   const keys = [
-    "width", "depth", "widthScale", "depthScale", "profileTrimLeft", "profileTrimRight", "profileTrimRoundness",
+    "width", "depth", "widthScale", "depthScale", "profileTrimLeft", "profileTrimRight", "profileTrimRoundness", "hairCard",
     "strandSplitEnabled", "strandSplitPosition", "strandSplitHeight", "strandSplitGap", "profileOffset", "rootScalpOffset", "twist",
     "hairLayer", "dynamicDensity", "densityAggression", "curlCount", "curlDisplacement",
     "braidMeshPreset", "braidWidth", "braidDepth", "braidSegmentLength", "braidRotation"
@@ -17401,7 +19880,7 @@ strandToolPresetInput.addEventListener("change", () => {
     if (!getSelectedLock()) syncCreationShapeInputs();
     updatePlacementStatus();
   }
-  drawStrandBrushCursor.scale.setScalar(activeStrokeBrushSize());
+  setDrawStrandBrushCursorScale(activeStrokeBrushSize());
 });
 
 braidToolPresetInput.addEventListener("change", () => {
@@ -17464,7 +19943,7 @@ appMenuTriggers.forEach((trigger) => {
     const menu = trigger.closest(".app-menu-shell")?.querySelector(".app-menu-dropdown");
     if (!menu) return;
     if (menu.id === "editMenu") {
-      deleteSelectionAction.disabled = !getSelectedLock() && !getSelectedGuide();
+      deleteSelectionAction.disabled = !getSelectedLock() && !getSelectedGuide() && !selectedReferenceImage();
     }
     setAppMenuOpen(trigger, menu, menu.classList.contains("hidden"));
   });
@@ -17474,10 +19953,176 @@ appMenuDropdowns.forEach((menu) => {
     if (event.target.closest("button")) closeAppMenus();
   });
 });
+setRadialMenusEnabled(radialMenusEnabled, { persist: false });
+setNavigationTipsEnabled(navigationTipsEnabled, { persist: false });
+setToolTipsEnabled(toolTipsEnabled, { persist: false });
+setViewportStatisticsEnabled(viewportStatisticsEnabled, { persist: false });
+openPreferencesButton.addEventListener("click", openPreferencesDialog);
+preferenceCategoryButtons.forEach((button) => {
+  button.addEventListener("click", () => setPreferenceCategory(button.dataset.preferenceCategory));
+});
+[closePreferencesButton, cancelPreferencesButton].forEach((button) => {
+  button.addEventListener("click", cancelPreferencesDialog);
+});
+savePreferencesButton.addEventListener("click", savePreferencesDialog);
+preferencesDialog.addEventListener("click", (event) => {
+  if (event.target === preferencesDialog) cancelPreferencesDialog();
+});
+preferencesDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  cancelPreferencesDialog();
+});
+radialMenusPreferenceInput.addEventListener("change", () => {
+  setRadialMenusEnabled(radialMenusPreferenceInput.checked, { persist: false });
+});
+navigationTipsPreferenceInput.addEventListener("change", () => {
+  setNavigationTipsEnabled(navigationTipsPreferenceInput.checked, { persist: false });
+});
+toolTipsPreferenceInput.addEventListener("change", () => {
+  setToolTipsEnabled(toolTipsPreferenceInput.checked, { persist: false });
+});
+viewportStatisticsPreferenceInput.addEventListener("change", () => {
+  setViewportStatisticsEnabled(viewportStatisticsPreferenceInput.checked, { persist: false });
+});
+languageSelect.addEventListener("change", () => {
+  const language = documentLocalizer.setLanguage(languageSelect.value);
+  languageSelect.value = language;
+  saveLanguage(language);
+});
+viewportEditModeInput.addEventListener("change", () => setViewportEditMode(viewportEditModeInput.value));
+strandOutlinerTab.addEventListener("click", () => setOutlinerTab("strands"));
+guideOutlinerTab.addEventListener("click", () => setOutlinerTab("guides"));
+referenceOutlinerTab.addEventListener("click", () => setOutlinerTab("references"));
+openShortcutsButton.addEventListener("click", () => shortcutsDialog.showModal());
+[closeShortcutsButton, dismissShortcutsButton].forEach((button) => {
+  button.addEventListener("click", () => shortcutsDialog.close());
+});
+shortcutsDialog.addEventListener("click", (event) => {
+  if (event.target === shortcutsDialog) shortcutsDialog.close();
+});
 joinDiscordButton.addEventListener("click", () => {
   window.open("https://discord.gg/U4JBykv4yk", "_blank", "noopener,noreferrer");
 });
+function requestReferenceImage(type) {
+  setViewportEditMode("reference");
+  pendingReferenceImageType = type;
+  referenceImageFile.value = "";
+  referenceImageFile.click();
+}
+
+createViewportReferenceMenu.addEventListener("click", () => requestReferenceImage("overlay"));
+createPlaneReferenceMenu.addEventListener("click", () => requestReferenceImage("plane"));
+closeReferenceImagePanel.addEventListener("click", () => setReferenceImagePanelOpen(false));
+addViewportReference.addEventListener("click", () => requestReferenceImage("overlay"));
+addPlaneReference.addEventListener("click", () => requestReferenceImage("plane"));
+referenceImageFile.addEventListener("change", async () => {
+  const file = referenceImageFile.files?.[0];
+  const type = pendingReferenceImageType;
+  pendingReferenceImageType = null;
+  if (!file || !type) return;
+  try {
+    await addReferenceImagesFromFiles([file], type);
+  } catch (error) {
+    console.error("Could not add reference image", error);
+  }
+});
+window.addEventListener("dragenter", (event) => {
+  if (!dragContainsReferenceImage(event)) return;
+  event.preventDefault();
+  prepareReferenceImageDrop();
+  setReferenceImageDragActive(true);
+  setReferenceDropHover(event);
+});
+window.addEventListener("dragover", (event) => {
+  if (!dragContainsReferenceImage(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+  prepareReferenceImageDrop();
+  setReferenceImageDragActive(true);
+  setReferenceDropHover(event);
+});
+window.addEventListener("dragleave", (event) => {
+  if (event.relatedTarget == null) setReferenceImageDragActive(false);
+});
+window.addEventListener("dragend", () => setReferenceImageDragActive(false));
+window.addEventListener("drop", async (event) => {
+  const files = [...(event.dataTransfer?.files || [])].filter(isSupportedReferenceImageFile);
+  const destination = referenceDropDestination(event);
+  const overlayPosition = destination === "overlay" ? viewportOverlayDropPosition(event) : null;
+  setReferenceImageDragActive(false);
+  if (!files.length) return;
+  event.preventDefault();
+  if (!destination) return;
+  try {
+    const type = destination === "overlay" ? "overlay" : "plane";
+    await addReferenceImagesFromFiles(files, type, {
+      view: type === "plane" ? destination : "front",
+      overlayPosition
+    });
+  } catch (error) {
+    console.error("Could not add dropped reference images", error);
+  }
+});
+
+bindUndoCapture(referenceImageType);
+referenceImageType.addEventListener("change", () => {
+  const reference = selectedReferenceImage();
+  if (!reference) return;
+  setReferenceImageType(reference, referenceImageType.value);
+});
+[referenceImageVisible, referenceImageSnappedViewOnly, referenceImageOpacity]
+  .forEach(bindUndoCapture);
+referenceImageVisible.addEventListener("change", () => {
+  const reference = selectedReferenceImage();
+  if (!reference) return;
+  reference.visible = referenceImageVisible.checked;
+  applyReferenceImageRuntime(reference);
+  renderReferenceImagePanel();
+});
+referenceImageSnappedViewOnly.addEventListener("change", () => {
+  const reference = selectedReferenceImage();
+  if (reference?.type !== "plane") return;
+  reference.snappedViewOnly = referenceImageSnappedViewOnly.checked;
+  updateReferencePlaneVisibility();
+  renderReferenceImagePanel();
+});
+referenceImageOpacity.addEventListener("input", () => {
+  const reference = selectedReferenceImage();
+  if (!reference) return;
+  reference.opacity = Number(referenceImageOpacity.value);
+  applyReferenceImageRuntime(reference);
+  referenceImageOpacityValue.textContent = reference.opacity.toFixed(2);
+});
+referenceImageView.addEventListener("change", () => {
+  const reference = selectedReferenceImage();
+  if (reference?.type !== "plane") return;
+  pushUndoState();
+  placeReferencePlane(reference, referenceImageView.value);
+  renderReferenceImagePanel();
+});
+bindUndoCapture(referencePlaneInFront);
+referencePlaneInFront.addEventListener("change", () => {
+  const reference = selectedReferenceImage();
+  if (reference?.type !== "plane") return;
+  setReferencePlaneInFront(reference, referencePlaneInFront.checked);
+  renderReferenceImagePanel();
+});
+deleteReferenceImage.addEventListener("click", () => {
+  const reference = selectedReferenceImage();
+  if (!reference) return;
+  pushUndoState();
+  transformControls.detach();
+  disposeReferenceImage(reference);
+  referenceImages.splice(referenceImages.indexOf(reference), 1);
+  selectedReferenceImageId = referenceImages.at(-1)?.id || null;
+  if (selectedReferenceImageId) selectReferenceImage(selectedReferenceImageId);
+  else renderReferenceImagePanel();
+});
 deleteSelectionAction.addEventListener("click", () => {
+  if (selectedReferenceImage()) {
+    deleteReferenceImage.click();
+    return;
+  }
   if (getSelectedLock()) {
     document.querySelector("#deleteLock").click();
     return;
@@ -17643,10 +20288,38 @@ proportionalLockRootInput.addEventListener("change", () => {
 
 window.addEventListener("keydown", (event) => {
   const tag = document.activeElement?.tagName?.toLowerCase();
-  const editingField = tag === "input"
+  let editingField = tag === "input"
     || tag === "textarea"
     || tag === "select"
     || document.activeElement?.isContentEditable;
+  if (selectFocusShouldYieldToShortcut(event)) {
+    document.activeElement.blur();
+    editingField = false;
+  }
+  if (event.key === "Escape" && finishReferenceOverlayDrag(event, { cancel: true })) {
+    event.preventDefault();
+    return;
+  }
+  if (event.key === "Escape" && cancelDuplicatePlacement()) {
+    event.preventDefault();
+    return;
+  }
+  if (event.key === "Escape" && cancelStrandRadialGesture()) {
+    event.preventDefault();
+    return;
+  }
+  if (event.key === "Escape" && cancelToolShortcutPress()) {
+    event.preventDefault();
+    return;
+  }
+  if (duplicatePlacement) {
+    event.preventDefault();
+    return;
+  }
+  if (toolRadialGesture) {
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Shift" && !event.repeat && beginViewSnapFromActiveOrbit()) {
     event.preventDefault();
     return;
@@ -17671,7 +20344,17 @@ window.addEventListener("keydown", (event) => {
     redoLastAction();
     return;
   }
-  if (tag === "input" || tag === "select" || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (editingField || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.code === "Space") {
+    event.preventDefault();
+    if (!event.repeat) beginStrandRadialGesture();
+    return;
+  }
+  if (event.key.toLowerCase() === "s") {
+    event.preventDefault();
+    if (!event.repeat) brushSizeHotkeyHeld = true;
+    return;
+  }
   if (event.key.toLowerCase() === "b") {
     event.preventDefault();
     if (event.repeat || proportionalHotkeyPress) return;
@@ -17697,6 +20380,11 @@ window.addEventListener("keydown", (event) => {
     setHierarchyEditing(!hierarchyEditing);
     return;
   }
+  if (event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    if (!event.repeat) centerViewportOnSelectedItem();
+    return;
+  }
   if (event.key.toLowerCase() === "z") {
     event.preventDefault();
     navigateCurvePointHierarchy(-1);
@@ -17710,10 +20398,25 @@ window.addEventListener("keydown", (event) => {
   const tool = shortcutTools[event.key.toLowerCase()];
   if (!tool) return;
   event.preventDefault();
-  setActiveTool(tool);
+  if (event.repeat) return;
+  if (["select", "move", "rotate", "scale"].includes(tool)) {
+    beginToolShortcutPress(event.key.toLowerCase(), tool);
+  } else {
+    setActiveTool(tool);
+  }
 });
 
 window.addEventListener("keyup", (event) => {
+  if (finishToolShortcutPress(event.key.toLowerCase())) {
+    event.preventDefault();
+  }
+  if (event.code === "Space") {
+    event.preventDefault();
+    finishStrandRadialGesture();
+  }
+  if (event.key.toLowerCase() === "s") {
+    brushSizeHotkeyHeld = false;
+  }
   if (event.key.toLowerCase() === "b" && proportionalHotkeyPress) {
     const press = proportionalHotkeyPress;
     window.clearTimeout(press.holdTimer);
@@ -17726,6 +20429,12 @@ window.addEventListener("keyup", (event) => {
 });
 window.addEventListener("blur", () => {
   activeViewportPointer = null;
+  finishReferenceOverlayDrag(null, { cancel: true });
+  cancelStrandRadialGesture();
+  cancelToolShortcutPress();
+  cancelDuplicatePlacement();
+  brushSizeHotkeyHeld = false;
+  finishBrushSizeDrag();
   window.clearTimeout(proportionalHotkeyPress?.holdTimer);
   proportionalHotkeyPress = null;
   endProportionalSizeEdit();
@@ -17929,6 +20638,7 @@ function endPanelSplitHandleDrag(event) {
 }
 
 document.querySelector("#resetCamera").addEventListener("click", () => {
+  shiftSnappedViewActive = false;
   if (guideModel) {
     frameGuideModel();
     return;
@@ -17936,8 +20646,11 @@ document.querySelector("#resetCamera").addEventListener("click", () => {
   camera.up.set(0, 1, 0);
   camera.position.set(0, 1.15, 5.2);
   controls.target.set(0, 0.75, 0);
+  if (orthographicView) syncOrthographicFramingFromDistance();
+  updateCameraProjectionForViewport();
   controls.update();
 });
+orthographicViewToggle.addEventListener("click", () => setOrthographicView(!orthographicView));
 
 document.querySelector("#toggleWire").addEventListener("click", () => {
   hairTopologyVisible = !hairTopologyVisible;
@@ -18079,9 +20792,11 @@ async function exportHairForMayaLocally() {
 
 function resize() {
   const { clientWidth, clientHeight } = viewport;
-  camera.aspect = clientWidth / clientHeight;
-  camera.updateProjectionMatrix();
+  updateCameraProjectionForViewport();
   renderer.setSize(clientWidth, clientHeight, false);
+  referenceImages
+    .filter((reference) => reference.type === "overlay")
+    .forEach(applyReferenceImageRuntime);
 }
 
 function handleViewportPointerMove(event) {
@@ -18271,7 +20986,7 @@ function endViewSnap(event) {
 }
 
 function prepareCurvePointSelection(event) {
-  if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || proportionalSizeEdit || proportionalHotkeyPress || scalpShapeEditing || scalpPaintEditing || scalpBuilderEditing || capsuleGuideEditing || ["select", "place", "draw", "braid", "panel", "surface-guide"].includes(activeTool)) return;
+  if (viewportEditMode !== "strand" || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey || proportionalSizeEdit || proportionalHotkeyPress || scalpShapeEditing || scalpPaintEditing || scalpBuilderEditing || capsuleGuideEditing || ["select", "place", "draw", "braid", "panel", "surface-guide"].includes(activeTool)) return;
   if (pointerHitsTransformGizmo(event)) return;
   const selectedLock = getSelectedLock();
   const handles = selectedLock?.curveObjects?.group.visible ? selectedLock.curveObjects.handles : [];
@@ -18286,6 +21001,81 @@ function prepareCurvePointSelection(event) {
   activeHandleEdit = null;
   transformDragging = false;
   updateInteractionLocks();
+}
+
+const controlPointHoverOverlay = new THREE.Mesh(
+  new THREE.BufferGeometry(),
+  new THREE.MeshBasicMaterial({
+    color: 0xffd84d,
+    transparent: true,
+    opacity: 0.94,
+    depthTest: false,
+    depthWrite: false
+  })
+);
+controlPointHoverOverlay.renderOrder = 30;
+controlPointHoverOverlay.raycast = () => {};
+let hoveredControlPoint = null;
+
+function setHoveredControlPoint(handle) {
+  if (handle === hoveredControlPoint) return;
+  controlPointHoverOverlay.parent?.remove(controlPointHoverOverlay);
+  hoveredControlPoint = handle || null;
+  if (!hoveredControlPoint) return;
+  controlPointHoverOverlay.geometry = hoveredControlPoint.geometry;
+  controlPointHoverOverlay.position.set(0, 0, 0);
+  controlPointHoverOverlay.quaternion.identity();
+  controlPointHoverOverlay.scale.setScalar(1.16);
+  hoveredControlPoint.add(controlPointHoverOverlay);
+}
+
+function visibleControlPointHoverTargets() {
+  if (
+    duplicatePlacement
+    || transformDragging
+    || scalpLatticeDrag
+    || scalpPaintDrag
+    || scalpBuilderStroke
+    || viewPlaneMoveDrag
+    || drawStrandStroke
+    || panelSplitDrag
+    || capsuleGuideLoopDrag
+  ) return [];
+  if (scalpBuilderEditing) return scalpBuilderCurveLattice?.handles || [];
+  if (scalpLatticeEditing) return scalpLatticeHandles;
+  if (capsuleGuideEditing) {
+    const guide = getSelectedGuide();
+    return guide?.type === "capsule" && guide.handlesGroup?.visible
+      ? guide.handlesGroup.children
+      : [];
+  }
+  const targets = [];
+  const lattice = viewportEditMode === "guide" ? selectedCurveLatticeGuide() : null;
+  if (lattice?.handlesGroup?.visible) targets.push(...lattice.handlesGroup.children);
+  const lock = viewportEditMode === "strand" ? getSelectedLock() : null;
+  if (lock?.curveObjects?.group.visible) targets.push(...lock.curveObjects.handles);
+  return targets;
+}
+
+function updateControlPointHover(event) {
+  const targets = visibleControlPointHoverTargets().filter((handle) => handle.visible && handle.parent?.visible !== false);
+  if (!targets.length) {
+    setHoveredControlPoint(null);
+    return;
+  }
+  rayFromViewportEvent(event);
+  const hoveredTarget = raycaster.intersectObjects(targets, false)[0]?.object || null;
+  const hoveringSelectedScalpPoint = scalpBuilderEditing
+    && hoveredTarget?.userData.scalpBuilderLatticeIndex === scalpBuilderCurveLattice?.selectedIndex;
+  const unselectedScalpPointHasPriority = scalpBuilderEditing
+    && hoveredTarget
+    && !hoveringSelectedScalpPoint;
+  if (unselectedScalpPointHasPriority) transformControls.axis = null;
+  if ((!scalpBuilderEditing || !hoveredTarget || hoveringSelectedScalpPoint) && pointerHitsTransformGizmo(event)) {
+    setHoveredControlPoint(null);
+    return;
+  }
+  setHoveredControlPoint(hoveredTarget);
 }
 
 window.addEventListener("resize", resize);
@@ -18303,6 +21093,11 @@ updateLightAngleFromInputs();
 applyDisplayVisibilityFilters();
 updateInteractionLocks();
 window.addEventListener("pointermove", trackViewportPointerMove);
+window.addEventListener("pointermove", updateStrandRadialGesture, true);
+window.addEventListener("pointermove", updateToolRadialGesture, true);
+window.addEventListener("pointermove", updateDuplicatePlacement, true);
+window.addEventListener("pointermove", updateReferenceOverlayDrag, true);
+window.addEventListener("pointermove", updateBrushSizeDrag, true);
 window.addEventListener("pointermove", updateViewSnap);
 window.addEventListener("pointermove", updateViewPlaneMove);
 window.addEventListener("pointermove", updateRelaxEdit);
@@ -18317,6 +21112,8 @@ window.addEventListener("pointermove", updatePanelSplitHandleDrag);
 window.addEventListener("pointermove", updateCapsuleGuideLoopHover);
 window.addEventListener("pointermove", updateCapsuleGuideLoopDrag);
 window.addEventListener("pointerup", endViewSnap);
+window.addEventListener("pointerup", finishReferenceOverlayDrag, true);
+window.addEventListener("pointerup", finishBrushSizeDrag, true);
 window.addEventListener("pointerup", endViewPlaneMove);
 window.addEventListener("pointerup", endRelaxEdit);
 window.addEventListener("pointerup", endPlaceEdit);
@@ -18330,6 +21127,8 @@ window.addEventListener("pointerup", finishSelectionMarquee);
 window.addEventListener("pointerup", endAltOrbit);
 window.addEventListener("pointerup", endSelectPointerCapture);
 window.addEventListener("pointercancel", endViewSnap);
+window.addEventListener("pointercancel", (event) => finishReferenceOverlayDrag(event, { cancel: true }), true);
+window.addEventListener("pointercancel", finishBrushSizeDrag, true);
 window.addEventListener("pointercancel", endViewPlaneMove);
 window.addEventListener("pointercancel", endRelaxEdit);
 window.addEventListener("pointercancel", endPlaceEdit);
@@ -18358,11 +21157,19 @@ window.addEventListener("pointercancel", clearViewportPointer);
 ["pointerdown", "click", "dblclick"].forEach((eventName) => {
   renderer.domElement.addEventListener(eventName, blockProportionalSizingEvent, true);
 });
+renderer.domElement.addEventListener("pointerdown", blockPointerDuringStrandRadialGesture, true);
+renderer.domElement.addEventListener("pointerdown", confirmDuplicatePlacement, true);
+renderer.domElement.addEventListener("pointerdown", beginBrushSizeDrag, true);
 renderer.domElement.addEventListener("pointerdown", trackViewportPointerDown, true);
 renderer.domElement.addEventListener("pointerdown", beginViewSnap, true);
 renderer.domElement.addEventListener("pointerdown", prepareSelectPointerCapture, true);
 renderer.domElement.addEventListener("pointerdown", beginAltOrbit, true);
 renderer.domElement.addEventListener("pointerdown", prepareCurvePointSelection, true);
+renderer.domElement.addEventListener("pointerdown", prioritizeScalpBuilderPointSelection, true);
+renderer.domElement.addEventListener("pointermove", updateControlPointHover);
+renderer.domElement.addEventListener("pointermove", updateReferenceOverlayCursor);
+renderer.domElement.addEventListener("pointerleave", () => setHoveredControlPoint(null));
+window.addEventListener("pointercancel", () => setHoveredControlPoint(null));
 renderer.domElement.addEventListener("pointerdown", (event) => {
   if (proportionalSizeEdit || proportionalHotkeyPress) return;
   lastPointer.x = event.clientX;
@@ -18372,6 +21179,38 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   if (pointerHitsTransformGizmo(event)) return;
+  const referenceSelectionActive = activeTool === "select" && viewportEditMode === "reference";
+  const referenceTransformActive = !referenceImagePanel.classList.contains("hidden")
+    && ["move", "scale"].includes(activeTool);
+  if (
+    (referenceSelectionActive || referenceTransformActive)
+    && event.button === 0
+    && !event.shiftKey
+    && !event.ctrlKey
+    && !event.altKey
+    && !event.metaKey
+  ) {
+    const overlayReference = viewportEditMode === "reference" ? referenceOverlayAtPointer(event) : null;
+    if (overlayReference) {
+      selectReferenceImage(overlayReference.id);
+      beginReferenceOverlayDrag(event, overlayReference);
+      event.preventDefault();
+      return;
+    }
+    const referenceHit = referencePlaneHitFromPointer({
+      ignoreOcclusion: viewportEditMode === "reference"
+    });
+    if (referenceHit?.object?.userData.referenceImageId) {
+      selectReferenceImage(referenceHit.object.userData.referenceImageId);
+      event.preventDefault();
+      return;
+    }
+    if (referenceSelectionActive) {
+      selectReferenceImage(null);
+      event.preventDefault();
+      return;
+    }
+  }
   if (scalpBuilderEditing) {
     if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
     if (beginScalpBuilderInput(event)) event.preventDefault();
@@ -18468,7 +21307,9 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   }
   if (activeTool === "select") {
     if (event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) return;
-    const selectedLattice = selectedCurveLatticeGuide();
+    const selectingStrands = viewportEditMode === "strand";
+    const selectingGuides = viewportEditMode === "guide";
+    const selectedLattice = selectingGuides ? selectedCurveLatticeGuide() : null;
     const latticePointHit = selectedLattice?.handlesGroup.visible
       ? raycaster.intersectObjects(selectedLattice.handlesGroup.children, false)[0]
       : null;
@@ -18477,18 +21318,20 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
       selectCurveLatticePoint(selectedLattice, latticePointHit.object.userData.curveLatticePointIndex, false);
       return;
     }
-    const lockHit = raycaster.intersectObjects(
-      locks.filter(strandVisibleForDisplay).map((lock) => lock.mesh),
-      false
-    )[0] || null;
-    const guideHit = raycaster.intersectObjects(
-      guides
-        .filter((guide) => guide.type !== "capsule")
-        .flatMap((guide) => [guide.mesh, guide.rootMesh, guide.bottomMesh]
+    const lockHit = selectingStrands
+      ? raycaster.intersectObjects(
+        locks.filter(strandVisibleForDisplay).map((lock) => lock.mesh),
+        false
+      )[0] || null
+      : null;
+    const guideHit = selectingGuides
+      ? raycaster.intersectObjects(
+        guides.flatMap((guide) => [guide.mesh, guide.rootMesh, guide.bottomMesh]
           .filter((object) => object && object.visible !== false)),
-      false
-    )[0] || null;
-    const selectedSurface = guideHit && (!lockHit || guideHit.distance <= lockHit.distance)
+        false
+      )[0] || null
+      : null;
+    const selectedSurface = guideHit
       ? { type: "guide", hit: guideHit }
       : lockHit
         ? { type: "strand", hit: lockHit }
@@ -18498,7 +21341,7 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   }
 
   const modelingClick = event.button === 0 && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey;
-  const selectedLattice = selectedCurveLatticeGuide();
+  const selectedLattice = viewportEditMode === "guide" ? selectedCurveLatticeGuide() : null;
   if (modelingClick && ["move", "rotate", "scale"].includes(activeTool) && selectedLattice?.handlesGroup.visible) {
     const latticePointHit = raycaster.intersectObjects(selectedLattice.handlesGroup.children, false)[0];
     if (latticePointHit) {
@@ -18517,23 +21360,25 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
       return;
     }
   }
-  const selectedLock = getSelectedLock();
+  const selectedLock = viewportEditMode === "strand" ? getSelectedLock() : null;
   const handles = selectedLock?.curveObjects?.group.visible ? selectedLock.curveObjects.handles : [];
   const hit = modelingClick ? raycaster.intersectObjects(handles, false)[0] : null;
 
   if (!hit && modelingClick && ["move", "rotate", "scale"].includes(activeTool)) {
-    const lockHit = raycaster.intersectObjects(
-      locks.filter(strandVisibleForDisplay).map((lock) => lock.mesh),
-      false
-    )[0] || null;
-    const guideHit = raycaster.intersectObjects(
-      guides
-        .filter((guide) => guide.type !== "capsule")
-        .flatMap((guide) => [guide.mesh, guide.rootMesh, guide.bottomMesh]
+    const lockHit = viewportEditMode === "strand"
+      ? raycaster.intersectObjects(
+        locks.filter(strandVisibleForDisplay).map((lock) => lock.mesh),
+        false
+      )[0] || null
+      : null;
+    const guideHit = viewportEditMode === "guide"
+      ? raycaster.intersectObjects(
+        guides.flatMap((guide) => [guide.mesh, guide.rootMesh, guide.bottomMesh]
           .filter((object) => object && object.visible !== false)),
-      false
-    )[0] || null;
-    const selectedSurface = guideHit && (!lockHit || guideHit.distance <= lockHit.distance)
+        false
+      )[0] || null
+      : null;
+    const selectedSurface = guideHit
       ? { type: "guide", hit: guideHit }
       : lockHit
         ? { type: "strand", hit: lockHit }
@@ -18606,6 +21451,7 @@ function animate(timestamp = performance.now()) {
     fpsSampleStart = timestamp;
   }
   controls.update();
+  updateReferencePlaneVisibility();
   updateViewPlaneGrid();
   updatePullGuideVisual();
   renderer.render(scene, camera);

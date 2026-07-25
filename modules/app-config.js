@@ -1,3 +1,5 @@
+export const APP_VERSION = "0.1.2";
+
 export const SCALP_REGIONS = {
   bangs: { label: "Bangs Root", color: 0xef476f },
   "side-bangs-left": { label: "Side Bangs Left", color: 0xb967ff },
