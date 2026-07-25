@@ -176,6 +176,8 @@ const JA = Object.freeze({
   "Scalp Guide": "頭皮ガイド",
   "Create Capsule Guide From Scalp": "頭皮からカプセルガイドを作成",
   "Scalp guide actions": "頭皮ガイドの操作",
+  "X axis mirror is active. New strands create linked mirror instances": "X軸ミラーが有効です。新しいストランドにはリンクされたミラーインスタンスが作成されます",
+  "Enable X axis mirror. New strands will create linked mirror instances": "X軸ミラーを有効にします。新しいストランドにはリンクされたミラーインスタンスが作成されます",
   "Scalp Curve Guide": "頭皮カーブガイド",
   "Curve Lattice": "カーブ格子",
   "Transparent Head": "頭部を透明化",

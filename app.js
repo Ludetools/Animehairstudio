@@ -52,7 +52,7 @@ import {
   DEFAULT_LANGUAGE,
   LANGUAGE_STORAGE_KEY,
   normalizeLanguage
-} from "./modules/localization.js?v=20260725-13";
+} from "./modules/localization.js?v=20260725-14";
 
 function readSavedLanguage() {
   try {
@@ -11980,6 +11980,11 @@ function createMirrorPartner(lock, options = {}) {
   return mirrored;
 }
 
+function createMirrorPartnerForNewLock(lock) {
+  if (!mirrorXEditing || !lock || mirrorPartnerFor(lock)) return null;
+  return createMirrorPartner(lock, { deferUi: true });
+}
+
 function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), options = {}) {
   if (!lock || !partner || partner === lock) return null;
   partner.outlinerVisible = lock.outlinerVisible !== false;
@@ -12083,8 +12088,8 @@ function setMirrorXEditing(enabled) {
   mirrorXToggle.classList.toggle("active", mirrorXEditing);
   mirrorXToggle.setAttribute("aria-pressed", String(mirrorXEditing));
   mirrorXToggle.title = mirrorXEditing
-    ? "X axis mirror is active in compatible editors"
-    : "Enable X axis mirror in compatible editors. Create strand mirror instances from the outliner";
+    ? "X axis mirror is active. New strands create linked mirror instances"
+    : "Enable X axis mirror. New strands will create linked mirror instances";
   if (drawStrandStroke) updateDrawStrandPreview();
   guides.filter((guide) => guide.type === "curve-lattice").forEach(updateCurveLatticeHandleColors);
   guides.filter((guide) => guide.type === "capsule").forEach((guide) => {
@@ -15359,7 +15364,8 @@ function updateDrawStrandPreview() {
   const extensionLock = drawStrandStroke.extensionLockId
     ? locks.find((lock) => lock.id === drawStrandStroke.extensionLockId)
     : null;
-  const showLinkedMirrorPreview = Boolean(mirrorPartnerFor(extensionLock));
+  const showMirrorPreview = Boolean(mirrorPartnerFor(extensionLock))
+    || Boolean(!extensionLock && mirrorXEditing);
   const layerId = normalizeHairLayer(defaults.hairLayer);
   const layerOffset = Number(groupDefaults.layerOffsets?.[layerId] ?? 0);
   const layerDirection = drawStrandStroke.rootSurfaceNormal?.clone().normalize() || new THREE.Vector3(0, 0, 1);
@@ -15375,7 +15381,7 @@ function updateDrawStrandPreview() {
   drawStrandPreview.geometry.setFromPoints(previewPoints);
   drawStrandPreview.visible = true;
   drawStrandMirrorPreview.geometry.setFromPoints(previewPoints.map(mirroredVector));
-  drawStrandMirrorPreview.visible = showLinkedMirrorPreview;
+  drawStrandMirrorPreview.visible = showMirrorPreview;
   if (samples.length < 2) {
     drawStrandVolumePreview.visible = false;
     drawStrandMirrorVolumePreview.visible = false;
@@ -15470,7 +15476,7 @@ function updateDrawStrandPreview() {
   }
   const previewColor = strandDisplayColor(previewLock);
   updateDrawVolumePreview(drawStrandVolumePreview, previewLock, previewColor);
-  if (showLinkedMirrorPreview) {
+  if (showMirrorPreview) {
     const mirroredPreviewLock = {
       ...previewLock,
       points: previewLock.points.map(mirroredVector),
@@ -15503,7 +15509,22 @@ function updateDrawStrandPreview() {
         pointTwists: points.map((_, pointIndex) => sampleArray(template.pointTwists || [0], pointIndex / Math.max(1, points.length - 1)))
       };
       updateDrawVolumePreview(drawStrandClumpVolumePreviews[index], clumpPreviewLock, previewColor);
-      drawStrandClumpMirrorPreviews[index].visible = false;
+      if (showMirrorPreview) {
+        const mirroredClumpPreviewLock = {
+          ...clumpPreviewLock,
+          points: clumpPreviewLock.points.map(mirroredVector),
+          pointSurfaceNormals: clumpPreviewLock.pointSurfaceNormals?.map(mirroredVector) || [],
+          pointTwists: clumpPreviewLock.pointTwists.map((twist) => -twist),
+          twist: -clumpPreviewLock.twist
+        };
+        updateDrawVolumePreview(
+          drawStrandClumpMirrorPreviews[index],
+          mirroredClumpPreviewLock,
+          previewColor
+        );
+      } else {
+        drawStrandClumpMirrorPreviews[index].visible = false;
+      }
     });
   } else {
     hideDrawClumpPreviews();
@@ -15775,7 +15796,7 @@ function createDrawnBraid(stroke) {
   }, { deferUi: true });
   updateLockGeometry(lock);
   lock.curveObjects.group.visible = false;
-  syncActiveMirror(lock);
+  createMirrorPartnerForNewLock(lock);
   renderLockList();
   updateCount();
   selectLock(lock.id);
@@ -15807,11 +15828,11 @@ function createDrawnStrand(stroke) {
     templates[index],
     clumpTemplate
   ));
-  created.forEach((lock) => syncActiveMirror(lock));
   if (clumpTemplate) {
     const clumpName = nextClumpName();
     createClumpFromLocks(created, { name: clumpName });
   }
+  created.forEach(createMirrorPartnerForNewLock);
   renderLockList();
   updateCount();
   selectLock(created[0].id);
@@ -15857,7 +15878,7 @@ function createDrawnPanel(stroke) {
   }, { deferUi: true });
   updateLockGeometry(lock);
   lock.curveObjects.group.visible = false;
-  syncActiveMirror(lock);
+  createMirrorPartnerForNewLock(lock);
   renderLockList();
   updateCount();
   selectLock(lock.id);
@@ -15979,7 +16000,10 @@ function createPlacedStrand(hit) {
   applyPlacedStrandScaleProfile(placed);
   updateLockGeometry(placed);
   pendingPlacedLockId = placed.id;
-  syncActiveMirror(placed, { refreshUi: true });
+  if (createMirrorPartnerForNewLock(placed)) {
+    renderLockList();
+    updateCount();
+  }
   selectCurvePoint(placed.id, 0);
   return placed;
 }
