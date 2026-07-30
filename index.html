@@ -51,6 +51,7 @@
                 </button>
                 <div class="app-menu-separator" role="separator"></div>
                 <button id="importHeadMeshMenu" type="button" role="menuitem"><span>Import Head Mesh</span></button>
+                <button id="importFullBodyMeshMenu" type="button" role="menuitem"><span>Import Full Body Mesh</span></button>
               </div>
             </div>
             <div class="app-menu-shell">
@@ -145,6 +146,7 @@
         </a>
         <input id="hairProjectFile" class="hidden-file-input" type="file" accept=".ahs,.animehair.json,.json,application/json" />
         <input id="headMeshFile" class="hidden-file-input" type="file" accept=".obj,model/obj,text/plain" />
+        <input id="fullBodyMeshFile" class="hidden-file-input" type="file" accept=".obj,model/obj,text/plain" />
         <input id="referenceImageFile" class="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
       </header>
       <aside class="outliner-panel" aria-label="Scene outliner">
@@ -916,6 +918,7 @@
             <span>Edit Head</span>
           </div>
           <button id="importHeadMesh" class="wide-action" type="button" title="Import head mesh from an OBJ file">Import Head Mesh</button>
+          <button id="importFullBodyMesh" class="wide-action" type="button" title="Import a full body OBJ, scale it to seven head heights, and align its top to the scalp guide">Import Full Body Mesh</button>
           <label class="topology-control head-transform-control axis-reset-control" title="Moves the reference head up or down without moving the hair or scalp guide.">Position Y <button data-reset-head-transform="positionY" type="button" title="Reset head Y position" aria-label="Reset head Y position">⟲</button><input id="headPositionY" type="range" min="-3" max="3" step="0.01" value="0" /><output id="headPositionYValue" class="slider-value">0.00</output></label>
           <label class="topology-control head-transform-control axis-reset-control" title="Moves the reference head forward or backward without moving the hair or scalp guide.">Position Z <button data-reset-head-transform="positionZ" type="button" title="Reset head Z position" aria-label="Reset head Z position">⟲</button><input id="headPositionZ" type="range" min="-3" max="3" step="0.01" value="0" /><output id="headPositionZValue" class="slider-value">0.00</output></label>
           <label class="topology-control head-transform-control axis-reset-control" title="Uniformly changes the overall size of the reference head.">Uniform Scale <button data-reset-head-transform="uniformScale" type="button" title="Reset head scale" aria-label="Reset head scale">⟲</button><input id="headUniformScale" type="range" min="0.25" max="3" step="0.01" value="1" /><output id="headUniformScaleValue" class="slider-value">1.00</output></label>
@@ -1523,6 +1526,6 @@
         }
       }
     </script>
-    <script type="module" src="./app.js?v=20260730-114"></script>
+    <script type="module" src="./app.js?v=20260730-118"></script>
   </body>
 </html>

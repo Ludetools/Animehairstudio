@@ -262,6 +262,7 @@ const JA = Object.freeze({
   "Local Export to OBJ": "OBJにローカル書き出し",
   "Local Export to USDA": "USDAにローカル書き出し",
   "Import Head Mesh": "頭部メッシュを読み込む",
+  "Import Full Body Mesh": "全身メッシュを読み込む",
   "Edit": "編集",
   "Undo": "元に戻す",
   "Redo": "やり直す",

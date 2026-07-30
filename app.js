@@ -2150,7 +2150,9 @@ const presetLibraryStatus = document.querySelector("#presetLibraryStatus");
 const presetFilterButtons = [...document.querySelectorAll("[data-preset-filter]")];
 const hairProjectFileInput = document.querySelector("#hairProjectFile");
 const headMeshFileInput = document.querySelector("#headMeshFile");
+const fullBodyMeshFileInput = document.querySelector("#fullBodyMeshFile");
 const importHeadMeshMenu = document.querySelector("#importHeadMeshMenu");
+const importFullBodyMeshMenu = document.querySelector("#importFullBodyMeshMenu");
 const undoButton = document.querySelector("#undoAction");
 const redoButton = document.querySelector("#redoAction");
 const deleteSelectionAction = document.querySelector("#deleteSelectionAction");
@@ -2643,6 +2645,10 @@ let pendingFileAction = null;
 let importedHeadAsset = null;
 
 const GUIDE_HEAD_REFERENCE_SIZE = 26.760177;
+const GUIDE_HEAD_TARGET_HEIGHT = 2.8;
+const FULL_BODY_HEAD_COUNT = 7;
+const FULL_BODY_TARGET_HEIGHT = GUIDE_HEAD_TARGET_HEIGHT * FULL_BODY_HEAD_COUNT;
+const FULL_BODY_FRAME_BOTTOM_MARGIN = GUIDE_HEAD_TARGET_HEIGHT * 0.9;
 const GUIDE_BOUNDS_EXCLUDED_GROUPS = new Set(["body_clean_nosupport"]);
 
 function guideHeadBounds(model) {
@@ -2653,6 +2659,20 @@ function guideHeadBounds(model) {
     box.expandByObject(child);
   });
   return box.isEmpty() ? new THREE.Box3().setFromObject(model) : box;
+}
+
+function fullBodyScalpFocusBounds() {
+  scalpSurfaceGroup.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(activeScalpSurfaceMesh());
+  if (bounds.isEmpty()) return null;
+  const size = bounds.getSize(new THREE.Vector3());
+  bounds.min.y -= FULL_BODY_FRAME_BOTTOM_MARGIN;
+  bounds.max.y += size.y * 0.08;
+  bounds.min.x -= size.x * 0.08;
+  bounds.max.x += size.x * 0.08;
+  bounds.min.z -= size.z * 0.08;
+  bounds.max.z += size.z * 0.08;
+  return bounds;
 }
 
 function disposeGuideModel(model) {
@@ -2728,20 +2748,55 @@ function resetHeadTransform() {
   applyHeadTransform();
 }
 
+function realignFullBodyGuideToScalpTop() {
+  if (!guideModel?.userData?.fullBodyReference) return;
+  const sourceHeight = Number(guideModel.userData.sourceHeight);
+  const baseScale = Number(guideModel.userData.baseScale);
+  if (!Number.isFinite(sourceHeight) || !Number.isFinite(baseScale)) return;
+  scalpSurfaceGroup.updateMatrixWorld(true);
+  const scalpBounds = new THREE.Box3().setFromObject(activeScalpSurfaceMesh());
+  const scalpCenter = scalpBounds.getCenter(new THREE.Vector3());
+  guideModel.userData.fittedCenter.set(
+    scalpCenter.x,
+    scalpBounds.max.y - (sourceHeight * baseScale * 0.5),
+    scalpCenter.z
+  );
+  applyHeadTransform();
+}
+
 function installGuideModel(obj, options = {}) {
-  const { normalize = false, frame = true } = options;
-  const box = guideHeadBounds(obj);
+  const { normalize = false, frame = true, fullBody = false } = options;
+  const box = fullBody ? new THREE.Box3().setFromObject(obj) : guideHeadBounds(obj);
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
-  const sourceSize = Math.max(size.x, size.y, size.z);
-  if (!Number.isFinite(sourceSize) || sourceSize <= 0) throw new Error("Head OBJ contains no usable mesh bounds");
-  const scale = 2.8 / (normalize ? sourceSize : GUIDE_HEAD_REFERENCE_SIZE);
+  const sourceSize = fullBody ? size.y : Math.max(size.x, size.y, size.z);
+  if (!Number.isFinite(sourceSize) || sourceSize <= 0) throw new Error("Reference OBJ contains no usable mesh bounds");
+  const scale = fullBody
+    ? FULL_BODY_TARGET_HEIGHT / sourceSize
+    : GUIDE_HEAD_TARGET_HEIGHT / (normalize ? sourceSize : GUIDE_HEAD_REFERENCE_SIZE);
+  const fittedCenter = new THREE.Vector3(0, 0.05, 0);
+  if (fullBody) {
+    scalpSurfaceGroup.updateMatrixWorld(true);
+    const scalpBounds = new THREE.Box3().setFromObject(activeScalpSurfaceMesh());
+    const scalpCenter = scalpBounds.getCenter(new THREE.Vector3());
+    fittedCenter.set(
+      scalpCenter.x,
+      scalpBounds.max.y - (size.y * scale * 0.5),
+      scalpCenter.z
+    );
+  }
 
   obj.scale.setScalar(scale);
-  obj.position.set(-center.x * scale, -center.y * scale + 0.05, -center.z * scale);
+  obj.position.set(
+    fittedCenter.x - center.x * scale,
+    fittedCenter.y - center.y * scale,
+    fittedCenter.z - center.z * scale
+  );
   obj.userData.sourceCenter = center.clone();
-  obj.userData.fittedCenter = new THREE.Vector3(0, 0.05, 0);
+  obj.userData.fittedCenter = fittedCenter;
   obj.userData.baseScale = scale;
+  obj.userData.sourceHeight = size.y;
+  obj.userData.fullBodyReference = fullBody;
   let meshCount = 0;
   obj.traverse((child) => {
     if (!child.isMesh) return;
@@ -2776,7 +2831,11 @@ function installGuideModel(obj, options = {}) {
   scene.add(obj);
   resetHeadTransform();
   setHeadReferenceTransparency(false);
-  if (frame) frameGuideModel({ distanceScale: 1.35, targetYOffset: -0.12 });
+  if (frame) {
+    frameGuideModel(fullBody
+      ? { distanceScale: 1.1, targetYOffset: 0, fullBody: true }
+      : { distanceScale: 1.35, targetYOffset: -0.12 });
+  }
 }
 
 function loadDefaultGuideModel(options = {}) {
@@ -3023,7 +3082,15 @@ function createSplitControlHandle() {
   return handle;
 }
 
-function frameGuideModel({ distanceScale = 1, targetYOffset = 0.18 } = {}) {
+function frameGuideModel({
+  distanceScale = 1,
+  targetYOffset = 0.18,
+  fullBody = Boolean(guideModel?.userData?.fullBodyReference)
+} = {}) {
+  if (fullBody) {
+    frameViewportBounds(fullBodyScalpFocusBounds());
+    return;
+  }
   shiftSnappedViewActive = false;
   const box = guideHeadBounds(guideModel);
   const center = box.getCenter(new THREE.Vector3());
@@ -9751,6 +9818,7 @@ function centerViewportOnSelectedItem() {
 }
 
 function fullSceneFocusBounds() {
+  if (guideModel?.userData?.fullBodyReference) return fullBodyScalpFocusBounds();
   const objects = [
     ...locks.map((lock) => lock.mesh),
     ...guides.flatMap((guide) => [guide.mesh, guide.rootMesh]),
@@ -9776,6 +9844,11 @@ function currentViewportFrameSelectionKey() {
 }
 
 function cycleViewportFraming() {
+  if (guideModel?.userData?.fullBodyReference) {
+    viewportFrameCycleStep = 0;
+    viewportFrameSelectionKey = currentViewportFrameSelectionKey();
+    return frameViewportBounds(fullBodyScalpFocusBounds());
+  }
   const selectionKey = currentViewportFrameSelectionKey();
   if (selectionKey !== viewportFrameSelectionKey) {
     viewportFrameSelectionKey = selectionKey;
@@ -12465,7 +12538,6 @@ function createHairMaterial(lock) {
 
 function applyMaterialDefinitionToLock(lock) {
   const definition = materialForLock(lock);
-  const showingProportionalRamp = proportionalStrandVisualsActive(lock);
   if (lock.mesh.material.userData.hairShader !== definition.shader) {
     const previousMaterial = lock.mesh.material;
     lock.mesh.material = createHairMaterial(lock);
@@ -12475,7 +12547,7 @@ function applyMaterialDefinitionToLock(lock) {
     previousMaterial.dispose();
   }
   lock.mesh.material.userData.definition = definition;
-  setAnimeHairBaseColor(lock.mesh.material, showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
+  setAnimeHairBaseColor(lock.mesh.material, strandViewportBaseColor(lock));
   if (lock.mesh.material.userData.hairShader === STANDARD_ANISOTROPIC_SHADER) {
     lock.mesh.material.roughness = definition.roughness;
   } else if (lock.mesh.material.userData.hairShader === ANIME_ANISOTROPIC_SHADER) {
@@ -14771,6 +14843,7 @@ async function importHeadMeshFile(file) {
       content
     };
     importButton.title = `Using ${importedHeadAsset.name}. Import another head mesh`;
+    document.querySelector("#importFullBodyMesh").title = "Import a full body OBJ, scale it to seven head heights, and align its top to the scalp guide";
     return true;
   } catch (error) {
     console.error("Could not import head OBJ", error);
@@ -14778,6 +14851,30 @@ async function importHeadMeshFile(file) {
     return false;
   } finally {
     headMeshFileInput.value = "";
+  }
+}
+
+async function importFullBodyMeshFile(file) {
+  const importButton = document.querySelector("#importFullBodyMesh");
+  try {
+    const content = await file.text();
+    const model = new OBJLoader().parse(content);
+    installGuideModel(model, { normalize: true, fullBody: true });
+    importedHeadAsset = {
+      format: "obj",
+      name: file.name || "custom-full-body.obj",
+      content,
+      fit: "full-body"
+    };
+    importButton.title = `Using ${importedHeadAsset.name}. Import another full body mesh`;
+    document.querySelector("#importHeadMesh").title = "Import head mesh from an OBJ file";
+    return true;
+  } catch (error) {
+    console.error("Could not import full body OBJ", error);
+    window.alert("That OBJ could not be imported as a full body mesh. Please check that it contains valid polygon geometry.");
+    return false;
+  } finally {
+    fullBodyMeshFileInput.value = "";
   }
 }
 
@@ -15082,12 +15179,19 @@ async function openHairProjectFile(file) {
     const project = validateHairProject(JSON.parse(await file.text()));
     if (project.headAsset?.format === "obj" && typeof project.headAsset.content === "string") {
       const model = new OBJLoader().parse(project.headAsset.content);
-      installGuideModel(model, { normalize: true });
+      const fullBody = project.headAsset.fit === "full-body";
+      installGuideModel(model, { normalize: true, fullBody });
       importedHeadAsset = { ...project.headAsset };
-      document.querySelector("#importHeadMesh").title = `Using ${project.headAsset.name || "custom head"}. Import another head mesh`;
+      document.querySelector("#importHeadMesh").title = fullBody
+        ? "Import head mesh from an OBJ file"
+        : `Using ${project.headAsset.name || "custom head"}. Import another head mesh`;
+      document.querySelector("#importFullBodyMesh").title = fullBody
+        ? `Using ${project.headAsset.name || "custom full body"}. Import another full body mesh`
+        : "Import a full body OBJ, scale it to seven head heights, and align its top to the scalp guide";
     } else if (Object.prototype.hasOwnProperty.call(project, "headAsset")) {
       await loadDefaultGuideModel();
       document.querySelector("#importHeadMesh").title = "Import head mesh from an OBJ file";
+      document.querySelector("#importFullBodyMesh").title = "Import a full body OBJ, scale it to seven head heights, and align its top to the scalp guide";
     }
     if (project.scalpGuideAsset?.format === "obj" && typeof project.scalpGuideAsset.content === "string") {
       const scalpModel = new OBJLoader().parse(project.scalpGuideAsset.content);
@@ -15103,6 +15207,10 @@ async function openHairProjectFile(file) {
     }
     pushUndoState();
     restoreState(project.state);
+    realignFullBodyGuideToScalpTop();
+    if (guideModel?.userData?.fullBodyReference) {
+      frameViewportBounds(fullBodyScalpFocusBounds());
+    }
     if (project.metadata?.name) currentProjectName = project.metadata.name;
     presetLibraryStatus.textContent = `${project.metadata?.name || "Project"} opened`;
     setPresetLibraryOpen(false);
@@ -20812,8 +20920,7 @@ function rebuildLockGeometry(lock) {
     lock.wireOverlay.geometry.dispose();
     lock.wireOverlay.geometry = createHairTopologyGeometry(lock.mesh.geometry);
   }
-  const showingProportionalRamp = proportionalStrandVisualsActive(lock);
-  setAnimeHairBaseColor(lock.mesh.material, showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
+  setAnimeHairBaseColor(lock.mesh.material, strandViewportBaseColor(lock));
   lock.mesh.material.side = ["braid", "poly"].includes(lock.geometryType) || lock.hairCard
     ? THREE.DoubleSide
     : THREE.FrontSide;
@@ -20898,10 +21005,7 @@ function setGroupColorView(enabled) {
   groupColorToggle.setAttribute("aria-pressed", String(showGroupColors));
   groupColorToggle.title = showGroupColors ? "Show default hair color" : "Show strand group colors";
   groupColorToggle.setAttribute("aria-label", groupColorToggle.title);
-  locks.forEach((lock) => {
-    const showingProportionalRamp = proportionalStrandVisualsActive(lock);
-    setAnimeHairBaseColor(lock.mesh.material, showingProportionalRamp ? 0xffffff : strandDisplayColor(lock));
-  });
+  locks.forEach(setStrandSelectionVisual);
   renderLockList();
 }
 
@@ -21118,28 +21222,27 @@ function setUvCheckerEnabled(enabled) {
   uvCheckerMenuState.textContent = uvCheckerEnabled ? "On" : "Off";
 }
 
-function setStrandSelectionVisual(lock, { emissive = 0x000000, intensity = 1 } = {}) {
+function strandViewportBaseColor(lock) {
+  if (proportionalStrandVisualsActive(lock)) return 0xffffff;
+  const selectedLock = getSelectedLock();
+  const selectedClumpId = clumpViewportSelection ? selectedLock?.clumpId : null;
+  const inSelectedClump = selectedClumpId && lock.clumpId === selectedClumpId;
+  if (inSelectedClump) return lock.id === selectedId ? 0x76d4d9 : 0x5bbec4;
+  if (lock.id === selectedId) return 0xc58a58;
+  if (selectedStrandIds.has(lock.id)) return 0xa97552;
+  return strandDisplayColor(lock);
+}
+
+function setStrandSelectionVisual(lock) {
   const material = lock?.mesh?.material;
   if (!material) return;
-  material.emissive?.set(emissive);
-  if (material.emissiveIntensity !== undefined) {
-    material.emissiveIntensity = intensity;
-  }
+  setAnimeHairBaseColor(material, strandViewportBaseColor(lock));
+  material.emissive?.set(0x000000);
+  if (material.emissiveIntensity !== undefined) material.emissiveIntensity = 1;
 }
 
 function updateStrandSelectionHighlightForLock(item) {
-  const selectedLock = getSelectedLock();
-  const selectedClumpId = clumpViewportSelection ? selectedLock?.clumpId : null;
-  const inSelectedClump = selectedClumpId && item.clumpId === selectedClumpId;
-  const inMultiSelection = selectedStrandIds.has(item.id);
-  const isPrimary = item.id === selectedId;
-  const emissive = isPrimary
-    ? (inSelectedClump ? 0x164b53 : 0x2b1a08)
-    : inSelectedClump ? 0x0d3036 : inMultiSelection ? 0x241b0d : 0x000000;
-  setStrandSelectionVisual(item, {
-    emissive,
-    intensity: inSelectedClump ? 0.72 : 1
-  });
+  setStrandSelectionVisual(item);
 }
 
 function updateStrandSelectionHighlight() {
@@ -24239,6 +24342,7 @@ hairProjectFileInput.addEventListener("change", () => {
   if (file) openHairProjectFile(file);
 });
 let enterHeadSetupAfterHeadImport = false;
+let enterHeadSetupAfterFullBodyImport = false;
 document.querySelector("#importHeadMesh").addEventListener("click", () => {
   enterHeadSetupAfterHeadImport = false;
   headMeshFileInput.click();
@@ -24253,6 +24357,22 @@ headMeshFileInput.addEventListener("change", async () => {
   const enterHeadSetup = enterHeadSetupAfterHeadImport;
   enterHeadSetupAfterHeadImport = false;
   const imported = await importHeadMeshFile(file);
+  if (imported && enterHeadSetup) setHeadSetupEditing(true);
+});
+document.querySelector("#importFullBodyMesh").addEventListener("click", () => {
+  enterHeadSetupAfterFullBodyImport = false;
+  fullBodyMeshFileInput.click();
+});
+importFullBodyMeshMenu.addEventListener("click", () => {
+  enterHeadSetupAfterFullBodyImport = true;
+  fullBodyMeshFileInput.click();
+});
+fullBodyMeshFileInput.addEventListener("change", async () => {
+  const [file] = fullBodyMeshFileInput.files;
+  if (!file) return;
+  const enterHeadSetup = enterHeadSetupAfterFullBodyImport;
+  enterHeadSetupAfterFullBodyImport = false;
+  const imported = await importFullBodyMeshFile(file);
   if (imported && enterHeadSetup) setHeadSetupEditing(true);
 });
 scalpGuideSourceInput.addEventListener("change", () => {
