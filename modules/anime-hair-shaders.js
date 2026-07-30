@@ -94,6 +94,7 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
   uniform vec3 uSoftShadowColor;
   uniform vec3 uHighlightColor;
   uniform vec3 uRimColor;
+  uniform vec3 uSelectionColor;
   uniform vec3 uLightDirection;
   uniform float uShadowThreshold;
   uniform float uShadowSoftness;
@@ -110,6 +111,7 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
   uniform float uHighlightTopFade;
   uniform float uHighlightTopBlur;
   uniform float uHighlightEdgeSuppression;
+  uniform float uSelectionStrength;
   uniform float uOpacity;
 
   varying vec3 vWorldPosition;
@@ -278,6 +280,7 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
       highlightEdgeMask;
     vec3 highlightLightenColor = max(color, uHighlightColor);
     color = mix(color, highlightLightenColor, litHighlight);
+    color = mix(color, uSelectionColor, uSelectionStrength);
 
     gl_FragColor = vec4(color * vVertexColor, uOpacity);
     #include <tonemapping_fragment>

@@ -105,13 +105,13 @@ import {
   normalizeAnimeAnisotropicSettings,
   normalizeHairShader,
   STANDARD_ANISOTROPIC_SHADER
-} from "./modules/anime-hair-shaders.js?v=20260726-7";
+} from "./modules/anime-hair-shaders.js?v=20260730-8";
 import {
   createDocumentLocalizer,
   DEFAULT_LANGUAGE,
   LANGUAGE_STORAGE_KEY,
   normalizeLanguage
-} from "./modules/localization.js?v=20260730-26";
+} from "./modules/localization.js?v=20260730-27";
 import {
   emptyToolPresetLibrary,
   normalizeToolPresetLibrary,
@@ -6053,7 +6053,7 @@ function selectReferenceImage(id) {
   transformControls.detach();
   updateReferenceSelectionVisuals();
   locks.forEach((lock) => {
-    lock.mesh.material.emissive?.set(0x000000);
+    setStrandSelectionVisual(lock);
     updateCurveObjects(lock, { visible: false });
   });
   attachReferenceImageTransform();
@@ -9608,7 +9608,7 @@ function selectGuide(id) {
   updateGuideControlsVisibility();
   transformControls.detach();
   locks.forEach((lock) => {
-    lock.mesh.material.emissive?.set(0x000000);
+    setStrandSelectionVisual(lock);
     updateCurveObjects(lock, { visible: false });
   });
   renderLockList();
@@ -12393,6 +12393,7 @@ function createAnimeAnisotropicMaterial(lock) {
       uSoftShadowColor: { value: new THREE.Color(definition.animeSoftShadowColor) },
       uHighlightColor: { value: new THREE.Color(definition.animeHighlightColor) },
       uRimColor: { value: new THREE.Color(definition.animeRimColor) },
+      uSelectionColor: { value: new THREE.Color(0xc58a58) },
       uLightDirection: { value: animeAnisotropicLightDirection },
       uShadowThreshold: { value: definition.animeShadowThreshold },
       uShadowSoftness: { value: definition.animeShadowSoftness },
@@ -12409,6 +12410,7 @@ function createAnimeAnisotropicMaterial(lock) {
       uHighlightTopFade: { value: definition.animeHighlightTopFade },
       uHighlightTopBlur: { value: definition.animeHighlightTopBlur },
       uHighlightEdgeSuppression: { value: definition.animeHighlightEdgeSuppression },
+      uSelectionStrength: { value: 0 },
       uOpacity: { value: 1 }
     },
     vertexShader: ANIME_ANISOTROPIC_VERTEX_SHADER,
@@ -12483,12 +12485,14 @@ function applyMaterialDefinitionToLock(lock) {
       lock.mesh.material.uniforms[uniformName].value = definition[key];
     });
   }
+  updateStrandSelectionHighlightForLock(lock);
 }
 
 function refreshMaterialUsers(materialId) {
   locks.forEach((lock) => {
     if ((lock.materialId || DEFAULT_HAIR_MATERIAL_ID) === materialId) applyMaterialDefinitionToLock(lock);
   });
+  updateStrandSelectionHighlight();
   if (drawStrandStroke) updateDrawStrandPreview();
   renderLockList();
 }
@@ -19693,7 +19697,7 @@ function deselectStrands() {
   filterCurveLatticesToGroup(null);
   transformControls.detach();
   locks.forEach((lock) => {
-    lock.mesh.material.emissive?.set(0x000000);
+    setStrandSelectionVisual(lock);
     updateCurveObjects(lock, { visible: false });
   });
   guides.forEach((guide) => {
@@ -21028,23 +21032,53 @@ function setUvCheckerEnabled(enabled) {
   uvCheckerMenuState.textContent = uvCheckerEnabled ? "On" : "Off";
 }
 
-function updateStrandSelectionHighlight() {
-  const suppressHighlight = toolPanel.dataset.activeAttributeTab === "materials";
+function setStrandSelectionVisual(lock, {
+  emissive = 0x000000,
+  tint = 0xffd45c,
+  strength = 0
+} = {}) {
+  const material = lock?.mesh?.material;
+  if (!material) return;
+  if (material.userData.hairShader !== ANIME_ANISOTROPIC_SHADER && material.color) {
+    const baseColor = proportionalStrandVisualsActive(lock) ? 0xffffff : strandDisplayColor(lock);
+    material.color.set(baseColor);
+    if (strength > 0 && material.color.getLuminance() > 0.45) {
+      const contrastTint = new THREE.Color(tint).multiplyScalar(0.38);
+      material.color.lerp(contrastTint, 0.34);
+    }
+  }
+  material.emissive?.set(emissive);
+  if (material.emissiveIntensity !== undefined) {
+    material.emissiveIntensity = strength > 0 ? 1.15 : 1;
+  }
+  if (material.uniforms?.uSelectionColor && material.uniforms?.uSelectionStrength) {
+    material.uniforms.uSelectionColor.value.set(tint);
+    material.uniforms.uSelectionStrength.value = strength;
+  }
+}
+
+function updateStrandSelectionHighlightForLock(item) {
   const selectedLock = getSelectedLock();
   const selectedClumpId = clumpViewportSelection ? selectedLock?.clumpId : null;
-  locks.forEach((item) => {
-    const inSelectedClump = selectedClumpId && item.clumpId === selectedClumpId;
-    const inMultiSelection = selectedStrandIds.has(item.id);
-    const emissive = suppressHighlight
-      ? 0x000000
-      : item.id === selectedId
-        ? (inSelectedClump ? 0x164b53 : 0x2b1a08)
-        : inSelectedClump ? 0x0d3036 : inMultiSelection ? 0x241b0d : 0x000000;
-    item.mesh.material.emissive?.set(emissive);
-    if (item.mesh.material.emissiveIntensity !== undefined) {
-      item.mesh.material.emissiveIntensity = (inSelectedClump || inMultiSelection) && !suppressHighlight ? 0.72 : 1;
-    }
-  });
+  const inSelectedClump = selectedClumpId && item.clumpId === selectedClumpId;
+  const inMultiSelection = selectedStrandIds.has(item.id);
+  const isPrimary = item.id === selectedId;
+  const emissive = isPrimary
+    ? (inSelectedClump ? 0x164b53 : 0x2b1a08)
+    : inSelectedClump ? 0x0d3036 : inMultiSelection ? 0x241b0d : 0x000000;
+  const tint = inSelectedClump ? 0x5bbec4 : isPrimary ? 0xc58a58 : 0xa97552;
+  const strength = isPrimary
+    ? 0.14
+    : inSelectedClump
+      ? 0.13
+      : inMultiSelection
+        ? 0.1
+        : 0;
+  setStrandSelectionVisual(item, { emissive, tint, strength });
+}
+
+function updateStrandSelectionHighlight() {
+  locks.forEach(updateStrandSelectionHighlightForLock);
 }
 
 function selectLock(id, options = {}) {
@@ -21057,11 +21091,11 @@ function selectLock(id, options = {}) {
   const requestedIds = selectWholeClump
     ? locks.filter((lock) => lock.clumpId === requestedGuide.clumpId).map((lock) => lock.id)
     : id ? [id] : [];
-  if (options.toggleSelection) {
+  const selectionMode = options.selectionMode;
+  if (selectionMode === "add" || selectionMode === "remove") {
     const primaryId = selectedStrandIds.has(selectedId) ? selectedId : undefined;
-    const removing = requestedIds.every((lockId) => selectedStrandIds.has(lockId));
     requestedIds.forEach((lockId) => {
-      if (removing) selectedStrandIds.delete(lockId);
+      if (selectionMode === "remove") selectedStrandIds.delete(lockId);
       else selectedStrandIds.add(lockId);
     });
     id = primaryId && selectedStrandIds.has(primaryId)
@@ -21075,7 +21109,7 @@ function selectLock(id, options = {}) {
   }
   clearMultiPointSelection();
   selectedId = id;
-  clumpViewportSelection = selectWholeClump && !options.toggleSelection;
+  clumpViewportSelection = selectWholeClump && !selectionMode;
   selectedStrandGroup = null;
   selectedGuideId = undefined;
   selectedReferenceImageId = null;
@@ -21662,7 +21696,7 @@ function selectStrandGroup(region) {
   selectedPoint = null;
   transformControls.detach();
   locks.forEach((lock) => {
-    lock.mesh.material.emissive?.set(0x000000);
+    setStrandSelectionVisual(lock);
     updateCurveObjects(lock, { visible: false });
   });
   showCurveLatticeForGroup(region);
@@ -23052,8 +23086,12 @@ function createOutlinerStrandButton(lock, options = {}) {
     label: name,
     value: lock.name,
     onSelect: () => selectLock(lock.id, {
-      individualClumpMember: Boolean(lock.clumpId && (!lock.clumpGuide || event.ctrlKey)),
-      toggleSelection: event.ctrlKey
+      individualClumpMember: Boolean(lock.clumpId && (!lock.clumpGuide || event.ctrlKey || event.altKey)),
+      selectionMode: event.ctrlKey && !event.altKey
+        ? "add"
+        : event.altKey && !event.ctrlKey
+          ? "remove"
+          : undefined
     }),
     onCommit: (nextName) => {
       lock.name = nextName;
@@ -27003,7 +27041,7 @@ function finishAltStrandRemoval(event) {
   ) return;
   selectLock(candidate.lockId, {
     individualClumpMember: true,
-    toggleSelection: true
+    selectionMode: "remove"
   });
   event.preventDefault();
 }
@@ -28059,7 +28097,7 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
       if (lockId) {
         selectLock(lockId, {
           individualClumpMember: true,
-          toggleSelection: true
+          selectionMode: "add"
         });
         event.preventDefault();
       }
