@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Hair Studio</title>
-    <link rel="stylesheet" href="./styles.css?v=20260730-72" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="stylesheet" href="./styles.css?v=20260730-73" />
   </head>
   <body>
     <main class="studio-shell">
@@ -129,6 +130,19 @@
           <strong>Anime Hair Studio</strong>
           <span id="strandCount" hidden>0 strands</span>
         </div>
+        <a
+          class="patreon-link"
+          href="https://www.patreon.com/cw/animehairstudio"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Support Anime Hair Studio"
+          aria-label="Support Anime Hair Studio"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 3h4v18H4z"></path>
+            <circle cx="15.5" cy="9.5" r="6.5"></circle>
+          </svg>
+        </a>
         <input id="hairProjectFile" class="hidden-file-input" type="file" accept=".ahs,.animehair.json,.json,application/json" />
         <input id="headMeshFile" class="hidden-file-input" type="file" accept=".obj,model/obj,text/plain" />
         <input id="referenceImageFile" class="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
@@ -1509,6 +1523,6 @@
         }
       }
     </script>
-    <script type="module" src="./app.js?v=20260730-108"></script>
+    <script type="module" src="./app.js?v=20260730-114"></script>
   </body>
 </html>

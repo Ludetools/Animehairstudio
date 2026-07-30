@@ -2665,6 +2665,31 @@ body.compact-tool-buttons .viewport-modes .tool-button kbd {
   pointer-events: none;
 }
 
+.patreon-link {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: #a69fa9;
+  text-decoration: none;
+}
+
+.patreon-link:hover,
+.patreon-link:focus-visible {
+  border-color: #75534c;
+  background: #302321;
+  color: #ff6b4a;
+}
+
+.patreon-link svg {
+  width: 17px;
+  height: 17px;
+  fill: currentColor;
+}
+
 .app-topbar strong {
   font-size: 14px;
   letter-spacing: 0;

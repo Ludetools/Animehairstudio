@@ -1945,6 +1945,7 @@ let viewportEditMode = "strand";
 let duplicatePlacement = null;
 let proceduralDuplicateModeActive = false;
 let restoringHistory = false;
+let historyShortcutHeld = false;
 let inputUndoCaptured = false;
 const inputs = {
   name: document.querySelector("#lockName"),
@@ -12393,7 +12394,6 @@ function createAnimeAnisotropicMaterial(lock) {
       uSoftShadowColor: { value: new THREE.Color(definition.animeSoftShadowColor) },
       uHighlightColor: { value: new THREE.Color(definition.animeHighlightColor) },
       uRimColor: { value: new THREE.Color(definition.animeRimColor) },
-      uSelectionColor: { value: new THREE.Color(0xc58a58) },
       uLightDirection: { value: animeAnisotropicLightDirection },
       uShadowThreshold: { value: definition.animeShadowThreshold },
       uShadowSoftness: { value: definition.animeShadowSoftness },
@@ -12410,7 +12410,6 @@ function createAnimeAnisotropicMaterial(lock) {
       uHighlightTopFade: { value: definition.animeHighlightTopFade },
       uHighlightTopBlur: { value: definition.animeHighlightTopBlur },
       uHighlightEdgeSuppression: { value: definition.animeHighlightEdgeSuppression },
-      uSelectionStrength: { value: 0 },
       uOpacity: { value: 1 }
     },
     vertexShader: ANIME_ANISOTROPIC_VERTEX_SHADER,
@@ -15126,16 +15125,24 @@ function undoLastAction() {
   const state = undoHistory.pop();
   if (!state) return;
   redoHistory.push(snapshotState());
-  restoreState(state, { preserveMirrorMode: true });
-  updateHistoryButtons();
+  try {
+    restoreState(state, { preserveMirrorMode: true });
+  } finally {
+    restoringHistory = false;
+    updateHistoryButtons();
+  }
 }
 
 function redoLastAction() {
   const state = redoHistory.pop();
   if (!state) return;
   undoHistory.push(snapshotState());
-  restoreState(state, { preserveMirrorMode: true });
-  updateHistoryButtons();
+  try {
+    restoreState(state, { preserveMirrorMode: true });
+  } finally {
+    restoringHistory = false;
+    updateHistoryButtons();
+  }
 }
 
 function updateHistoryButtons() {
@@ -15149,24 +15156,25 @@ function restoreState(state, {
   preserveMirrorMode = false
 } = {}) {
   restoringHistory = true;
-  transformControls.detach();
-  duplicatePlacement = null;
-  proceduralDuplicateModeActive = false;
-  hideProceduralDuplicateArcPreview();
-  hideStrandRadialMenu();
-  hideToolRadialMenu();
-  placeEdit = null;
-  transformDragging = false;
-  updateInteractionLocks();
-  disposeAllEditableObjects();
-  locks.length = 0;
-  guides.length = 0;
-  lockIndex = state.lockIndex;
-  referenceImageIndex = state.referenceImageIndex || 1;
-  visibleStrandRegions.clear();
-  (state.visibleStrandRegions || STRAND_GROUPS.map((group) => group.id))
-    .forEach((region) => visibleStrandRegions.add(region));
-  visibleStrandLayers.clear();
+  try {
+    transformControls.detach();
+    duplicatePlacement = null;
+    proceduralDuplicateModeActive = false;
+    hideProceduralDuplicateArcPreview();
+    hideStrandRadialMenu();
+    hideToolRadialMenu();
+    placeEdit = null;
+    transformDragging = false;
+    updateInteractionLocks();
+    disposeAllEditableObjects();
+    locks.length = 0;
+    guides.length = 0;
+    lockIndex = state.lockIndex;
+    referenceImageIndex = state.referenceImageIndex || 1;
+    visibleStrandRegions.clear();
+    (state.visibleStrandRegions || STRAND_GROUPS.map((group) => group.id))
+      .forEach((region) => visibleStrandRegions.add(region));
+    visibleStrandLayers.clear();
   (state.visibleStrandLayers || HAIR_LAYERS.map((layer) => layer.id))
     .forEach((layer) => visibleStrandLayers.add(layer));
   capsuleGuidesVisible = state.capsuleGuidesVisible !== false;
@@ -15338,13 +15346,16 @@ function restoreState(state, {
   curveLatticeToggle.setAttribute("aria-pressed", String(editingCurveLattice));
   updateCount();
   updatePlacementStatus();
-  applyDisplayVisibilityFilters();
-  restoringHistory = false;
+    applyDisplayVisibilityFilters();
+  } finally {
+    restoringHistory = false;
+  }
 }
 
 function disposeAllEditableObjects() {
   clearReferenceImages();
   clearPolyFillPreview();
+  setHoveredStrandWidthEdge(null);
   locks.forEach((lock) => {
     hairGroup.remove(lock.mesh);
     curveGroup.remove(lock.curveObjects.group);
@@ -18729,6 +18740,14 @@ function createDrawnLock(stroke, points, pointSurfaceNormals, width, isCenter, s
   return lock;
 }
 
+function finalizeDrawnLockSelection(lock) {
+  if (!lock) return null;
+  selectLock(lock.id, { individualClumpMember: true });
+  rebuildCurveObjects(lock);
+  updateCurveObjects(lock, { visible: true });
+  return lock;
+}
+
 function createDrawnBraid(stroke) {
   if (!braidMeshPresets.has(stroke.braidMeshPreset || DEFAULT_BRAID_MESH_PRESET)
     && !braidMeshPresets.has(DEFAULT_BRAID_MESH_PRESET)) return null;
@@ -18781,8 +18800,7 @@ function createDrawnBraid(stroke) {
   createMirrorPartnerForNewLock(lock);
   renderLockList();
   updateCount();
-  selectLock(lock.id);
-  return lock;
+  return finalizeDrawnLockSelection(lock);
 }
 
 function createDrawnStrand(stroke) {
@@ -18823,8 +18841,7 @@ function createDrawnStrand(stroke) {
   created.forEach(createMirrorPartnerForNewLock);
   renderLockList();
   updateCount();
-  selectLock(created[0].id);
-  return created[0];
+  return finalizeDrawnLockSelection(created[0]);
 }
 
 function createDrawnPanel(stroke) {
@@ -18874,8 +18891,7 @@ function createDrawnPanel(stroke) {
   createMirrorPartnerForNewLock(lock);
   renderLockList();
   updateCount();
-  selectLock(lock.id);
-  return lock;
+  return finalizeDrawnLockSelection(lock);
 }
 
 function surfaceLatticeNormal(points, columns, rows) {
@@ -19965,6 +19981,74 @@ function panelSplitControlPoint(lock, split, tOverride = null, curveOverride = n
   return point.add(offset);
 }
 
+const strandControlPointPickCenter = new THREE.Vector3();
+const strandControlPointPickScale = new THREE.Vector3();
+const strandControlPointPickSphere = new THREE.Sphere();
+const strandControlPointScreenPosition = new THREE.Vector3();
+const strandControlPointWorldPosition = new THREE.Vector3();
+const STRAND_CONTROL_POINT_MIN_PICK_RADIUS = 0.065;
+const STRAND_CONTROL_POINT_MIN_PICK_PIXELS = 12;
+
+function strandControlPointRaycast(raycaster, intersections) {
+  this.getWorldPosition(strandControlPointPickCenter);
+  this.getWorldScale(strandControlPointPickScale);
+  strandControlPointPickSphere.center.copy(strandControlPointPickCenter);
+  strandControlPointPickSphere.radius = Math.max(
+    STRAND_CONTROL_POINT_MIN_PICK_RADIUS,
+    0.052 * STRAND_CONTROL_POINT_RADIUS_SCALE * Math.max(
+      strandControlPointPickScale.x,
+      strandControlPointPickScale.y,
+      strandControlPointPickScale.z
+    )
+  );
+  const point = raycaster.ray.intersectSphere(
+    strandControlPointPickSphere,
+    new THREE.Vector3()
+  );
+  if (!point) return;
+  const distance = raycaster.ray.origin.distanceTo(point);
+  if (distance < raycaster.near || distance > raycaster.far) return;
+  intersections.push({
+    distance,
+    point,
+    object: this,
+    face: null,
+    faceIndex: null,
+    uv: null
+  });
+}
+
+function strandControlPointHitFromEvent(event, lock = getSelectedLock()) {
+  if (!lock?.curveObjects?.group.visible) return null;
+  const rect = renderer.domElement.getBoundingClientRect();
+  let nearest = null;
+  lock.curveObjects.handles.forEach((handle) => {
+    if (!handle.visible) return;
+    handle.getWorldPosition(strandControlPointWorldPosition);
+    strandControlPointScreenPosition
+      .copy(strandControlPointWorldPosition)
+      .project(camera);
+    if (
+      strandControlPointScreenPosition.z < -1
+      || strandControlPointScreenPosition.z > 1
+    ) return;
+    const screenX = rect.left + (strandControlPointScreenPosition.x + 1) * rect.width * 0.5;
+    const screenY = rect.top + (1 - strandControlPointScreenPosition.y) * rect.height * 0.5;
+    const screenDistance = Math.hypot(event.clientX - screenX, event.clientY - screenY);
+    if (
+      screenDistance > STRAND_CONTROL_POINT_MIN_PICK_PIXELS
+      || screenDistance >= (nearest?.screenDistance ?? Infinity)
+    ) return;
+    nearest = {
+      distance: camera.position.distanceTo(strandControlPointWorldPosition),
+      screenDistance,
+      point: strandControlPointWorldPosition.clone(),
+      object: handle
+    };
+  });
+  return nearest;
+}
+
 function createCurveObjects(lock) {
   if (lock.geometryType === "poly") return createPolyEditObjects(lock);
   const group = new THREE.Group();
@@ -20053,6 +20137,7 @@ function createCurveObjects(lock) {
     handle.renderOrder = 4;
     handle.userData.lockId = lock.id;
     handle.userData.pointIndex = index;
+    handle.raycast = strandControlPointRaycast;
     group.add(handle);
     return handle;
   });
@@ -20409,8 +20494,9 @@ function updateCurveObjects(lock, options = {}) {
     handle.material.stencilZPass = THREE.KeepStencilOp;
     setSculptBrushMaterialClipping(handle.material, brushDebugVisible);
     handle.renderOrder = brushDebugVisible ? 51 : 4;
-    if (brushDebugVisible) handle.raycast = sculptBrushDebugRaycast;
-    else if (handle.raycast === sculptBrushDebugRaycast) delete handle.raycast;
+    handle.raycast = brushDebugVisible
+      ? sculptBrushDebugRaycast
+      : strandControlPointRaycast;
     if (deEmphasizeControlPoints) {
       const hsl = {};
       handle.material.color.getHSL(hsl);
@@ -21032,28 +21118,12 @@ function setUvCheckerEnabled(enabled) {
   uvCheckerMenuState.textContent = uvCheckerEnabled ? "On" : "Off";
 }
 
-function setStrandSelectionVisual(lock, {
-  emissive = 0x000000,
-  tint = 0xffd45c,
-  strength = 0
-} = {}) {
+function setStrandSelectionVisual(lock, { emissive = 0x000000, intensity = 1 } = {}) {
   const material = lock?.mesh?.material;
   if (!material) return;
-  if (material.userData.hairShader !== ANIME_ANISOTROPIC_SHADER && material.color) {
-    const baseColor = proportionalStrandVisualsActive(lock) ? 0xffffff : strandDisplayColor(lock);
-    material.color.set(baseColor);
-    if (strength > 0 && material.color.getLuminance() > 0.45) {
-      const contrastTint = new THREE.Color(tint).multiplyScalar(0.38);
-      material.color.lerp(contrastTint, 0.34);
-    }
-  }
   material.emissive?.set(emissive);
   if (material.emissiveIntensity !== undefined) {
-    material.emissiveIntensity = strength > 0 ? 1.15 : 1;
-  }
-  if (material.uniforms?.uSelectionColor && material.uniforms?.uSelectionStrength) {
-    material.uniforms.uSelectionColor.value.set(tint);
-    material.uniforms.uSelectionStrength.value = strength;
+    material.emissiveIntensity = intensity;
   }
 }
 
@@ -21066,15 +21136,10 @@ function updateStrandSelectionHighlightForLock(item) {
   const emissive = isPrimary
     ? (inSelectedClump ? 0x164b53 : 0x2b1a08)
     : inSelectedClump ? 0x0d3036 : inMultiSelection ? 0x241b0d : 0x000000;
-  const tint = inSelectedClump ? 0x5bbec4 : isPrimary ? 0xc58a58 : 0xa97552;
-  const strength = isPrimary
-    ? 0.14
-    : inSelectedClump
-      ? 0.13
-      : inMultiSelection
-        ? 0.1
-        : 0;
-  setStrandSelectionVisual(item, { emissive, tint, strength });
+  setStrandSelectionVisual(item, {
+    emissive,
+    intensity: inSelectedClump ? 0.72 : 1
+  });
 }
 
 function updateStrandSelectionHighlight() {
@@ -25970,6 +26035,8 @@ window.addEventListener("keydown", (event) => {
   }
   if (!editingField && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z" && !event.shiftKey) {
     event.preventDefault();
+    if (event.repeat || historyShortcutHeld) return;
+    historyShortcutHeld = true;
     undoLastAction();
     return;
   }
@@ -25979,6 +26046,8 @@ window.addEventListener("keydown", (event) => {
     && (event.key.toLowerCase() === "y" || (event.shiftKey && event.key.toLowerCase() === "z"))
   ) {
     event.preventDefault();
+    if (event.repeat || historyShortcutHeld) return;
+    historyShortcutHeld = true;
     redoLastAction();
     return;
   }
@@ -26968,7 +27037,7 @@ function prepareCurvePointSelection(event) {
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const hit = raycaster.intersectObjects(handles, false)[0];
+  const hit = strandControlPointHitFromEvent(event, selectedLock);
   if (insertingCurvePoint) {
     if (hit || ["poly", "surface"].includes(selectedLock.geometryType)) return;
     const curveHit = raycaster.intersectObject(selectedLock.curveObjects.line, false)[0];
@@ -27546,12 +27615,7 @@ function finishSculptMoveStroke(event, { cancel = false } = {}) {
 }
 
 function strandControlPointHit(event, lock = getSelectedLock()) {
-  const handles = lock?.curveObjects?.group.visible
-    ? lock.curveObjects.handles.filter((handle) => handle.visible)
-    : [];
-  if (!handles.length) return null;
-  rayFromViewportEvent(event);
-  return raycaster.intersectObjects(handles, false)[0] || null;
+  return strandControlPointHitFromEvent(event, lock);
 }
 
 function beginStrandWidthEdgeDrag(event) {
@@ -27568,7 +27632,9 @@ function beginStrandWidthEdgeDrag(event) {
   ) return;
   const lock = getSelectedLock();
   if (strandControlPointHit(event, lock)) return;
-  const edges = lock?.curveObjects?.widthEdgeLines?.filter((edge) => edge.visible) || [];
+  const edges = lock?.curveObjects?.widthEdgeLines?.filter((edge) => (
+    edge.visible && (edge.geometry?.getAttribute("position")?.count || 0) >= 2
+  )) || [];
   if (!edges.length) return;
   rayFromViewportEvent(event);
   const hit = raycaster.intersectObjects(edges, false)[0];
@@ -27688,7 +27754,9 @@ function updateStrandWidthEdgeHover(event) {
     if (renderer.domElement.style.cursor === "ew-resize") renderer.domElement.style.cursor = "";
     return;
   }
-  const edges = lock?.curveObjects?.widthEdgeLines?.filter((edge) => edge.visible) || [];
+  const edges = lock?.curveObjects?.widthEdgeLines?.filter((edge) => (
+    edge.visible && (edge.geometry?.getAttribute("position")?.count || 0) >= 2
+  )) || [];
   if (!edges.length) {
     setHoveredStrandWidthEdge(null);
     if (renderer.domElement.style.cursor === "ew-resize") renderer.domElement.style.cursor = "";
@@ -27928,8 +27996,14 @@ window.addEventListener("pointercancel", () => {
   setHoveredStrandWidthEdge(null);
 });
 window.addEventListener("keydown", updateCurvePointTopologyCursor, true);
-window.addEventListener("keyup", updateCurvePointTopologyCursor, true);
-window.addEventListener("blur", clearCurvePointTopologyCursor);
+window.addEventListener("keyup", (event) => {
+  updateCurvePointTopologyCursor(event);
+  if (["z", "y", "control", "meta"].includes(event.key.toLowerCase())) historyShortcutHeld = false;
+}, true);
+window.addEventListener("blur", () => {
+  historyShortcutHeld = false;
+  clearCurvePointTopologyCursor();
+});
 renderer.domElement.addEventListener("pointerdown", (event) => {
   if (proportionalSizeEdit || proportionalHotkeyPress) return;
   lastPointer.x = event.clientX;
@@ -28202,7 +28276,7 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     return;
   }
   const handles = selectedLock?.curveObjects?.group.visible ? selectedLock.curveObjects.handles : [];
-  const hit = modelingClick ? raycaster.intersectObjects(handles, false)[0] : null;
+  const hit = modelingClick ? strandControlPointHitFromEvent(event, selectedLock) : null;
 
   if (!hit && modelingClick && ["move", "rotate", "scale"].includes(activeTool)) {
     const lockHit = viewportEditMode === "strand"
