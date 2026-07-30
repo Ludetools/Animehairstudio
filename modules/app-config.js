@@ -1,4 +1,4 @@
-export const APP_VERSION = "0.1.2";
+export const APP_VERSION = "0.1.3";
 
 export const SCALP_REGIONS = {
   bangs: { label: "Bangs Root", color: 0xef476f },
@@ -11,13 +11,14 @@ export const SCALP_REGIONS = {
 };
 
 export const DEFAULT_HAIR_COLOR = "#2c223a";
-export const CURVE_LATTICE_FEATURE_ENABLED = false;
+export const CURVE_LATTICE_FEATURE_ENABLED = true;
 export const GROUP_CURVE_FEATURE_ENABLED = true;
 export const DEFAULT_HAIR_MATERIAL_ID = "default-purple";
 export const ROOT_SCALP_OFFSET_DISTANCE = 0.08;
 export const DEFAULT_HAIR_MATERIAL_SETTINGS = {
   color: DEFAULT_HAIR_COLOR,
-  roughness: 0.72
+  roughness: 0.72,
+  shader: "standard-anisotropic"
 };
 
 export const STRAND_GROUPS = [

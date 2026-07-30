@@ -3,7 +3,7 @@ export const PROJECT_VERSION = 1;
 
 export function projectFileName(name = "") {
   const safeName = String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  return `${safeName || "anime-hair-project"}.animehair.json`;
+  return `${safeName || "anime-hair-project"}.ahs`;
 }
 
 export function validateHairProject(project) {

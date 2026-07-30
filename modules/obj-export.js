@@ -11,22 +11,16 @@ export function orderedFanBoundary(edges) {
   return next === boundary[0] && boundary.length === edges.length ? boundary : [];
 }
 
-export function exportHairFaces(geometry, vertexOffset, uvOffset) {
+export function hairFaceIndices(geometry) {
   const indexAttribute = geometry.getIndex();
-  if (!indexAttribute) return "";
+  if (!indexAttribute) return [];
   const index = indexAttribute.array;
-  const hasUvs = Boolean(geometry.getAttribute("uv"));
-  const faceVertex = (vertex) => hasUvs
-    ? `${vertex + vertexOffset}/${vertex + uvOffset}`
-    : `${vertex + vertexOffset}`;
   const quadFaces = geometry.userData.quadFaces;
   if (Array.isArray(quadFaces) && quadFaces.length) {
-    return quadFaces
-      .map((quad) => `f ${quad.map(faceVertex).join(" ")}\n`)
-      .join("");
+    return quadFaces.map((face) => [...face]);
   }
   const sideTriangleCount = Math.min(Number(geometry.userData.sideTriangleCount || 0), Math.floor(index.length / 3));
-  let faces = "";
+  const faces = [];
   let cursor = 0;
   for (let triangle = 0; triangle + 1 < sideTriangleCount; triangle += 2) {
     const a = index[cursor];
@@ -36,10 +30,9 @@ export function exportHairFaces(geometry, vertexOffset, uvOffset) {
     const secondC = index[cursor + 4];
     const d = index[cursor + 5];
     if (b === secondB && c === secondC) {
-      faces += `f ${faceVertex(a)} ${faceVertex(c)} ${faceVertex(d)} ${faceVertex(b)}\n`;
+      faces.push([a, c, d, b]);
     } else {
-      faces += `f ${faceVertex(a)} ${faceVertex(c)} ${faceVertex(b)}\n`;
-      faces += `f ${faceVertex(secondB)} ${faceVertex(secondC)} ${faceVertex(d)}\n`;
+      faces.push([a, c, b], [secondB, secondC, d]);
     }
     cursor += 6;
   }
@@ -52,14 +45,24 @@ export function exportHairFaces(geometry, vertexOffset, uvOffset) {
   capEdges.forEach((edges, center) => {
     const boundary = orderedFanBoundary(edges);
     if (boundary.length >= 3) {
-      faces += `f ${boundary.map(faceVertex).join(" ")}\n`;
+      faces.push(boundary);
       return;
     }
     edges.forEach(([a, b]) => {
-      faces += `f ${faceVertex(center)} ${faceVertex(a)} ${faceVertex(b)}\n`;
+      faces.push([center, a, b]);
     });
   });
   return faces;
+}
+
+export function exportHairFaces(geometry, vertexOffset, uvOffset) {
+  const hasUvs = Boolean(geometry.getAttribute("uv"));
+  const faceVertex = (vertex) => hasUvs
+    ? `${vertex + vertexOffset}/${vertex + uvOffset}`
+    : `${vertex + vertexOffset}`;
+  return hairFaceIndices(geometry)
+    .map((face) => `f ${face.map(faceVertex).join(" ")}\n`)
+    .join("");
 }
 
 export function exportCurvePolyline(points, vertexOffset) {
