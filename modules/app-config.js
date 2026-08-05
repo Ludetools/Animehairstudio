@@ -1,4 +1,4 @@
-export const APP_VERSION = "0.1.3";
+export const APP_VERSION = "0.1.4";
 
 export const SCALP_REGIONS = {
   bangs: { label: "Bangs Root", color: 0xef476f },
@@ -70,6 +70,12 @@ export const DEFAULT_DEPTH_CURVE = [
   { position: 0.25, value: 0.66, interpolation: "smooth" },
   { position: 1, value: 0, interpolation: "smooth" }
 ];
+export const DEFAULT_TWIST_CURVE = [
+  { position: 0, value: 0, interpolation: "smooth" },
+  { position: 1, value: 0, interpolation: "smooth" }
+];
+export const TWIST_CURVE_VALUE_MAX = 4500;
+export const TWIST_CURVE_DISPLAY_RANGE_DEFAULT = 4500;
 export const DEFAULT_BRAID_WIDTH_CURVE = [
   { position: 0, value: 0.72, interpolation: "smooth" },
   { position: 0.14, value: 1, interpolation: "smooth" },

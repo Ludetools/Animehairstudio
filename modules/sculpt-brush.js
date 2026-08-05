@@ -10,13 +10,14 @@ export function sculptBrushWeight(distance, radius, falloff = 0.5) {
   return inverse * inverse * (3 - 2 * inverse);
 }
 
-export function smoothSculptPointDeltas(points, weights, strength = 1, rate = 0.04) {
+export function smoothSculptPointDeltas(points, weights, strength = 1, rate = 0.04, options = {}) {
   const source = Array.isArray(points) ? points : [];
   const influence = Math.min(1, Math.max(0, Number(strength) || 0));
   const smoothingRate = Math.min(1, Math.max(0, Number(rate) || 0));
+  const preserveTip = Boolean(options.preserveTip);
   return source.map((point, index) => {
     const delta = { x: 0, y: 0, z: 0 };
-    if (index === 0 || source.length < 2) return delta;
+    if (index === 0 || (preserveTip && index === source.length - 1) || source.length < 2) return delta;
     const weight = Math.min(1, Math.max(0, Number(weights?.[index]) || 0));
     const amount = weight * influence * smoothingRate;
     if (amount <= 0) return delta;
@@ -33,6 +34,35 @@ export function smoothSculptPointDeltas(points, weights, strength = 1, rate = 0.
     delta.y = (target.y - point.y) * amount;
     delta.z = (target.z - point.z) * amount;
     return delta;
+  });
+}
+
+export function proportionalSculptWeights(weights, radius = 2.5, falloff = 0.65, options = {}) {
+  const source = Array.isArray(weights) ? weights : [];
+  const influenceRadius = Math.max(0, Number(radius) || 0);
+  const softness = Math.min(1, Math.max(0, Number(falloff) || 0));
+  const preserveRoot = options.preserveRoot !== false;
+  return source.map((directWeight, targetIndex) => {
+    if (preserveRoot && targetIndex === 0) return 0;
+    let weight = Math.min(1, Math.max(0, Number(directWeight) || 0));
+    source.forEach((originWeight, originIndex) => {
+      const seed = Math.min(1, Math.max(0, Number(originWeight) || 0));
+      if (seed <= 0) return;
+      const distance = Math.abs(targetIndex - originIndex);
+      if (distance > influenceRadius) return;
+      if (distance === 0) {
+        weight = Math.max(weight, seed);
+        return;
+      }
+      const linear = Math.min(1, Math.max(
+        0,
+        1 - distance / Math.max(0.001, influenceRadius)
+      ));
+      const smooth = linear * linear * (3 - 2 * linear);
+      const neighborWeight = seed * (1 + (smooth - 1) * softness);
+      weight = Math.max(weight, neighborWeight);
+    });
+    return weight;
   });
 }
 

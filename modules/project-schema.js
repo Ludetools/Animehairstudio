@@ -21,6 +21,7 @@ export function createHairProject({
   state,
   strandGroups,
   headAsset = null,
+  headAssetOmitted = false,
   scalpGuideAsset = null,
   savedAt = new Date().toISOString()
 }) {
@@ -42,6 +43,7 @@ export function createHairProject({
       groupCounts
     },
     headAsset: headAsset ? { ...headAsset } : null,
+    headAssetOmitted: Boolean(headAssetOmitted),
     scalpGuideAsset: scalpGuideAsset ? { ...scalpGuideAsset } : null,
     state: cleanState
   };

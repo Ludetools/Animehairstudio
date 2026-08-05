@@ -23,3 +23,22 @@ export class BoundedHistory {
     this.#entries.length = 0;
   }
 }
+
+export class RestoreRefreshRegistry {
+  #refreshers = new Map();
+
+  register(name, refresh) {
+    if (!name || typeof refresh !== "function") {
+      throw new TypeError("Restore refreshers require a name and callback.");
+    }
+    if (this.#refreshers.has(name)) {
+      throw new Error(`Restore refresher already registered: ${name}`);
+    }
+    this.#refreshers.set(name, refresh);
+    return this;
+  }
+
+  run(context) {
+    this.#refreshers.forEach((refresh) => refresh(context));
+  }
+}

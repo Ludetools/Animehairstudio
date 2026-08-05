@@ -6,6 +6,12 @@ function lerp(start, end, amount) {
   return start + (end - start) * amount;
 }
 
+export function clumpMemberGuideParameter(amount, start = 0, end = 1) {
+  const normalizedStart = clamp(Number(start) || 0, 0, 1);
+  const normalizedEnd = clamp(Number(end ?? 1), normalizedStart, 1);
+  return lerp(normalizedStart, normalizedEnd, clamp(Number(amount) || 0, 0, 1));
+}
+
 export function relaxAngleValue(current, before, after, strength) {
   const value = Number(current) || 0;
   const angularDelta = (target) => {
@@ -39,6 +45,20 @@ export function normalizeTaperCurve(curve, fallback = {}, valueMaximum = 1.5) {
   const points = source.map((point) => ({
     position: clamp(Number(point.position), 0, 1),
     value: clamp(Number(point.value), 0, valueMaximum),
+    interpolation: ["linear", "smooth", "constant"].includes(point.interpolation) ? point.interpolation : "smooth"
+  })).sort((left, right) => left.position - right.position);
+  points[0].position = 0;
+  points.at(-1).position = 1;
+  return points;
+}
+
+export function normalizeEnvelopeCurve(curve, fallback, valueMinimum, valueMaximum) {
+  const source = curve?.length >= 2 ? curve : fallback;
+  const minimum = Number(valueMinimum);
+  const maximum = Number(valueMaximum);
+  const points = source.map((point) => ({
+    position: clamp(Number(point.position), 0, 1),
+    value: clamp(Number(point.value), minimum, maximum),
     interpolation: ["linear", "smooth", "constant"].includes(point.interpolation) ? point.interpolation : "smooth"
   })).sort((left, right) => left.position - right.position);
   points[0].position = 0;
@@ -90,6 +110,88 @@ export function sampleTaperCurve(curve, t) {
     return clamp(value, Math.min(left.value, right.value), Math.max(left.value, right.value));
   }
   return lerp(left.value, right.value, amount);
+}
+
+export function remapEnvelopeCurveRange(curve, start = 0, end = 1) {
+  if (!curve?.length) return [];
+  const normalizedStart = clamp(Number(start) || 0, 0, 1);
+  const normalizedEnd = clamp(Number(end ?? 1), normalizedStart, 1);
+  const span = normalizedEnd - normalizedStart;
+  if (span <= 0.000001) {
+    const value = sampleTaperCurve(curve, normalizedStart);
+    return [
+      { position: 0, value, interpolation: "smooth" },
+      { position: 1, value, interpolation: "smooth" }
+    ];
+  }
+  const interpolationAt = (position) => {
+    const rightIndex = curve.findIndex((point) => Number(point.position) > position + 0.000001);
+    const leftIndex = rightIndex < 0 ? curve.length - 1 : Math.max(0, rightIndex - 1);
+    const interpolation = curve[leftIndex]?.interpolation;
+    return ["linear", "smooth", "constant"].includes(interpolation) ? interpolation : "smooth";
+  };
+  const remapped = [{
+    position: 0,
+    value: sampleTaperCurve(curve, normalizedStart),
+    interpolation: interpolationAt(normalizedStart)
+  }];
+  curve.forEach((point) => {
+    const position = Number(point.position);
+    if (position <= normalizedStart + 0.000001 || position >= normalizedEnd - 0.000001) return;
+    remapped.push({
+      position: (position - normalizedStart) / span,
+      value: Number(point.value),
+      interpolation: ["linear", "smooth", "constant"].includes(point.interpolation)
+        ? point.interpolation
+        : "smooth"
+    });
+  });
+  remapped.push({
+    position: 1,
+    value: sampleTaperCurve(curve, normalizedEnd),
+    interpolation: interpolationAt(normalizedEnd)
+  });
+  return remapped;
+}
+
+const integratedEnvelopeCache = new WeakMap();
+
+export const TWIST_RATE_DEGREES_PER_UNIT = 90;
+
+export function twistRateUnitsFromDegrees(value) {
+  return Number(value || 0) / TWIST_RATE_DEGREES_PER_UNIT;
+}
+
+export function twistRateDegreesFromUnits(value) {
+  return Number(value || 0) * TWIST_RATE_DEGREES_PER_UNIT;
+}
+
+export function sampleIntegratedEnvelopeCurve(curve, t, sampleCount = 128) {
+  if (!curve?.length) return 0;
+  const count = Math.max(16, Math.round(Number(sampleCount) || 128));
+  const signature = `${count}|${curve.map((point) => (
+    `${point.position}:${point.value}:${point.interpolation}`
+  )).join("|")}`;
+  let cached = integratedEnvelopeCache.get(curve);
+  if (cached?.signature !== signature) {
+    const cumulative = [0];
+    let previous = sampleTaperCurve(curve, 0);
+    for (let index = 1; index <= count; index += 1) {
+      const current = sampleTaperCurve(curve, index / count);
+      cumulative.push(cumulative.at(-1) + (previous + current) * 0.5 / count);
+      previous = current;
+    }
+    cached = { signature, cumulative };
+    integratedEnvelopeCache.set(curve, cached);
+  }
+  const scaled = clamp(Number(t), 0, 1) * count;
+  const index = Math.floor(scaled);
+  const nextIndex = Math.min(count, index + 1);
+  return lerp(
+    cached.cumulative[index],
+    cached.cumulative[nextIndex],
+    scaled - index
+  );
 }
 
 export function sampleAsymmetricTaperCurve(
@@ -428,6 +530,14 @@ export function proximityCurveBlendAmount(point, firstRoot, secondRoot) {
   return totalDistance <= 0.0000001 ? 0.5 : firstDistance / totalDistance;
 }
 
+export function evenlySpacedInteriorAmounts(count, maximum = 64) {
+  const total = Math.min(
+    Math.max(1, Math.round(Number(maximum) || 64)),
+    Math.max(0, Math.round(Number(count) || 0))
+  );
+  return Array.from({ length: total }, (_, index) => (index + 1) / (total + 1));
+}
+
 export function surfaceArcBlendAmount(point, firstRoot, secondRoot, center) {
   const origin = center || { x: 0, y: 0, z: 0 };
   const direction = (value) => normalizedPointData({
@@ -533,6 +643,165 @@ export function surfaceArcPolylinePointData(
   });
 }
 
+export function horizontalCircleThroughPointData(firstPoint, secondPoint, preferredCenter) {
+  const firstX = Number(firstPoint?.x) || 0;
+  const firstZ = Number(firstPoint?.z) || 0;
+  const secondX = Number(secondPoint?.x) || 0;
+  const secondZ = Number(secondPoint?.z) || 0;
+  const midpointX = (firstX + secondX) * 0.5;
+  const midpointZ = (firstZ + secondZ) * 0.5;
+  const chordX = secondX - firstX;
+  const chordZ = secondZ - firstZ;
+  const chordLength = Math.hypot(chordX, chordZ);
+  const preferredX = Number(preferredCenter?.x) || 0;
+  const preferredZ = Number(preferredCenter?.z) || 0;
+  let centerX = preferredX;
+  let centerZ = preferredZ;
+  if (chordLength > 0.000001) {
+    const perpendicularX = -chordZ / chordLength;
+    const perpendicularZ = chordX / chordLength;
+    const offset = (preferredX - midpointX) * perpendicularX
+      + (preferredZ - midpointZ) * perpendicularZ;
+    centerX = midpointX + perpendicularX * offset;
+    centerZ = midpointZ + perpendicularZ * offset;
+  }
+  const radius = Math.hypot(firstX - centerX, firstZ - centerZ);
+  const firstAngle = Math.atan2(firstZ - centerZ, firstX - centerX);
+  const secondAngle = Math.atan2(secondZ - centerZ, secondX - centerX);
+  const angleDelta = Math.atan2(
+    Math.sin(secondAngle - firstAngle),
+    Math.cos(secondAngle - firstAngle)
+  );
+  return {
+    center: {
+      x: centerX,
+      y: lerp(Number(firstPoint?.y) || 0, Number(secondPoint?.y) || 0, 0.5),
+      z: centerZ
+    },
+    radius,
+    startAngle: firstAngle,
+    angleDelta,
+    firstY: Number(firstPoint?.y) || 0,
+    secondY: Number(secondPoint?.y) || 0
+  };
+}
+
+export function horizontalCirclePointData(circle, amount) {
+  const blend = clamp(Number(amount), 0, 1);
+  const angle = Number(circle?.startAngle || 0) + Number(circle?.angleDelta || 0) * blend;
+  const radius = Math.max(0, Number(circle?.radius) || 0);
+  return {
+    x: Number(circle?.center?.x || 0) + Math.cos(angle) * radius,
+    y: lerp(Number(circle?.firstY) || 0, Number(circle?.secondY) || 0, blend),
+    z: Number(circle?.center?.z || 0) + Math.sin(angle) * radius
+  };
+}
+
+export function rootCorrectionFalloff(amount, blendEnd = 0) {
+  const endValue = Number(blendEnd);
+  const end = clamp(Number.isFinite(endValue) ? endValue : 0, 0, 1);
+  const position = clamp(Number(amount), 0, 1);
+  if (end <= 0.000001) return position <= 0.000001 ? 1 : 0;
+  const t = clamp(position / end, 0, 1);
+  return (Math.cos(Math.PI * t) + 1) * 0.5;
+}
+
+export function cylindricalArcPointData(firstPoint, secondPoint, center, amount) {
+  return horizontalCirclePointData(
+    horizontalCircleThroughPointData(firstPoint, secondPoint, center),
+    amount
+  );
+}
+
+function truncatePolylinePointDataAtY(points, limitY) {
+  const source = Array.isArray(points) ? points : [];
+  if (!source.length) return [];
+  const result = [{
+    x: Number(source[0]?.x) || 0,
+    y: Number(source[0]?.y) || 0,
+    z: Number(source[0]?.z) || 0
+  }];
+  const targetY = Number(limitY) || 0;
+  for (let index = 1; index < source.length; index += 1) {
+    const previous = source[index - 1];
+    const current = source[index];
+    const previousY = Number(previous?.y) || 0;
+    const currentY = Number(current?.y) || 0;
+    if (previousY >= targetY && currentY <= targetY) {
+      const span = currentY - previousY;
+      const amount = Math.abs(span) <= 0.000001
+        ? 1
+        : clamp((targetY - previousY) / span, 0, 1);
+      result.push({
+        x: lerp(Number(previous?.x) || 0, Number(current?.x) || 0, amount),
+        y: targetY,
+        z: lerp(Number(previous?.z) || 0, Number(current?.z) || 0, amount)
+      });
+      return result;
+    }
+    if (currentY > targetY) {
+      result.push({
+        x: Number(current?.x) || 0,
+        y: currentY,
+        z: Number(current?.z) || 0
+      });
+    }
+  }
+  const lowest = source.reduce((best, point) => (
+    (Number(point?.y) || 0) < (Number(best?.y) || 0) ? point : best
+  ), source[0]);
+  result.push({
+    x: Number(lowest?.x) || 0,
+    y: Number(lowest?.y) || 0,
+    z: Number(lowest?.z) || 0
+  });
+  return result;
+}
+
+export function lowestSharedHorizontalPolylinePointData(firstPoints, secondPoints) {
+  const first = Array.isArray(firstPoints) ? firstPoints : [];
+  const second = Array.isArray(secondPoints) ? secondPoints : [];
+  if (!first.length || !second.length) return null;
+  const minimumY = (points) => points.reduce(
+    (minimum, point) => Math.min(minimum, Number(point?.y) || 0),
+    Number.POSITIVE_INFINITY
+  );
+  const limitY = Math.max(minimumY(first), minimumY(second));
+  const firstLimited = truncatePolylinePointDataAtY(first, limitY);
+  const secondLimited = truncatePolylinePointDataAtY(second, limitY);
+  return {
+    limitY,
+    first: firstLimited,
+    second: secondLimited,
+    intersections: [
+      firstLimited[firstLimited.length - 1],
+      secondLimited[secondLimited.length - 1]
+    ]
+  };
+}
+
+export function blendCylindricalPolylinePointData(
+  firstPoints,
+  secondPoints,
+  center,
+  amount,
+  pointCount = null
+) {
+  const count = Math.max(
+    2,
+    Math.floor(Number(pointCount) || Math.max(firstPoints?.length || 0, secondPoints?.length || 0, 2))
+  );
+  const shared = lowestSharedHorizontalPolylinePointData(firstPoints, secondPoints);
+  const first = resamplePolylinePointData(shared?.first || firstPoints, count);
+  const second = resamplePolylinePointData(shared?.second || secondPoints, count);
+  return first.map((point, index) => cylindricalArcPointData(
+    point,
+    second[index],
+    center,
+    amount
+  ));
+}
+
 export function blendSampleArrays(firstValues, secondValues, amount, sampleCount = null, fallback = 0) {
   const count = Math.max(
     1,
@@ -552,6 +821,23 @@ export function blendSampleArrays(firstValues, secondValues, amount, sampleCount
 export function blendTaperCurves(firstCurve, secondCurve, amount) {
   const first = normalizeTaperCurve(firstCurve);
   const second = normalizeTaperCurve(secondCurve);
+  const positions = [...new Set([
+    ...first.map((point) => point.position),
+    ...second.map((point) => point.position)
+  ])].sort((left, right) => left - right);
+  const blend = clamp(Number(amount), 0, 1);
+  return positions.map((position) => ({
+    position,
+    value: lerp(sampleTaperCurve(first, position), sampleTaperCurve(second, position), blend),
+    interpolation: blend < 0.5
+      ? first.findLast((point) => point.position <= position)?.interpolation || "smooth"
+      : second.findLast((point) => point.position <= position)?.interpolation || "smooth"
+  }));
+}
+
+export function blendEnvelopeCurves(firstCurve, secondCurve, amount, fallback, valueMinimum, valueMaximum) {
+  const first = normalizeEnvelopeCurve(firstCurve, fallback, valueMinimum, valueMaximum);
+  const second = normalizeEnvelopeCurve(secondCurve, fallback, valueMinimum, valueMaximum);
   const positions = [...new Set([
     ...first.map((point) => point.position),
     ...second.map((point) => point.position)
@@ -624,15 +910,21 @@ export function adaptiveCurveParameters(
   end = 1,
   minimumSegments = 4,
   profileSampler = null,
-  symmetricDistribution = false
+  symmetricDistribution = false,
+  additionalDetailSampler = null
 ) {
   const maximum = Math.max(minimumSegments, Math.round(segmentLimit));
   const amount = clamp(Number(aggression ?? 0.5), 0, 1);
-  if (amount <= 0.001 || maximum <= minimumSegments) return uniformCurveParameters(maximum, start, end);
+  if (
+    (amount <= 0.001 || maximum <= minimumSegments)
+    && !additionalDetailSampler
+  ) return uniformCurveParameters(maximum, start, end);
   const probeCount = Math.max(48, maximum * 4);
   const interval = (end - start) / probeCount;
-  const weights = [];
-  let detailTotal = 0;
+  const baseWeights = [];
+  const additionalWeights = [];
+  let baseDetailTotal = 0;
+  let additionalDetailTotal = 0;
   const sampleProfile = (t) => {
     const value = Number(profileSampler?.(t));
     return Number.isFinite(value) ? value : 0;
@@ -658,32 +950,74 @@ export function adaptiveCurveParameters(
         smoothstep(bend, 0.5, 12)
       );
     }
-    const detail = Math.max(curvature, profileDetail);
-    detailTotal += detail;
-    weights.push(
+    const middleT = (beforeT + afterT) * 0.5;
+    const additionalDetail = Math.max(
+      0,
+      Number(additionalDetailSampler?.(beforeT, middleT, afterT, interval)) || 0
+    );
+    baseDetailTotal += Math.max(curvature, profileDetail);
+    additionalDetailTotal += additionalDetail;
+    baseWeights.push(
       lerp(1, 0.1, amount)
       + curvature * (0.5 + amount * 4.5)
       + profileDetail * (0.4 + amount * 4)
     );
+    additionalWeights.push(additionalDetail);
   }
-  const averageDetail = detailTotal / probeCount;
+  const averageDetail = baseDetailTotal / probeCount;
   const retainedRatio = lerp(1, 0.22 + Math.sqrt(averageDetail) * 0.5, amount);
-  const segmentCount = clamp(Math.round(maximum * retainedRatio), minimumSegments, maximum);
-  const cumulative = [0];
-  weights.forEach((weight) => cumulative.push(cumulative.at(-1) + weight));
-  const totalWeight = cumulative.at(-1);
-  const parameters = [start];
-  let probeIndex = 1;
-  for (let segment = 1; segment < segmentCount; segment += 1) {
-    const target = totalWeight * (segment / segmentCount);
+  const baseSegmentCount = clamp(Math.round(maximum * retainedRatio), minimumSegments, maximum);
+  const additionalSegmentCount = Math.max(0, Math.ceil(additionalDetailTotal - 0.000001));
+  let distributionWeights = baseWeights;
+  if (additionalSegmentCount > 0 && additionalDetailTotal > 0.000001) {
+    const featherRadius = Math.max(3, Math.round(probeCount * 0.06));
+    let featheredAdditionalWeights = additionalWeights.map((weight, index) => {
+      let weightedTotal = 0;
+      let kernelTotal = 0;
+      for (let offset = -featherRadius; offset <= featherRadius; offset += 1) {
+        const sampleIndex = index + offset;
+        if (sampleIndex < 0 || sampleIndex >= additionalWeights.length) continue;
+        const kernelWeight = featherRadius + 1 - Math.abs(offset);
+        weightedTotal += additionalWeights[sampleIndex] * kernelWeight;
+        kernelTotal += kernelWeight;
+      }
+      return weightedTotal / Math.max(1, kernelTotal);
+    });
+    const featheredTotal = featheredAdditionalWeights.reduce((total, weight) => total + weight, 0);
+    const featherScale = additionalDetailTotal / Math.max(0.0001, featheredTotal);
+    featheredAdditionalWeights = featheredAdditionalWeights.map((weight) => weight * featherScale);
+    const symmetricBaseWeights = symmetricDistribution
+      ? baseWeights.map((weight, index) => (
+        (weight + baseWeights[baseWeights.length - 1 - index]) * 0.5
+      ))
+      : baseWeights;
+    const baseWeightTotal = symmetricBaseWeights.reduce((total, weight) => total + weight, 0);
+    distributionWeights = symmetricBaseWeights.map((weight, index) => (
+      weight / Math.max(0.0001, baseWeightTotal) * baseSegmentCount
+      + featheredAdditionalWeights[index]
+    ));
+  }
+  const segmentCount = baseSegmentCount + additionalSegmentCount;
+  const weightedParameter = (weights, fraction) => {
+    const cumulative = [0];
+    weights.forEach((weight) => cumulative.push(cumulative.at(-1) + weight));
+    const target = cumulative.at(-1) * fraction;
+    let probeIndex = 1;
     while (probeIndex < cumulative.length - 1 && cumulative[probeIndex] < target) probeIndex += 1;
     const beforeWeight = cumulative[probeIndex - 1];
     const span = Math.max(0.0001, cumulative[probeIndex] - beforeWeight);
     const alpha = (target - beforeWeight) / span;
-    parameters.push(lerp(start, end, (probeIndex - 1 + alpha) / probeCount));
-  }
-  parameters.push(end);
-  if (symmetricDistribution) {
+    return lerp(start, end, (probeIndex - 1 + alpha) / probeCount);
+  };
+  const parameters = [
+    start,
+    ...Array.from(
+      { length: Math.max(0, segmentCount - 1) },
+      (_, index) => weightedParameter(distributionWeights, (index + 1) / segmentCount)
+    ),
+    end
+  ];
+  if (symmetricDistribution && additionalSegmentCount === 0) {
     const midpoint = (start + end) * 0.5;
     for (let index = 1; index < Math.floor(parameters.length / 2); index += 1) {
       const oppositeIndex = parameters.length - 1 - index;
@@ -697,6 +1031,49 @@ export function adaptiveCurveParameters(
     if (parameters.length % 2 === 1) parameters[Math.floor(parameters.length / 2)] = midpoint;
   }
   return parameters;
+}
+
+export function twistCurveDensityDetail(
+  curve,
+  beforeT,
+  middleT,
+  afterT,
+  strength = 1,
+  referenceSegmentCount = 1
+) {
+  const influence = clamp(Number(strength) || 0, 0, 1);
+  if (influence <= 0.0001 || !curve?.length) return 0;
+  const before = sampleTaperCurve(curve, beforeT);
+  const middle = sampleTaperCurve(curve, middleT);
+  const after = sampleTaperCurve(curve, afterT);
+  const span = Math.max(0, Number(afterT) - Number(beforeT));
+  const averageMagnitude = (
+    Math.abs(before)
+    + Math.abs(middle) * 4
+    + Math.abs(after)
+  ) / 6;
+  const referenceDensity = Math.max(1, Number(referenceSegmentCount) || 1);
+  const normalizedMagnitude = averageMagnitude / 180;
+  const softenedMagnitude = normalizedMagnitude <= 1
+    ? Math.sqrt(normalizedMagnitude)
+    : normalizedMagnitude;
+  const supplementalDensityRatio = softenedMagnitude * 2;
+  return influence * supplementalDensityRatio * referenceDensity * span;
+}
+
+export function twistCurveDisplayRange(curve, defaultRange = 180, maximumRange = 720) {
+  const baseline = Math.max(1, Math.abs(Number(defaultRange) || 180));
+  const maximum = Math.max(baseline, Math.abs(Number(maximumRange) || 720));
+  const authoredMaximum = Array.isArray(curve)
+    ? curve.reduce((largest, point) => Math.max(largest, Math.abs(Number(point?.value) || 0)), 0)
+    : 0;
+  return clamp(Math.max(baseline, authoredMaximum), baseline, maximum);
+}
+
+export function twistCurveHandleDistancePerDegree(referenceExtent, displayRange = 180) {
+  const extent = Math.max(0.04, Math.abs(Number(referenceExtent) || 0));
+  const range = Math.max(1, Math.abs(Number(displayRange) || 180));
+  return extent * 0.625 / range;
 }
 
 export function sampleArray(values, t, fallback = 0) {

@@ -1,0 +1,147 @@
+Anime Hair Studio Version 0.1.4 Patch Notes
+August 5, 2026
+
+
+NEW TOOLS
+
+- Object Edit Mode
+Component and Object are now the two edit modes. Component edits curves and control points, while Object moves, rotates, or scales a complete strand or guide from its root.
+
+- Branch Strands
+Start a Draw Strand stroke from a control point on a selected strand to create a separate branch. Its root stays attached to the parent while the branch remains independently editable.
+
+- Twist Curve
+The Twist Curve controls clockwise or counterclockwise rotation along a strand. Its points support custom values, positions, and interpolation, and can be displayed directly beside the mesh for editing.
+
+- Draw Capsule Guide
+Sketch a curve to create a tapered capsule-shaped drawing surface. Step controls its loop spacing and one profile controls its width and depth taper.
+
+- Sculpt Proportional Editing
+Move and Smooth Brush can extend their influence beyond the main brush radius using an adjustable falloff.
+
+- Turntable Preview
+Turntable automatically orbits the camera around the hairstyle. Its speed can be adjusted from the Main tab while Turntable is active.
+
+
+NEW FEATURES
+
+- Selection Sets
+You can now create Selection Sets by selecting multiple strands and choosing Create Selection Set from the Spacebar radial menu or outliner context menu. Sets can be recalled, renamed, or updated later.
+
+- Strand Locking
+You can now lock strands by selecting them and pressing L, using the radial menu, or using an outliner context menu. Locked strands cannot be selected or edited. Press L with nothing selected to unlock every strand.
+
+- Isolated View
+Select the strands you want to isolate and press Ctrl+1, or use Isolate in the radial menu, to toggle a view containing only those strands.
+
+- Relative Multi-Strand Editing
+Compatible settings can be changed across several selected strands without forcing them all to the same value. Their existing differences are preserved.
+
+- Mirror Strands and Clumps
+Strands and complete clumps can create linked mirrored instances. The linked partner updates automatically and can be decoupled later for independent editing.
+
+- Sculpt Selection Masks
+When strands are selected, Move and Smooth Brush affect only that selection. Every other strand is darkened and protected from the brush.
+
+- Twist Density
+Dynamic Density can add support loops where the Twist Curve needs them without increasing topology across the whole strand.
+
+- Recent Projects
+File > Recent Projects provides up to ten recently opened or saved projects.
+
+- Full Body Mesh Import
+Full-body OBJ meshes can be imported from the File menu or by drag and drop. They are scaled to roughly seven heads tall and aligned to the scalp guide.
+
+- Shareable Hair-Only Projects
+The Save window can exclude character meshes and references when you only want to share the hairstyle.
+
+
+EDITING IMPROVEMENTS
+
+- Selection Modifiers
+Shift-click or Shift-drag adds to the selection. Ctrl-click or Ctrl-drag removes from it.
+
+- Selection While Transforming
+Move, Rotate, and Scale now use the same click and marquee selection controls as the Select tool.
+
+- Precision Transforms
+Hold Shift during Move, Rotate, or Scale for finer control. Scale Sensitivity can also be adjusted in the Scale tool settings.
+
+- Strand Rotation
+The complete strand profile can be rotated without changing its control-point normals.
+
+- Move Brush Influence
+Move Brush now captures its affected area on the initial click, so dragging does not pull new control points into the stroke.
+
+- Smooth Brush Preserve Tips
+Preserve Tips allows Smooth Brush to relax a curve without moving its endpoint.
+
+- Live Surface Controls
+Live Surface chooses which guide new strands conform to. Dynamic adds a contextual camera-facing drawing plane to that surface.
+
+- Guide Visibility
+Click the guide-visibility button to cycle through guide types, or right-click it to choose exactly which types are visible.
+
+
+FILES AND PROJECTS
+
+- Project Drag and Drop
+Drop an .ahs file into the app to open it. A confirmation warns that unsaved work will be lost.
+
+- OBJ Drag and Drop
+Drop an OBJ file to import it as a Head Mesh or Full Body Mesh without opening the reference-image workflow.
+
+- Hair-Only Project Loading
+Projects saved without a character mesh reopen without inserting the default head.
+
+
+UI/UX
+
+- Workspaces
+The former Strands, Guides, and References edit modes are now organized as workspaces. Use 1, 2, and 3 to switch workspaces. Tab switches between Component and Object edit modes.
+
+- Radial Menus
+Hold Spacebar to open context-sensitive actions and submenus without leaving the viewport. Holding a tool shortcut opens settings for that tool.
+
+- Blender Navigation
+Preferences now includes Blender-style Middle Mouse navigation. Navigation tips and the Shortcuts viewer update to match the selected style.
+
+- Viewport Preferences
+Camera smoothing, viewport background color, control-point size, Compact Tool Buttons, and outliner region colors can be adjusted in Preferences.
+
+- Character Mesh Visibility
+Head and body mesh visibility can be toggled from the Display tab.
+
+- Responsive Outliner
+On narrower windows, the outliner docks into the right panel and expands when the Attribute Editor is collapsed.
+
+- Layered Side Bun Preset
+A complete human-authored hairstyle is included as a starting point.
+
+- Patch Notes History
+The Patch Notes viewer now includes a dated sidebar for browsing previous updates.
+
+
+PERFORMANCE
+
+- Selecting, transforming, and sculpting large groups of strands should now remain more responsive.
+- Object-mode transforms use lighter live previews before rebuilding final strand geometry.
+- Sculpt brushes perform less work on strands that cannot be affected by the current brush stroke.
+
+
+BUG FIXES
+
+- Undo no longer reverts multiple actions after drawing a new strand following an undo.
+- Selection highlighting remains visible across the available shaders and on lighter hair colors.
+- Control points on newly drawn strands can now be selected reliably in a new scene.
+- Width, depth, and twist editors now refresh after Undo, Redo, and live geometry changes.
+- Large rotations no longer flip strand frames or unexpectedly change authored control-point normals.
+- OBJ files containing unsupported line or point primitives no longer cause valid face geometry to appear as wireframe-like lines.
+- Several guide visibility, scalp editing, raycasting, and narrow-window layout issues have also been fixed.
+
+
+MISC
+
+- Patreon and Ko-fi support links have been added to the title bar.
+- Object Mesh remains a planned OBJ import type and is not implemented yet.
+- Recent Projects depends on locally stored browser data.

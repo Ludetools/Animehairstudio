@@ -12,7 +12,9 @@ const CLUMP_SETTING_FIELDS = Object.freeze([
 ]);
 
 const STRAND_SETTING_FIELDS = Object.freeze([
+  "strandRotation",
   "twist",
+  "twistCurve",
   "taperCurve",
   "depthCurve",
   "taperCurveSecondary",
@@ -37,7 +39,8 @@ const STRAND_SETTING_FIELDS = Object.freeze([
   "radialSegments",
   "lengthSegments",
   "dynamicDensity",
-  "densityAggression"
+  "densityAggression",
+  "twistDensity"
 ]);
 
 function finitePoint(point) {

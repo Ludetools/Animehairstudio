@@ -1,13 +1,10 @@
 export const DEFAULT_SURFACE_LATTICE_COLUMNS = 3;
 export const DEFAULT_SURFACE_LATTICE_ROWS = 3;
-export const MAX_SURFACE_LATTICE_CONTROL_POINTS = 11;
+export const MAX_SURFACE_LATTICE_CONTROL_POINTS = 31;
 
 export function normalizeSurfaceLatticeCount(value, fallback = 3) {
   const rounded = Math.round(Number(value) || fallback);
-  const clamped = Math.max(3, Math.min(MAX_SURFACE_LATTICE_CONTROL_POINTS, rounded));
-  return clamped % 2 === 0
-    ? Math.min(MAX_SURFACE_LATTICE_CONTROL_POINTS, clamped + 1)
-    : clamped;
+  return Math.max(3, Math.min(MAX_SURFACE_LATTICE_CONTROL_POINTS, rounded));
 }
 
 function surfaceLatticePointOrder(columns, rows) {

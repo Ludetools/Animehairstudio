@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Hair Studio</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=20260730-73" />
+    <link rel="stylesheet" href="./styles.css?v=20260805-100" />
   </head>
   <body>
     <main class="studio-shell">
@@ -15,6 +15,14 @@
               <button id="fileMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">File</button>
               <div id="fileMenu" class="app-menu-dropdown hidden" role="menu" aria-label="File">
                 <button id="openHairProject" type="button" role="menuitem"><span>Open</span></button>
+                <div class="app-menu-submenu-shell">
+                  <button id="recentProjectsMenu" type="button" role="menuitem" aria-haspopup="menu" aria-expanded="false">
+                    <span>Recent Projects</span><span class="app-menu-state" aria-hidden="true">&#8250;</span>
+                  </button>
+                  <div id="recentProjectsSubmenu" class="app-menu-submenu hidden" role="menu" aria-label="Recent Projects">
+                    <p class="app-menu-empty">No recent projects</p>
+                  </div>
+                </div>
                 <button id="saveCurrentPreset" type="button" role="menuitem"><span>Save</span></button>
                 <button
                   id="devSaveProject"
@@ -74,6 +82,7 @@
                 <button id="scalpBuilderMode" type="button" role="menuitem"><span class="tool-icon icon-scalp-builder" aria-hidden="true"></span><span>Edit Scalp</span></button>
                 <button id="scalpPaintToggle" type="button" role="menuitem"><span class="tool-icon icon-scalp-paint" aria-hidden="true"></span><span>Scalp Painting</span></button>
                 <button id="headSetupMode" type="button" role="menuitem"><span class="tool-icon icon-head-setup" aria-hidden="true"></span><span>Edit Head</span></button>
+                <button id="drawCapsuleGuideMode" type="button" role="menuitem"><span class="tool-icon icon-draw" aria-hidden="true"></span><span>Draw Capsule Guide</span></button>
                 <button id="capsuleGuideMode" type="button" role="menuitem"><span class="tool-icon icon-surface-guide" aria-hidden="true"></span><span>Capsule Guide</span></button>
                 <button id="curveLatticeGuideMode" type="button" role="menuitem"><span class="tool-icon icon-curve-lattice-guide" aria-hidden="true"></span><span>Curve Lattice Guide</span></button>
               </div>
@@ -136,12 +145,25 @@
           href="https://www.patreon.com/cw/animehairstudio"
           target="_blank"
           rel="noopener noreferrer"
-          title="Support Anime Hair Studio"
-          aria-label="Support Anime Hair Studio"
+          title="Support Anime Hair Studio on Patreon"
+          aria-label="Support Anime Hair Studio on Patreon"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M4 3h4v18H4z"></path>
             <circle cx="15.5" cy="9.5" r="6.5"></circle>
+          </svg>
+        </a>
+        <a
+          class="kofi-link"
+          href="https://ko-fi.com/animehairstudio"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Support Anime Hair Studio on Ko-fi"
+          aria-label="Support Anime Hair Studio on Ko-fi"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M3 6h14v8a6 6 0 0 1-6 6H9a6 6 0 0 1-6-6V6zm14 2h1.25a3.75 3.75 0 0 1 0 7.5H17v-2h1.25a1.75 1.75 0 0 0 0-3.5H17V8z"></path>
+            <path d="M7.1 9.4c.8-.8 2.1-.7 2.9.2.8-.9 2.1-1 2.9-.2.9.9.8 2.4-.1 3.3L10 15.4l-2.8-2.7c-.9-.9-1-2.4-.1-3.3z"></path>
           </svg>
         </a>
         <input id="hairProjectFile" class="hidden-file-input" type="file" accept=".ahs,.animehair.json,.json,application/json" />
@@ -152,6 +174,7 @@
       <aside class="outliner-panel" aria-label="Scene outliner">
         <div class="outliner-titlebar">
           <span>Outliner</span>
+          <button id="toggleOutlinerPanel" class="sidebar-collapse-toggle" type="button" title="Collapse outliner" aria-label="Collapse outliner" aria-expanded="true"><span aria-hidden="true">&#x2303;</span></button>
         </div>
         <div class="outliner-tabs" role="tablist" aria-label="Outliner content">
           <button id="strandOutlinerTab" class="outliner-tab active" type="button" role="tab" aria-selected="true" aria-controls="lockList">Strands</button>
@@ -190,15 +213,15 @@
         </div>
         <div class="viewport-bottom-left-guidance">
           <div id="placementStatus" class="placement-status hidden" aria-live="polite"></div>
-          <div id="hierarchyNavigationHint" class="hierarchy-navigation-hint hidden">
-            <kbd>Z</kbd><kbd>X</kbd>
-            <span>Navigate curve points</span>
-            <small>No point selected: root / tip</small>
-          </div>
           <div id="viewportNavigationTips" class="viewport-navigation-tips" aria-label="Viewport navigation tips">
-            <div><kbd>Alt + Left Mouse</kbd><span>Orbit</span></div>
-            <div><kbd>Alt + Right Mouse</kbd><span>Pan</span></div>
-            <div><kbd>Scrollwheel</kbd><span>Zoom</span></div>
+            <div data-navigation-style-tip="anime-hair-studio"><kbd>Alt + Left Mouse</kbd><span>Orbit</span></div>
+            <div data-navigation-style-tip="anime-hair-studio"><kbd>Alt + Right Mouse</kbd><span>Pan</span></div>
+            <div data-navigation-style-tip="anime-hair-studio"><kbd>Scrollwheel</kbd><span>Zoom</span></div>
+            <div class="hidden" data-navigation-style-tip="blender"><kbd>Middle Mouse</kbd><span>Orbit</span></div>
+            <div class="hidden" data-navigation-style-tip="blender"><kbd>Shift + Middle Mouse</kbd><span>Pan</span></div>
+            <div class="hidden" data-navigation-style-tip="blender"><kbd>Ctrl + Middle Mouse</kbd><span>Zoom</span></div>
+            <div class="hidden" data-navigation-style-tip="blender"><kbd>Scrollwheel</kbd><span>Zoom</span></div>
+            <div class="hidden" data-navigation-style-tip="blender"><kbd>Alt + Middle Mouse</kbd><span>Snap to cardinal views</span></div>
             <div><kbd>F</kbd><span>Cycle selected and full-scene framing</span></div>
           </div>
         </div>
@@ -215,25 +238,34 @@
             <span>Smooth Brush</span>
           </button>
         </div>
-        <div id="viewportEditModeControl" class="viewport-edit-mode" aria-label="Viewport edit mode">
+        <div id="viewportEditModeControl" class="viewport-edit-mode" aria-label="Viewport workspace and edit mode">
           <label for="viewportEditMode">
-            <span>Edit Mode</span>
+            <span>Workspace</span>
             <select id="viewportEditMode" title="Choose which kind of object can be selected and edited.">
-              <option value="strand" selected>Strand</option>
+              <option value="strand" selected>Strands</option>
               <option value="guide">Guides</option>
-              <option value="reference">Reference</option>
+              <option value="reference">References</option>
             </select>
           </label>
+          <div id="viewportSelectionModeControl" class="viewport-selection-mode" role="group" aria-label="Edit mode">
+            <span>Edit Mode</span>
+            <div class="viewport-selection-mode-buttons">
+              <button class="active" type="button" data-selection-mode="component" aria-pressed="true">Component</button>
+              <button type="button" data-selection-mode="object" aria-pressed="false">Object</button>
+            </div>
+          </div>
         </div>
         <div id="viewportDrawSettings" class="viewport-draw-settings hidden" aria-label="Draw settings">
-          <label for="drawStrandSurface">
-            <span>Live Surface</span>
-            <select id="drawStrandSurface" title="Choose how the stroke is projected into 3D space.">
-              <option value="head-contextual" selected>Head Mesh + Contextual 2D</option>
-              <option value="head-conform">Conform to Head Mesh</option>
-              <option value="contextual-plane">Contextual 2D Plane</option>
-            </select>
-          </label>
+          <div class="viewport-live-surface-control">
+            <label class="viewport-live-surface-select" for="drawStrandSurface">
+              <span>Live Surface</span>
+              <select id="drawStrandSurface" title="Choose the surface used to guide drawing.">
+                <option value="head" selected>Head Mesh</option>
+                <option value="contextual-plane">Contextual 2D Plane</option>
+              </select>
+            </label>
+            <button id="drawSurfaceDynamic" class="viewport-dynamic-toggle" type="button" aria-pressed="true" data-boolean-control="true" title="Continue a stroke on a camera-facing contextual 2D plane after it leaves the selected surface.">Dynamic</button>
+          </div>
           <label for="viewportDrawLayer">
             <span>Layer</span>
             <select id="viewportDrawLayer" title="Choose the layer assigned to newly drawn strands.">
@@ -267,6 +299,7 @@
           <button class="tool-button retired-experiment" data-tool="surface" title="Retired lattice-controlled surface experiment" aria-label="Surface tool" hidden aria-hidden="true" tabindex="-1"><span class="tool-icon icon-surface" aria-hidden="true"></span></button>
           <button class="tool-button retired-experiment" data-tool="surface-loft" title="Retired loft surface experiment" aria-label="Loft Surface tool" hidden aria-hidden="true" tabindex="-1"><span class="tool-icon icon-loft-surface" aria-hidden="true"></span></button>
           <button class="tool-button" data-tool="braid" title="Draw procedural braid (G)" aria-label="Braid tool"><span class="tool-icon icon-braid" aria-hidden="true"></span><kbd>G</kbd></button>
+          <button id="viewportDrawCapsuleGuideTool" class="tool-button guide-toolbar-tool hidden" data-tool="draw-capsule-guide" type="button" title="Draw a capsule guide along a curve" aria-label="Draw Capsule Guide tool" aria-pressed="false"><span class="tool-icon icon-draw" aria-hidden="true"></span></button>
           <button id="viewportCapsuleGuideTool" class="tool-button guide-toolbar-tool hidden" type="button" title="Create or edit a capsule guide" aria-label="Capsule Guide tool" aria-pressed="false"><span class="tool-icon icon-surface-guide" aria-hidden="true"></span></button>
           <button id="viewportCurveLatticeGuideTool" class="tool-button guide-toolbar-tool hidden" type="button" title="Create a curve lattice guide" aria-label="Curve Lattice Guide tool" aria-pressed="false"><span class="tool-icon icon-curve-lattice-guide" aria-hidden="true"></span></button>
         </div>
@@ -279,9 +312,8 @@
         <div class="bar-actions viewport-display-actions" aria-label="Viewport display controls">
           <button id="presetLibraryToggle" class="tool-button preset-library-button" title="Open preset library" aria-label="Open preset library" aria-pressed="false"><span class="preset-library-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span></button>
           <button id="orthographicViewToggle" class="orthographic-view-button" title="Switch to orthographic view" aria-label="Toggle orthographic view" aria-pressed="false"><span>O</span></button>
-          <button id="resetCamera" title="Reset camera" aria-label="Reset camera"><span>R</span></button>
           <button id="toggleWire" title="Toggle strand topology" aria-label="Toggle strand topology" aria-pressed="false"><span>W</span></button>
-          <button id="scalpGuideVisibilityToggle" class="scalp-guide-visibility-button" title="Show scalp guide" aria-label="Show scalp guide" aria-pressed="false"><span class="tool-icon icon-scalp-guide" aria-hidden="true"></span></button>
+          <button id="scalpGuideVisibilityToggle" class="scalp-guide-visibility-button" title="Cycle guide visibility" aria-label="Cycle guide visibility" aria-pressed="true" aria-haspopup="menu"><span class="tool-icon icon-scalp-guide" aria-hidden="true"></span></button>
           <button id="groupColorToggle" class="group-color-button" title="Show group colors" aria-label="Show group colors" aria-pressed="false"><span class="group-color-swatches" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
         </div>
         <section id="presetLibrary" class="preset-library hidden" role="dialog" aria-modal="false" aria-labelledby="presetLibraryTitle">
@@ -353,6 +385,7 @@
           <button id="attributeMainTab" class="active" type="button" role="tab" aria-selected="true" data-attribute-tab="main">Main</button>
           <button id="attributeDisplayTab" type="button" role="tab" aria-selected="false" data-attribute-tab="display">Display</button>
           <button id="attributeMaterialsTab" type="button" role="tab" aria-selected="false" data-attribute-tab="materials">Materials</button>
+          <button id="toggleAttributeEditorPanel" class="sidebar-collapse-toggle" type="button" title="Collapse attribute editor" aria-label="Collapse attribute editor" aria-expanded="true"><span aria-hidden="true">&#x2303;</span></button>
         </div>
         <div id="turntablePanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
@@ -499,6 +532,7 @@
           <label class="topology-control" title="Sets the maximum number of along-curve segments available to dynamic density.">Along Curve <input id="groupLengthSegments" type="range" min="4" max="64" step="1" value="26" /><output id="groupLengthSegmentsValue" class="slider-value">26</output></label>
           <label class="toggle-row" title="Dynamically concentrates edge loops around sharper curve bends and width-profile changes, while removing them from gradual sections."><span>Dynamic Density</span><input id="groupDynamicDensity" type="checkbox" /></label>
           <label class="topology-control" title="Higher values optimize more aggressively, using fewer loops on gradual sections.">Aggressiveness <input id="groupDensityAggression" type="range" min="0" max="1" step="0.01" value="0.5" disabled /><output id="groupDensityAggressionValue" class="slider-value">0.50</output></label>
+          <label class="topology-control" title="Adds along-curve loops where the twist curve is farther from zero.">Twist Density <input id="groupTwistDensity" type="range" min="0" max="1" step="0.01" value="0.5" disabled /><output id="groupTwistDensityValue" class="slider-value">0.50</output></label>
           <output id="groupTopologyStats" class="topology-readout">0 verts / 0 tris</output>
           <div class="subsection-label">Strand Profile</div>
           <div class="profile-control-row">
@@ -509,7 +543,7 @@
 
         <div id="selectedStrandPanel" class="panel-section" data-attribute-panel="strands">
           <div class="section-head">
-            <span>Selected Strand</span>
+            <span id="selectedStrandTitle">Selected Strand</span>
             <button id="deleteLock" class="icon-danger" title="Delete selected strand" aria-label="Delete selected strand">X</button>
           </div>
           <label for="lockName">Name</label>
@@ -600,6 +634,7 @@
           <label class="topology-control" title="Sets the maximum number of along-curve segments available to dynamic density.">Along Curve <input id="strandLengthSegments" type="range" min="4" max="64" step="1" value="26" /><output id="strandLengthSegmentsValue" class="slider-value">26</output></label>
           <label class="toggle-row" title="Dynamically concentrates edge loops around sharper curve bends and width-profile changes, while removing them from gradual sections."><span>Dynamic Density</span><input id="strandDynamicDensity" type="checkbox" /></label>
           <label class="topology-control" title="Higher values optimize more aggressively, using fewer loops on gradual sections.">Aggressiveness <input id="strandDensityAggression" type="range" min="0" max="1" step="0.01" value="0.5" disabled /><output id="strandDensityAggressionValue" class="slider-value">0.50</output></label>
+          <label class="topology-control" title="Adds along-curve loops where the twist curve is farther from zero.">Twist Density <input id="strandTwistDensity" type="range" min="0" max="1" step="0.01" value="0.5" disabled /><output id="strandTwistDensityValue" class="slider-value">0.50</output></label>
           <output id="strandTopologyStats" class="topology-readout">0 verts / 0 tris</output>
         </div>
 
@@ -616,6 +651,7 @@
             <span>Head Collision</span>
             <input id="pullCollision" type="checkbox" checked />
           </label>
+          <label id="scaleSensitivitySetting" class="topology-control hidden" title="Adjust how strongly the scale gizmo responds to pointer movement.">Scale Sensitivity <input id="scaleSensitivity" type="range" min="0.05" max="1" step="0.05" value="0.3" /><output id="scaleSensitivityValue" class="slider-value">0.30</output></label>
           <label id="viewPlaneMoveSetting" class="toggle-row" for="viewPlaneMove" title="Drag curve points freely on the 2D plane that best matches the current camera view.">
             <span>Contextual 2D Free Translation</span>
             <input id="viewPlaneMove" type="checkbox" />
@@ -646,7 +682,7 @@
 
         <div id="drawStrandToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
-            <span>Draw Strand Tool</span>
+            <span id="drawStrandToolTitle">Draw Strand Tool</span>
           </div>
           <div class="creation-preset-row">
             <label class="compact-select-row" for="drawBrushPreset" title="Choose a built-in brush type or apply a saved custom brush recipe without changing the selected strand."><span>Brush Preset</span>
@@ -673,15 +709,43 @@
             <span>Continue from Tip</span>
             <input id="drawContinueFromTip" type="checkbox" checked />
           </label>
+          <fieldset id="proceduralDrawAccessorySection" class="procedural-draw-accessories hidden">
+            <legend>Accessory Strands</legend>
+            <label class="topology-control" title="Sets how many child strands are distributed around the drawn parent strand.">Count <input id="proceduralAccessoryCount" type="range" min="1" max="16" step="1" value="4" /><output id="proceduralAccessoryCountValue" class="slider-value">4</output></label>
+            <label class="topology-control" title="Sets how far accessory strands are distributed from the parent, relative to the brush size.">Distribution Radius <input id="proceduralAccessoryRadius" type="range" min="0" max="2" step="0.01" value="0.7" /><output id="proceduralAccessoryRadiusValue" class="slider-value">0.70</output></label>
+            <label class="toggle-row" for="proceduralParentVisible" title="Show the parent strand mesh. When hidden, selecting it still reveals its outline.">
+              <span>Show Parent Strand</span>
+              <input id="proceduralParentVisible" type="checkbox" checked />
+            </label>
+          </fieldset>
+        </div>
+
+        <div id="proceduralAccessoryEditPanel" class="panel-section sliders hidden" data-attribute-panel="strands">
+          <div class="section-head">
+            <span>Procedural Accessories</span>
+          </div>
+          <fieldset class="procedural-draw-accessories">
+            <legend>Accessory Strands</legend>
+            <label class="topology-control" title="Changes how many accessory children are generated around this procedural parent strand.">Count <input id="proceduralAccessoryEditCount" type="range" min="1" max="16" step="1" value="4" /><output id="proceduralAccessoryEditCountValue" class="slider-value">4</output></label>
+            <label class="topology-control" title="Changes how far this clump's accessory strands are distributed from the parent.">Distribution Radius <input id="proceduralAccessoryEditRadius" type="range" min="0" max="2" step="0.01" value="0.7" /><output id="proceduralAccessoryEditRadiusValue" class="slider-value">0.70</output></label>
+            <label class="toggle-row" for="proceduralAccessoryEditParentVisible" title="Show the procedural parent mesh. When hidden, selecting it still reveals its outline.">
+              <span>Show Parent Strand</span>
+              <input id="proceduralAccessoryEditParentVisible" type="checkbox" checked />
+            </label>
+          </fieldset>
         </div>
 
         <div id="sculptMoveToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Brush Settings</span>
           </div>
-          <label class="topology-control" title="Controls how strongly each brush affects nearby strands.">Strength <input id="sculptBrushStrength" type="range" min="0.05" max="1" step="0.01" value="1" /><output id="sculptBrushStrengthValue" class="slider-value">1.00</output></label>
+          <label class="topology-control" title="Controls how strongly each brush affects nearby strands.">Strength <input id="sculptBrushStrength" type="range" min="0.05" max="1" step="0.01" value="0.2" /><output id="sculptBrushStrengthValue" class="slider-value">0.20</output></label>
           <label class="topology-control" title="Sets the brush area of influence in viewport pixels.">Radius <input id="sculptBrushRadius" type="range" min="20" max="240" step="1" value="90" /><output id="sculptBrushRadiusValue" class="slider-value">90 px</output></label>
           <label class="topology-control" title="Controls how much of the brush radius softly fades toward its edge.">Falloff Radius <input id="sculptBrushFalloff" type="range" min="0" max="1" step="0.01" value="0.5" /><output id="sculptBrushFalloffValue" class="slider-value">0.50</output></label>
+          <label id="sculptSmoothPreserveTipsSetting" class="toggle-row hidden" for="sculptSmoothPreserveTips" title="Keep the final control point fixed while smoothing the rest of each curve.">
+            <span>Preserve Tips</span>
+            <input id="sculptSmoothPreserveTips" type="checkbox" checked />
+          </label>
           <details class="sculpt-brush-debug-settings">
             <summary>Debug</summary>
             <div class="sculpt-brush-debug-options">
@@ -726,13 +790,6 @@
           <label class="topology-control" title="Higher values smooth small deviations from the drawn center curve.">Smoothing <input id="braidSmoothing" type="range" min="0" max="1" step="0.01" value="0.55" /><output id="braidSmoothingValue" class="slider-value">0.55</output></label>
           <label class="topology-control" title="Sets the distance between editable curve points.">Curve Step <input id="braidCurveStep" type="range" min="0.12" max="0.7" step="0.01" value="0.42" /><output id="braidCurveStepValue" class="slider-value">0.42</output></label>
           <label class="topology-control" title="Offsets the braid from the live surface for layering.">Scalp Offset <input id="braidScalpOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="braidScalpOffsetValue" class="slider-value">0.00</output></label>
-          <label class="compact-select-row" for="braidSurface" title="Choose how the braid center curve is projected into 3D space."><span>Live Surface</span>
-            <select id="braidSurface">
-              <option value="head-contextual" selected>Head Mesh + Contextual 2D</option>
-              <option value="head-conform">Conform to Head Mesh</option>
-              <option value="contextual-plane">Contextual 2D Plane</option>
-            </select>
-          </label>
           <label class="toggle-row" for="braidAutoShowScalp" title="Automatically turn on scalp guide visibility when this tool uses the scalp guide.">
             <span>Auto-show Scalp Guide</span>
             <input id="braidAutoShowScalp" type="checkbox" checked />
@@ -752,13 +809,6 @@
           <label class="topology-control" title="Sets the distance between editable center-curve points.">Curve Step <input id="panelCurveStep" type="range" min="0.12" max="0.7" step="0.01" value="0.4" /><output id="panelCurveStepValue" class="slider-value">0.40</output></label>
           <label class="topology-control" title="Offsets the panel from the live surface for layering.">Scalp Offset <input id="panelScalpOffset" type="range" min="-1" max="1" step="0.01" value="0" /><output id="panelScalpOffsetValue" class="slider-value">0.00</output></label>
           <label class="topology-control" title="Controls how strongly the panel orientation follows sampled surface normals.">Surface Normal Influence <input id="panelSurfaceNormalInfluence" type="range" min="0" max="1" step="0.01" value="1" /><output id="panelSurfaceNormalInfluenceValue" class="slider-value">1.00</output></label>
-          <label class="compact-select-row" for="panelSurface" title="Choose how the panel center path is projected into 3D space."><span>Live Surface</span>
-            <select id="panelSurface">
-              <option value="head-contextual" selected>Head Mesh + Contextual 2D</option>
-              <option value="head-conform">Conform to Head Mesh</option>
-              <option value="contextual-plane">Contextual 2D Plane</option>
-            </select>
-          </label>
           <label class="toggle-row" for="panelAutoShowScalp" title="Automatically turn on scalp guide visibility while drawing panels.">
             <span>Auto-show Scalp Guide</span>
             <input id="panelAutoShowScalp" type="checkbox" checked />
@@ -777,10 +827,32 @@
           <button id="resetLoftSurfaceDraft" class="full-width-button" type="button" disabled>Restart Curves</button>
         </div>
 
+        <div id="curveSurfaceToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
+          <div class="section-head">
+            <span>Curve Surface</span>
+          </div>
+          <p class="loft-surface-description">Draw a controller curve, then add neighboring curves. Hold Shift to constrain a curve to eight directions while it conforms to the live surface. Each curve controls a flat hair card, and adjacent card edges remain connected. Press Enter to confirm or Esc to cancel.</p>
+          <label class="topology-control" title="Sets the exterior half-width beyond the outer controller curves.">Strip Width <input id="curveSurfaceStripWidth" type="range" min="0.04" max="0.8" step="0.01" value="0.22" /><output id="curveSurfaceStripWidthValue" class="slider-value">0.22</output></label>
+          <div id="curveSurfaceDraftStatus" class="loft-surface-draft-status" aria-live="polite">Draw the first center curve.</div>
+          <div class="curve-surface-draft-actions">
+            <button id="confirmCurveSurfaceDraft" class="full-width-button primary" type="button" disabled>Confirm Shape</button>
+            <button id="resetCurveSurfaceDraft" class="full-width-button" type="button">Restart Curves</button>
+          </div>
+        </div>
+
         <div id="surfaceGuideToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Capsule Guide</span>
           </div>
+          <fieldset id="capsuleGuideDrawSettings" class="capsule-guide-draw-settings hidden">
+            <legend>Draw Capsule Guide</legend>
+            <label class="topology-control" title="Sets the target distance between longitudinal cage loops. Longer curves receive more loops automatically.">Curve Step <input id="capsuleGuideCurveStep" type="range" min="0.05" max="0.5" step="0.01" value="0.18" /><output id="capsuleGuideCurveStepValue" class="slider-value">0.18</output></label>
+            <div class="subsection-label">Width + Depth Profile</div>
+            <svg class="capsule-guide-profile-preview" viewBox="0 0 220 56" role="img" aria-label="Combined capsule width and depth taper profile"><path id="capsuleGuideProfilePath"></path></svg>
+            <label class="topology-control" title="Scales the guide width and depth at the open root.">Root <input id="capsuleGuideProfileRoot" type="range" min="0.05" max="2" step="0.01" value="1" /><output id="capsuleGuideProfileRootValue" class="slider-value">1.00</output></label>
+            <label class="topology-control" title="Scales the guide width and depth halfway along the curve.">Middle <input id="capsuleGuideProfileMiddle" type="range" min="0.05" max="2" step="0.01" value="0.75" /><output id="capsuleGuideProfileMiddleValue" class="slider-value">0.75</output></label>
+            <label class="topology-control" title="Scales the guide width and depth at the rounded tip.">Tip <input id="capsuleGuideProfileTip" type="range" min="0.02" max="2" step="0.01" value="0.12" /><output id="capsuleGuideProfileTipValue" class="slider-value">0.12</output></label>
+          </fieldset>
           <button id="surfaceGuideFitScalp" class="full-width-button" type="button">Create Capsule Guide From Scalp</button>
           <label class="compact-select-row" for="surfaceGuideName">
             <span>Name</span>
@@ -829,6 +901,7 @@
           <div class="section-head">
             <span id="strandShapeTitle">Shape</span>
           </div>
+          <div id="selectedStrandSelectionSummary" class="multi-edit-summary hidden" aria-live="polite"></div>
           <label id="strandLayerControl" class="compact-select-row" for="strandLayer"><span>Layer</span><select id="strandLayer"><option value="bottom">Bottom</option><option value="mid" selected>Mid</option><option value="top">Top</option><option value="accent">Accent</option></select></label>
           <div class="draw-shape-controls">
             <div class="subsection-label">Strand Geometry</div>
@@ -878,6 +951,7 @@
           <label class="topology-control strand-dimension-scale width-dimension-scale"><span id="widthScaleLabel">Width</span> <input id="widthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="widthScaleValue" class="slider-value">1.00</output></label>
           <label id="strandDepthControl" class="topology-control strand-dimension-scale depth-dimension-scale" title="Sets the base front-to-back depth before the depth curve is applied."><span id="depthScaleLabel">Depth</span> <input id="depthScale" type="range" min="0.01" max="3" step="0.01" value="0.24" /><output id="depthScaleValue" class="slider-value">0.24</output></label>
           <label class="topology-control">Root Scalp Offset <input id="rootScalpOffset" type="range" min="-1" max="1" step="0.01" /><output id="rootScalpOffsetValue" class="slider-value">0.00</output></label>
+          <label class="topology-control" title="Uniformly rotates the strand profile around its center curve.">Rotation <input id="strandRotation" type="range" min="-180" max="180" step="1" value="0" /><output id="strandRotationValue" class="slider-value">0°</output></label>
           <label class="twist-control">
             <span>Twist</span>
             <span class="slider-number-pair">
@@ -885,6 +959,16 @@
               <input id="twistNumber" type="number" step="0.05" aria-label="Twist value" />
             </span>
           </label>
+          <div id="strandTwistCurveControl" class="twist-curve-control">
+            <div class="subsection-label">Twist Curve</div>
+            <div class="shape-preview-shell">
+              <svg class="taper-preview twist-curve-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Selected strand twist curve preview">
+                <line class="twist-curve-zero" x1="9" y1="35" x2="151" y2="35"></line>
+                <path id="strandTwistCurvePreview"></path>
+              </svg>
+              <button class="shape-edit-button edit-shape-curve" data-curve-key="twistCurve" type="button" title="Edit twist curve" aria-label="Edit twist curve"><span class="pencil-glyph" aria-hidden="true"></span></button>
+            </div>
+          </div>
           <div id="strandProfileLabel" class="profile-heading-row">
             <div class="subsection-label">Strand Profile</div>
             <label id="hairCardControl" class="toggle-row profile-hair-card-toggle" for="hairCard" title="Generates the strand as an open, double-sided ribbon instead of a closed volume."><span>Hair Card</span><input id="hairCard" type="checkbox" /></label>
@@ -957,11 +1041,19 @@
             </div>
           </div>
           <div class="visibility-filter-box">
+            <div class="visibility-filter-title">Character Meshes</div>
+            <div class="visibility-filter-children">
+              <label class="visibility-filter-row"><input id="headMeshDisplayVisibility" type="checkbox" checked /><span>Head Mesh</span></label>
+              <label class="visibility-filter-row"><input id="bodyMeshDisplayVisibility" type="checkbox" checked /><span>Body Mesh</span></label>
+            </div>
+          </div>
+          <div class="visibility-filter-box">
             <div class="visibility-filter-title">Guides</div>
             <label class="visibility-filter-row visibility-filter-parent"><input id="allGuidesVisibility" type="checkbox" /><span>All Guides</span></label>
             <div class="visibility-filter-children">
               <label class="visibility-filter-row"><input id="scalpDisplayVisibility" type="checkbox" /><span>Scalp</span></label>
               <label class="visibility-filter-row"><input id="capsuleDisplayVisibility" type="checkbox" checked /><span>Capsule Guides</span></label>
+              <label class="visibility-filter-row"><input id="curveLatticeDisplayVisibility" type="checkbox" checked /><span>Curve Lattices</span></label>
             </div>
           </div>
           <div class="subsection-label">Light Angle</div>
@@ -975,18 +1067,32 @@
     <div id="clumpContextMenu" class="outliner-context-menu hidden" role="menu" aria-label="Clump actions">
       <button id="editScalpOutlinerAction" class="hidden" type="button" role="menuitem">Edit Scalp</button>
       <button id="createClumpFromSelectionAction" class="hidden" type="button" role="menuitem">Create Clump from Selection</button>
+      <button id="createSelectionSetFromSelectedAction" class="hidden" type="button" role="menuitem">Create Set from Selected</button>
+      <button id="addSelectedToSelectionSetAction" class="hidden" type="button" role="menuitem">Add Selected to Set</button>
+      <button id="removeSelectedFromSelectionSetAction" class="hidden" type="button" role="menuitem">Remove Selected from Set</button>
+      <button id="lockOutlinerAction" class="hidden" type="button" role="menuitem">Lock Region</button>
       <button id="promoteLiveSurfaceGuideAction" class="hidden" type="button" role="menuitem">Promote to Live Surface Guide</button>
       <button id="createClumpPresetAction" type="button" role="menuitem">Create preset from clump</button>
       <button id="dissolveClumpAction" type="button" role="menuitem">Dissolve clump</button>
-      <button id="mirrorInstanceAction" type="button" role="menuitem">Create mirror instance</button>
+      <button id="mirrorInstanceAction" type="button" role="menuitem">Mirror Strand</button>
       <button id="deleteOutlinerAction" class="danger" type="button" role="menuitem">Delete clump</button>
     </div>
 
+    <div id="guideViewContextMenu" class="outliner-context-menu guide-view-context-menu hidden" role="menu" aria-label="Guide view types">
+      <button type="button" role="menuitemradio" data-guide-view-mode="all">All Guides</button>
+      <button type="button" role="menuitemradio" data-guide-view-mode="hide-scalp">Scalp Hidden</button>
+      <button type="button" role="menuitemradio" data-guide-view-mode="hide-capsules">Capsules Hidden</button>
+      <button type="button" role="menuitemradio" data-guide-view-mode="hide-lattices">Lattices Hidden</button>
+      <button type="button" role="menuitemradio" data-guide-view-mode="none">All Hidden</button>
+    </div>
+
     <div id="strandRadialMenu" class="strand-radial-menu hidden" role="menu" aria-label="Strand actions">
-      <button type="button" role="menuitem" data-strand-radial-action="mirror" style="--radial-angle: -90deg; --radial-counter-angle: 90deg;">Mirror strand</button>
+      <button type="button" role="menuitem" data-strand-radial-action="mirror-selected-strands" style="--radial-angle: -90deg; --radial-counter-angle: 90deg;">Mirror Strand</button>
       <button type="button" role="menuitem" data-strand-radial-action="duplicate" style="--radial-angle: 30deg; --radial-counter-angle: -30deg;">Duplicate strand</button>
       <button class="danger" type="button" role="menuitem" data-strand-radial-action="delete" style="--radial-angle: 150deg; --radial-counter-angle: -150deg;">Delete strand</button>
       <button class="hidden" type="button" role="menuitem" data-strand-radial-action=""></button>
+      <button class="hidden" type="button" role="menuitem" data-strand-radial-action=""></button>
+      <div id="strandRadialActionList" class="radial-action-list hidden" role="group" aria-label="Additional actions"></div>
       <span id="strandRadialLine" class="strand-radial-line" aria-hidden="true"></span>
       <span id="strandRadialCenter" class="strand-radial-center" aria-hidden="true">Strand</span>
     </div>
@@ -996,9 +1102,40 @@
       <button type="button" role="menuitem" data-tool-radial-index="1"></button>
       <button type="button" role="menuitem" data-tool-radial-index="2"></button>
       <button type="button" role="menuitem" data-tool-radial-index="3"></button>
+      <div id="toolRadialActionList" class="radial-action-list hidden" role="group" aria-label="Additional tool actions"></div>
       <span id="toolRadialLine" class="strand-radial-line" aria-hidden="true"></span>
       <span id="toolRadialCenter" class="strand-radial-center" aria-hidden="true">Tool</span>
     </div>
+
+    <dialog id="proceduralDuplicateDialog" class="creation-preset-dialog procedural-duplicate-dialog" aria-labelledby="proceduralDuplicateDialogTitle">
+      <form id="proceduralDuplicateForm">
+        <div class="profile-dialog-head">
+          <div>
+            <h2 id="proceduralDuplicateDialogTitle">Duplicate Procedural</h2>
+            <p>Preview evenly spaced blended strands live while you adjust the count or select new sources.</p>
+          </div>
+          <button id="closeProceduralDuplicate" type="button" title="Close" aria-label="Close procedural duplicate window">X</button>
+        </div>
+        <label class="topology-control procedural-duplicate-count-control" for="proceduralDuplicateCount">Number of Duplicates
+          <input id="proceduralDuplicateCount" type="range" min="1" max="32" step="1" value="1" />
+        </label>
+        <label class="topology-control" for="proceduralDuplicateRootSink" title="Sink generated roots inward along the scalp normal.">Root Sink
+          <input id="proceduralDuplicateRootSink" type="range" min="0" max="1" step="0.01" value="0" />
+        </label>
+        <label class="topology-control" for="proceduralDuplicateSecondPointOutward" title="Push the first point after each root outward along its local surface normal.">Second Point Outward
+          <input id="proceduralDuplicateSecondPointOutward" type="range" min="0" max="1" step="0.01" value="0" />
+        </label>
+        <label class="topology-control" for="proceduralDuplicateSecondPointTowardRoot" title="Move the first point after each root closer to the root without changing the tip.">Second Point Toward Root
+          <input id="proceduralDuplicateSecondPointTowardRoot" type="range" min="0" max="0.95" step="0.01" value="0" />
+        </label>
+        <p id="proceduralDuplicateSpacingNote" class="procedural-duplicate-spacing-note">1 duplicate will be placed halfway between the selected strands.</p>
+        <p id="proceduralDuplicateStatus" class="file-action-status" role="status"></p>
+        <div class="dialog-actions">
+          <button id="cancelProceduralDuplicate" type="button">Cancel</button>
+          <button id="confirmProceduralDuplicate" type="submit" class="primary-action">Confirm Duplicates</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="shortcutsDialog" class="shortcuts-dialog" aria-labelledby="shortcutsDialogTitle">
       <div class="shortcuts-dialog-shell">
@@ -1024,34 +1161,43 @@
           </section>
           <section class="shortcuts-section shortcuts-section-wide-keys">
             <h3>Selection</h3>
-            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><span>Left click</span></span><span>Add a control point or strand to the selection</span></div>
-            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Alt</kbd><span>+</span><span>Left click</span></span><span>Remove a selected strand or control point</span></div>
+            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Shift</kbd><span>+</span><span>Left click / drag</span></span><span>Add control points or strands to the selection</span></div>
+            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><span>Left click / drag</span></span><span>Remove selected strands or control points</span></div>
             <div class="shortcut-row"><kbd>B</kbd><span>Toggle proportional editing</span></div>
             <div class="shortcut-row"><kbd>Hold B</kbd><span>Move the mouse to resize proportional influence</span></div>
           </section>
           <section class="shortcuts-section shortcuts-section-wide-keys">
             <h3>Curves</h3>
-            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Shift</kbd><span>+</span><kbd>Ctrl</kbd><span>+</span><span>Left click</span></span><span>Add a strand control point while preserving the curve</span></div>
-            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Shift</kbd><span>+</span><kbd>Alt</kbd><span>+</span><span>Left click</span></span><span>Remove a strand control point while preserving the curve</span></div>
+            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Shift</kbd><span>+</span><kbd>Alt</kbd><span>+</span><span>Left click</span></span><span>Add a strand control point while preserving the curve</span></div>
+            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Shift</kbd><span>+</span><kbd>Ctrl</kbd><span>+</span><span>Left click</span></span><span>Remove a strand control point while preserving the curve</span></div>
             <div class="shortcut-row"><kbd>H</kbd><span>Toggle hierarchy editing</span></div>
-            <div class="shortcut-row"><kbd>Z</kbd><span>Previous curve point in the hierarchy</span></div>
-            <div class="shortcut-row"><kbd>X</kbd><span>Next curve point in the hierarchy</span></div>
           </section>
           <section class="shortcuts-section">
             <h3>Editing</h3>
+            <div class="shortcut-row"><kbd>Tab</kbd><span>Toggle Component and Object edit mode</span></div>
+            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>1</kbd><span>/</span><kbd>2</kbd><span>/</span><kbd>3</kbd></span><span>Strands / Guides / References workspaces</span></div>
             <div class="shortcut-row"><span class="shortcut-key-group"><kbd>S</kbd><span>+</span><span>Left drag</span></span><span>Adjust the active brush size</span></div>
             <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><kbd>D</kbd></span><span>Duplicate selected strands</span></div>
-            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Alt</kbd><span>+</span><kbd>D</kbd></span><span>Toggle procedural duplicate mode; Enter or Alt+D exits</span></div>
+            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><kbd>1</kbd></span><span>Isolate selected strands</span></div>
+            <div class="shortcut-row"><kbd>L</kbd><span>Lock selected strands; unlock all when none are selected</span></div>
             <div class="shortcut-row"><kbd>Delete</kbd><span>Delete selected strands, guides, or references</span></div>
             <div class="shortcut-row"><kbd>O</kbd><span>Toggle World and Object transform space</span></div>
+            <div class="shortcut-row"><kbd>X</kbd><span>Toggle X-axis mirror editing</span></div>
           </section>
           <section class="shortcuts-section">
             <h3>General and Viewport</h3>
             <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><kbd>Z</kbd></span><span>Undo</span></div>
             <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><kbd>Y</kbd></span><span>Redo</span></div>
             <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><kbd>Shift</kbd><span>+</span><kbd>Z</kbd></span><span>Redo</span></div>
-            <div class="shortcut-row"><span class="shortcut-key-group"><span>Orbit drag</span><span>+</span><kbd>Hold Shift</kbd></span><span>Snap the camera to cardinal views</span></div>
-            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Alt</kbd><span>+</span><span>Left drag</span></span><span>Orbit the camera</span></div>
+            <div class="shortcut-row" data-navigation-style-shortcut="anime-hair-studio"><span class="shortcut-key-group"><span>Orbit drag</span><span>+</span><kbd>Hold Shift</kbd></span><span>Snap the camera to cardinal views</span></div>
+            <div class="shortcut-row" data-navigation-style-shortcut="anime-hair-studio"><span class="shortcut-key-group"><kbd>Alt</kbd><span>+</span><span>Left drag</span></span><span>Orbit the camera</span></div>
+            <div class="shortcut-row" data-navigation-style-shortcut="anime-hair-studio"><span class="shortcut-key-group"><kbd>Alt</kbd><span>+</span><span>Right drag</span></span><span>Pan the camera</span></div>
+            <div class="shortcut-row" data-navigation-style-shortcut="anime-hair-studio"><kbd>Scrollwheel</kbd><span>Zoom the camera</span></div>
+            <div class="shortcut-row hidden" data-navigation-style-shortcut="blender"><kbd>Middle Mouse drag</kbd><span>Orbit the camera</span></div>
+            <div class="shortcut-row hidden" data-navigation-style-shortcut="blender"><span class="shortcut-key-group"><kbd>Shift</kbd><span>+</span><span>Middle Mouse drag</span></span><span>Pan the camera</span></div>
+            <div class="shortcut-row hidden" data-navigation-style-shortcut="blender"><kbd>Ctrl + Middle Mouse</kbd><span>Zoom the camera</span></div>
+            <div class="shortcut-row hidden" data-navigation-style-shortcut="blender"><kbd>Scrollwheel</kbd><span>Zoom the camera</span></div>
+            <div class="shortcut-row hidden" data-navigation-style-shortcut="blender"><span class="shortcut-key-group"><kbd>Alt</kbd><span>+</span><span>Middle Mouse drag</span></span><span>Snap the camera to cardinal views</span></div>
             <div class="shortcut-row"><kbd>F</kbd><span>Cycle selected and full-scene framing</span></div>
             <div class="shortcut-row radial-shortcut-row"><kbd>Hold Spacebar</kbd><span>Choose from the contextual radial menu</span></div>
             <div class="shortcut-row radial-shortcut-row"><kbd>Hold Q / W / E / R</kbd><span>Choose options for that tool</span></div>
@@ -1068,23 +1214,144 @@
       <div class="patch-notes-dialog-shell">
         <header class="patch-notes-dialog-head">
           <div>
-            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 0.1.3 Patch Notes</h2>
-            <p>New modeling workflows, project tools, viewport controls, and quality-of-life improvements.</p>
+            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 0.1.4 Patch Notes</h2>
+            <p id="patchNotesDialogSummary">More flexible editing, faster scene organization, new strand-shaping tools, and improved project workflows.</p>
           </div>
           <button id="closePatchNotes" type="button" title="Close patch notes" aria-label="Close patch notes">X</button>
         </header>
-        <article class="patch-notes-content">
+        <div class="patch-notes-workspace">
+          <nav class="patch-notes-sidebar" role="tablist" aria-label="Patch note versions">
+            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="0.1.4">
+              <strong>0.1.4</strong>
+              <time datetime="2026-08-05">August 5, 2026</time>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-patch-notes-version="0.1.3">
+              <strong>0.1.3</strong>
+              <time datetime="2026-07-30">July 30, 2026</time>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-patch-notes-version="0.1.2">
+              <strong>0.1.2</strong>
+              <time datetime="2026-07-25">July 25, 2026</time>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-patch-notes-version="0.1.1">
+              <strong>0.1.1</strong>
+              <time datetime="2026-07-23">July 23, 2026</time>
+            </button>
+          </nav>
+          <div class="patch-notes-panels">
+            <article
+              class="patch-notes-content"
+              data-patch-notes-panel="0.1.4"
+              data-patch-notes-title="Anime Hair Studio Version 0.1.4 Patch Notes"
+              data-patch-notes-summary="More flexible editing, faster scene organization, new strand-shaping tools, and improved project workflows."
+            >
+              <section class="patch-notes-section">
+                <h3>New tools</h3>
+                <ul>
+                  <li><strong>Object Edit Mode</strong><br />Component and Object are now the two edit modes. Component edits curves and control points, while Object moves, rotates, or scales a complete strand or guide from its root.</li>
+                  <li><strong>Branch Strands</strong><br />Start a Draw Strand stroke from a control point on a selected strand to create a separate branch. Its root stays attached to the parent while the branch remains independently editable.</li>
+                  <li><strong>Twist Curve</strong><br />The Twist Curve controls clockwise or counterclockwise rotation along a strand. Its points support custom values, positions, and interpolation, and can be displayed directly beside the mesh for editing.</li>
+                  <li><strong>Draw Capsule Guide</strong><br />Sketch a curve to create a tapered capsule-shaped drawing surface. Step controls its loop spacing and one profile controls its width and depth taper.</li>
+                  <li><strong>Sculpt Proportional Editing</strong><br />Move and Smooth Brush can extend their influence beyond the main brush radius using an adjustable falloff.</li>
+                  <li><strong>Turntable Preview</strong><br />Turntable automatically orbits the camera around the hairstyle. Its speed can be adjusted from the Main tab while Turntable is active.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>New features</h3>
+                <ul>
+                  <li><strong>Selection Sets</strong><br />You can now create Selection Sets by selecting multiple strands and choosing Create Selection Set from the Spacebar radial menu or outliner context menu. Sets can be recalled, renamed, or updated later.</li>
+                  <li><strong>Strand Locking</strong><br />You can now lock strands by selecting them and pressing L, using the radial menu, or using an outliner context menu. Locked strands cannot be selected or edited. Press L with nothing selected to unlock every strand.</li>
+                  <li><strong>Isolated View</strong><br />Select the strands you want to isolate and press Ctrl+1, or use Isolate in the radial menu, to toggle a view containing only those strands.</li>
+                  <li><strong>Relative Multi-Strand Editing</strong><br />Compatible settings can be changed across several selected strands without forcing them all to the same value. Their existing differences are preserved.</li>
+                  <li><strong>Mirror Strands and Clumps</strong><br />Strands and complete clumps can create linked mirrored instances. The linked partner updates automatically and can be decoupled later for independent editing.</li>
+                  <li><strong>Sculpt Selection Masks</strong><br />When strands are selected, Move and Smooth Brush affect only that selection. Every other strand is darkened and protected from the brush.</li>
+                  <li><strong>Twist Density</strong><br />Dynamic Density can add support loops where the Twist Curve needs them without increasing topology across the whole strand.</li>
+                  <li><strong>Recent Projects</strong><br />File &rarr; Recent Projects provides up to ten recently opened or saved projects.</li>
+                  <li><strong>Full Body Mesh Import</strong><br />Full-body OBJ meshes can be imported from the File menu or by drag and drop. They are scaled to roughly seven heads tall and aligned to the scalp guide.</li>
+                  <li><strong>Shareable Hair-Only Projects</strong><br />The Save window can exclude character meshes and references when you only want to share the hairstyle.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Editing improvements</h3>
+                <ul>
+                  <li><strong>Selection Modifiers</strong><br />Shift-click or Shift-drag adds to the selection. Ctrl-click or Ctrl-drag removes from it.</li>
+                  <li><strong>Selection While Transforming</strong><br />Move, Rotate, and Scale now use the same click and marquee selection controls as the Select tool.</li>
+                  <li><strong>Precision Transforms</strong><br />Hold Shift during Move, Rotate, or Scale for finer control. Scale Sensitivity can also be adjusted in the Scale tool settings.</li>
+                  <li><strong>Strand Rotation</strong><br />The complete strand profile can be rotated without changing its control-point normals.</li>
+                  <li><strong>Move Brush Influence</strong><br />Move Brush now captures its affected area on the initial click, so dragging does not pull new control points into the stroke.</li>
+                  <li><strong>Smooth Brush Preserve Tips</strong><br />Preserve Tips allows Smooth Brush to relax a curve without moving its endpoint.</li>
+                  <li><strong>Live Surface Controls</strong><br />Live Surface chooses which guide new strands conform to. Dynamic adds a contextual camera-facing drawing plane to that surface.</li>
+                  <li><strong>Guide Visibility</strong><br />Click the guide-visibility button to cycle through guide types, or right-click it to choose exactly which types are visible.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Files and projects</h3>
+                <ul>
+                  <li><strong>Project Drag and Drop</strong><br />Drop an <code>.ahs</code> file into the app to open it. A confirmation warns that unsaved work will be lost.</li>
+                  <li><strong>OBJ Drag and Drop</strong><br />Drop an OBJ file to import it as a Head Mesh or Full Body Mesh without opening the reference-image workflow.</li>
+                  <li><strong>Hair-Only Project Loading</strong><br />Projects saved without a character mesh reopen without inserting the default head.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>UI/UX</h3>
+                <ul>
+                  <li><strong>Workspaces</strong><br />The former Strands, Guides, and References edit modes are now organized as workspaces. Use 1, 2, and 3 to switch workspaces; Tab switches between Component and Object edit modes.</li>
+                  <li><strong>Radial Menus</strong><br />Hold Spacebar to open context-sensitive actions and submenus without leaving the viewport. Holding a tool shortcut opens settings for that tool.</li>
+                  <li><strong>Blender Navigation</strong><br />Preferences now includes Blender-style Middle Mouse navigation. Navigation tips and the Shortcuts viewer update to match the selected style.</li>
+                  <li><strong>Viewport Preferences</strong><br />Camera smoothing, viewport background color, control-point size, Compact Tool Buttons, and outliner region colors can be adjusted in Preferences.</li>
+                  <li><strong>Character Mesh Visibility</strong><br />Head and body mesh visibility can be toggled from the Display tab.</li>
+                  <li><strong>Responsive Outliner</strong><br />On narrower windows, the outliner docks into the right panel and expands when the Attribute Editor is collapsed.</li>
+                  <li><strong>Layered Side Bun Preset</strong><br />A complete human-authored hairstyle is included as a starting point.</li>
+                  <li><strong>Patch Notes History</strong><br />The Patch Notes viewer now includes a dated sidebar for browsing previous updates.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Performance</h3>
+                <ul>
+                  <li>Selecting, transforming, and sculpting large groups of strands should now remain more responsive.</li>
+                  <li>Object-mode transforms use lighter live previews before rebuilding final strand geometry.</li>
+                  <li>Sculpt brushes perform less work on strands that cannot be affected by the current brush stroke.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Bug fixes</h3>
+                <ul>
+                  <li>Undo no longer reverts multiple actions after drawing a new strand following an undo.</li>
+                  <li>Selection highlighting remains visible across the available shaders and on lighter hair colors.</li>
+                  <li>Control points on newly drawn strands can now be selected reliably in a new scene.</li>
+                  <li>Width, depth, and twist editors now refresh after Undo, Redo, and live geometry changes.</li>
+                  <li>Large rotations no longer flip strand frames or unexpectedly change authored control-point normals.</li>
+                  <li>OBJ files containing unsupported line or point primitives no longer cause valid face geometry to appear as wireframe-like lines.</li>
+                  <li>Several guide visibility, scalp editing, raycasting, and narrow-window layout issues have also been fixed.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Misc</h3>
+                <ul>
+                  <li>Patreon and Ko-fi support links have been added to the title bar.</li>
+                  <li>Object Mesh remains a planned OBJ import type and is not implemented yet.</li>
+                  <li>Recent Projects depends on locally stored browser data.</li>
+                </ul>
+              </section>
+            </article>
+            <article
+              class="patch-notes-content"
+              data-patch-notes-panel="0.1.3"
+              data-patch-notes-title="Anime Hair Studio Version 0.1.3 Patch Notes"
+              data-patch-notes-summary="New modeling workflows, project tools, viewport controls, and quality-of-life improvements."
+              hidden
+            >
           <section class="patch-notes-section">
             <h3>Curve editing and selection</h3>
             <ul>
-              <li>Alt-click a selected control point to remove it from the active selection.</li>
-              <li>Alt-click a selected strand to remove it from the active selection.</li>
-              <li>Shift+Ctrl-click a curve to insert a control point. Nearby points redistribute themselves to accommodate it while maintaining the previous curve shape.</li>
-              <li>Shift+Alt-click a control point to remove it while preserving the surrounding curve shape. Removing the tip shortens the curve, while attempting to remove the root has no effect.</li>
+              <li>Ctrl-click a selected control point to remove it from the active selection.</li>
+              <li>Ctrl-click a selected strand to remove it from the active selection.</li>
+              <li>Shift+Alt-click a curve to insert a control point. Nearby points redistribute themselves to accommodate it while maintaining the previous curve shape.</li>
+              <li>Shift+Ctrl-click a control point to remove it while preserving the surrounding curve shape. Removing the tip shortens the curve, while attempting to remove the root has no effect.</li>
               <li>Added <strong>Curves → Rebuild Curve</strong> to the title bar. This lets you change the number of control points on one or multiple selected curves while retaining their shape. Control points can also be evenly distributed along the curve.</li>
               <li>Delete now removes selected strands, removable guides, or references. Scene-critical elements such as the scalp guide remain protected.</li>
               <li>Ctrl+D duplicates the selected strand or strands and lets you position the duplicates with the mouse.</li>
-              <li>Alt+D with two strands selected enters Procedural Duplicate mode. Newly placed strands blend between the shapes of the two source strands according to their proximity. Click repeatedly to place strands, then press Enter or Alt+D to exit. This is an early implementation and may still be buggy.</li>
+              <li>With two strands selected, hold Spacebar and choose Duplicate Procedural to open a window that creates evenly spaced blended strands between them.</li>
               <li>Holding Shift before or during a Draw Strand, Braid, or Split Panel stroke constrains the stroke to eight directions in 45-degree increments while keeping it conformed to the active surface.</li>
               <li>The F shortcut now cycles between framing the current selection and framing the complete scene.</li>
             </ul>
@@ -1152,7 +1419,110 @@
               <li>Fixed recognized viewport shortcuts sometimes failing when a dropdown or range slider had focus. Text and number fields retain normal editing behavior.</li>
             </ul>
           </section>
-        </article>
+            </article>
+            <article
+              class="patch-notes-content"
+              data-patch-notes-panel="0.1.2"
+              data-patch-notes-title="Anime Hair Studio Version 0.1.2 Patch Notes"
+              data-patch-notes-summary="Reference workflows, edit workspaces, preferences, shortcuts, radial menus, and hair cards."
+              hidden
+            >
+              <section class="patch-notes-section">
+                <h3>Editing and navigation</h3>
+                <ul>
+                  <li>Reworked the transform gizmo for a more predictable feel.</li>
+                  <li>Clicking a control point through the gizmo now selects the point, while holding selects the gizmo instead.</li>
+                  <li>Added an orthographic view toggle.</li>
+                  <li>Added Strands, Guides, and References edit workspaces through a viewport dropdown. Objects outside the active workspace are not selectable.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>References and outliner</h3>
+                <ul>
+                  <li>Added 2D overlay references that can be positioned in the viewport background.</li>
+                  <li>Added 3D reference planes that can be assigned to orthographic views and hidden outside their matching view.</li>
+                  <li>Images can be dragged into the viewport or directly into the References tab.</li>
+                  <li>Added Strands, Guides, and References tabs to the outliner, including visibility controls for each type.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Preferences and shortcuts</h3>
+                <ul>
+                  <li>Added a Preferences window under Settings.</li>
+                  <li>Preferences include navigation-tip, tooltip, viewport-statistics, and experimental-feature controls.</li>
+                  <li>Added S + left-drag to resize the active brush.</li>
+                  <li>Added the Keyboard Shortcuts viewer under Help.</li>
+                  <li>Added quick Live Surface and Layer dropdowns to the viewport.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Experimental radial menus</h3>
+                <ul>
+                  <li>Added tool radial menus that appear while holding a tool shortcut and expose contextual settings.</li>
+                  <li>Added a Spacebar selection menu with contextual actions such as mirror, duplicate, and delete.</li>
+                  <li>Radial menus were experimental in this release and could be enabled in Preferences.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Hair cards</h3>
+                <ul>
+                  <li>Added an early Hair Card toggle that removes strand back planes while retaining the existing strand settings.</li>
+                </ul>
+              </section>
+            </article>
+            <article
+              class="patch-notes-content"
+              data-patch-notes-panel="0.1.1"
+              data-patch-notes-title="Anime Hair Studio Version 0.1.1 Patch Notes"
+              data-patch-notes-summary="Panel strands, capsule guides, mirrored instances, clumps, interface improvements, and fixes."
+              hidden
+            >
+              <section class="patch-notes-section">
+                <h3>New tools</h3>
+                <ul>
+                  <li>Added the experimental Panel Strand tool for flat hairstyles, with procedural splits controlled by zipper points.</li>
+                  <li>Panel strands snap to loops by default so shared points can weld into watertight geometry.</li>
+                  <li>Added Capsule Guides as editable live surfaces for drawing strands. In this release, capsules generated only for the scalp.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Strand editing</h3>
+                <ul>
+                  <li>Added an experimental single split to Draw Strand. The early implementation produced two meshes rather than one airtight mesh.</li>
+                  <li>Added strand-profile trimming and Linear interpolation alongside Smooth interpolation.</li>
+                  <li>Added Redo.</li>
+                  <li>Added mirrored strand instances through the outliner. Linked instances update together and can be decoupled.</li>
+                  <li>Strands can be dragged onto one another to create a clump, and clumps can be dissolved from the outliner.</li>
+                  <li>Added experimental region-wide editing from the attribute editor.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Visibility and interface</h3>
+                <ul>
+                  <li>Added Display-tab visibility controls for guide types and strand regions and layers.</li>
+                  <li>Introduced a desktop-style title bar with File and Edit menus.</li>
+                  <li>Reorganized the right attribute editor into Main, Display, and Materials tabs.</li>
+                  <li>Added a Discord link under Help.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Materials</h3>
+                <ul>
+                  <li>Changed the default material from Lambertian diffuse to a standard PBR shader with anisotropic highlights.</li>
+                  <li>Roughness was the only exposed shader parameter in this release.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Bug fixes</h3>
+                <ul>
+                  <li>Restored online project downloads, using the browser's default download location.</li>
+                  <li>Added a head-transparency toggle to expose hidden control points in the Scalp editor.</li>
+                  <li>Removed unused controls.</li>
+                </ul>
+              </section>
+            </article>
+          </div>
+        </div>
         <div class="patch-notes-dialog-actions">
           <button id="dismissPatchNotes" type="button">Close</button>
         </div>
@@ -1174,73 +1544,110 @@
         </header>
         <div class="preferences-workspace">
           <nav class="preferences-categories" role="tablist" aria-label="Preference categories">
-            <button class="active" type="button" role="tab" aria-selected="true" data-preference-category="viewport">Viewport</button>
+            <div class="preference-category-group expanded" data-preference-category-group="viewport">
+              <button class="active" type="button" role="tab" aria-selected="true" aria-expanded="true" data-preference-category="viewport">Viewport</button>
+              <div class="preference-subcategories" aria-label="Viewport preference sections">
+                <button type="button" data-preference-anchor="viewportDisplay">Display</button>
+                <button type="button" data-preference-anchor="viewportPerformance">Performance</button>
+                <button type="button" data-preference-anchor="viewportInterface">Interface</button>
+                <button type="button" data-preference-anchor="viewportConventions">Conventions</button>
+              </div>
+            </div>
             <button type="button" role="tab" aria-selected="false" data-preference-category="materials">Materials</button>
-            <button type="button" role="tab" aria-selected="false" data-preference-category="experimental">Experimental Features</button>
             <button type="button" role="tab" aria-selected="false" data-preference-category="backup">Backup</button>
           </nav>
           <div class="preferences-content">
             <h3 id="preferencePageTitle">Viewport</h3>
-            <section class="preferences-section" role="tabpanel" data-preference-panel="viewport">
-              <label class="preference-toggle" for="navigationTipsPreference">
-                <span>
-                  <strong>Navigation tips</strong>
-                  <small>Show viewport navigation controls in the bottom-left corner.</small>
-                </span>
-                <input id="navigationTipsPreference" type="checkbox" checked />
-              </label>
-              <label class="preference-toggle" for="toolTipsPreference">
-                <span>
-                  <strong>Tool tips</strong>
-                  <small>Show contextual modeling guidance in the viewport.</small>
-                </span>
-                <input id="toolTipsPreference" type="checkbox" checked />
-              </label>
-              <label class="preference-toggle" for="compactToolButtonsPreference">
-                <span>
-                  <strong>Compact tool buttons</strong>
-                  <small>Hide shortcut labels and reduce the size of viewport tool buttons.</small>
-                </span>
-                <input id="compactToolButtonsPreference" type="checkbox" />
-              </label>
-              <label class="preference-toggle" for="viewportStatisticsPreference">
-                <span>
-                  <strong>Viewport statistics</strong>
-                  <small>Show selected and total vertex, triangle, and FPS statistics.</small>
-                </span>
-                <input id="viewportStatisticsPreference" type="checkbox" checked />
-              </label>
-              <label class="preference-toggle" for="layerColorShiftsPreference">
-                <span>
-                  <strong>Layer color and brightness shifts</strong>
-                  <small>Tint and darken hair layers to make their depth easier to distinguish.</small>
-                </span>
-                <input id="layerColorShiftsPreference" type="checkbox" checked />
-              </label>
-              <label class="preference-toggle" for="outlinerFolderColorsPreference">
-                <span>
-                  <strong>Outliner folder colors</strong>
-                  <small>Tint strand region folders with their region colors.</small>
-                </span>
-                <input id="outlinerFolderColorsPreference" type="checkbox" checked />
-              </label>
-              <label class="preference-select" for="sideNamingPerspectivePreference">
-                <span>
-                  <strong>Left and right naming</strong>
-                  <small>Viewport Perspective names sides as you see them. Character Perspective names sides from the character's point of view.</small>
-                </span>
-                <select id="sideNamingPerspectivePreference">
-                  <option value="viewport">Viewport Perspective</option>
-                  <option value="character">Character Perspective</option>
-                </select>
-              </label>
-              <label class="preference-slider" for="controlPointDisplaySizePreference">
-                <span>
-                  <strong>Control point display size</strong>
-                  <small>Scale strand control points in the viewport.</small>
-                </span>
-                <input id="controlPointDisplaySizePreference" type="range" min="0.5" max="1.5" step="0.05" value="1" />
-              </label>
+            <section class="preferences-section preferences-viewport-section" role="tabpanel" data-preference-panel="viewport">
+              <div id="viewportDisplay" class="viewport-preference-group">
+                <h4>Display</h4>
+                <div class="viewport-preference-grid">
+                  <label class="preference-toggle" for="viewportStatisticsPreference">
+                    <span><strong>Viewport statistics</strong><small>Show selected and total vertex, triangle, and FPS statistics.</small></span>
+                    <input id="viewportStatisticsPreference" type="checkbox" checked />
+                  </label>
+                  <label class="preference-color" for="viewportBackgroundColorPreference">
+                    <span><strong>Viewport background</strong><small>Set the base color of the viewport background.</small></span>
+                    <span class="preference-color-control">
+                      <input id="viewportBackgroundColorPreference" type="color" value="#2b2730" />
+                      <output id="viewportBackgroundColorPreferenceValue" for="viewportBackgroundColorPreference">#2B2730</output>
+                      <button id="resetViewportBackgroundColor" class="slider-reset-button" type="button" title="Reset background color" aria-label="Reset viewport background color">&#x21BA;</button>
+                    </span>
+                  </label>
+                  <label class="preference-toggle" for="layerColorShiftsPreference">
+                    <span><strong>Layer color and brightness shifts</strong><small>Tint and darken hair layers to make their depth easier to distinguish.</small></span>
+                    <input id="layerColorShiftsPreference" type="checkbox" checked />
+                  </label>
+                  <label class="preference-slider" for="controlPointDisplaySizePreference">
+                    <span><strong>Control point display size</strong><small>Scale strand control points in the viewport.</small></span>
+                    <input id="controlPointDisplaySizePreference" type="range" min="0.5" max="1.5" step="0.05" value="1" />
+                  </label>
+                </div>
+              </div>
+              <div id="viewportPerformance" class="viewport-preference-group">
+                <h4>Performance</h4>
+                <div class="viewport-preference-grid">
+                  <div class="preference-choice" role="group" aria-label="Twist curve live preview">
+                    <span><strong>Twist curve live preview</strong><small>Choose whether live twist edits rebuild every selected strand or only the active strand.</small></span>
+                    <div class="preference-segmented-control segmented-control">
+                      <button class="active" type="button" data-twist-curve-preview="all" aria-pressed="true">All Strands</button>
+                      <button type="button" data-twist-curve-preview="active" aria-pressed="false">Active Only</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div id="viewportInterface" class="viewport-preference-group">
+                <h4>Interface</h4>
+                <div class="viewport-preference-grid">
+                  <label class="preference-toggle" for="navigationTipsPreference">
+                    <span><strong>Navigation tips</strong><small>Show viewport navigation controls in the bottom-left corner.</small></span>
+                    <input id="navigationTipsPreference" type="checkbox" checked />
+                  </label>
+                  <label class="preference-toggle" for="toolTipsPreference">
+                    <span><strong>Tool tips</strong><small>Show contextual modeling guidance in the viewport.</small></span>
+                    <input id="toolTipsPreference" type="checkbox" checked />
+                  </label>
+                  <label class="preference-toggle" for="radialMenusPreference">
+                    <span><strong>Radial menus</strong><small>Enable the contextual Spacebar menu and tool shortcut hold menus.</small></span>
+                    <input id="radialMenusPreference" type="checkbox" checked />
+                  </label>
+                  <label class="preference-toggle" for="compactToolButtonsPreference">
+                    <span><strong>Compact tool buttons</strong><small>Hide shortcut labels and reduce the size of viewport tool buttons.</small></span>
+                    <input id="compactToolButtonsPreference" type="checkbox" />
+                  </label>
+                  <label class="preference-toggle" for="outlinerFolderColorsPreference">
+                    <span><strong>Outliner folder colors</strong><small>Tint strand region folders with their region colors.</small></span>
+                    <input id="outlinerFolderColorsPreference" type="checkbox" checked />
+                  </label>
+                </div>
+              </div>
+              <div id="viewportConventions" class="viewport-preference-group">
+                <h4>Conventions</h4>
+                <div class="viewport-preference-grid">
+                  <label class="preference-select" for="navigationStylePreference">
+                    <span><strong>Navigation style</strong><small>Choose the mouse controls used to orbit, pan, zoom, and snap the viewport.</small></span>
+                    <select id="navigationStylePreference">
+                      <option value="anime-hair-studio">Anime Hair Studio</option>
+                      <option value="blender">Blender</option>
+                    </select>
+                  </label>
+                  <label class="preference-toggle" for="cameraSmoothingPreference">
+                    <span><strong>Camera smoothing</strong><small>Add gradual easing to orbit, pan, and zoom.</small></span>
+                    <input id="cameraSmoothingPreference" type="checkbox" />
+                  </label>
+                  <label class="preference-slider" for="cameraSmoothingStrengthPreference">
+                    <span><strong>Smoothing amount</strong><small>Higher values let camera movement glide for longer.</small></span>
+                    <input id="cameraSmoothingStrengthPreference" type="range" min="0" max="1" step="0.05" value="0.5" />
+                  </label>
+                  <label class="preference-select" for="sideNamingPerspectivePreference">
+                    <span><strong>Left and right naming</strong><small>Choose viewport-relative or character-relative side names.</small></span>
+                    <select id="sideNamingPerspectivePreference">
+                      <option value="viewport">Viewport Perspective</option>
+                      <option value="character">Character Perspective</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
             </section>
             <section class="preferences-section hidden" role="tabpanel" data-preference-panel="materials">
               <label class="preference-select" for="defaultHairShaderPreference">
@@ -1253,15 +1660,6 @@
                   <option value="anime-anisotropic">Anime Anisotropic</option>
                   <option value="lambert">Lambert</option>
                 </select>
-              </label>
-            </section>
-            <section class="preferences-section hidden" role="tabpanel" data-preference-panel="experimental">
-              <label class="preference-toggle" for="radialMenusPreference">
-                <span>
-                  <strong>Radial menus</strong>
-                  <small>Enable the contextual Spacebar menu and tool shortcut hold menus.</small>
-                </span>
-                <input id="radialMenusPreference" type="checkbox" />
               </label>
             </section>
             <section class="preferences-section hidden" role="tabpanel" data-preference-panel="backup">
@@ -1304,6 +1702,39 @@
           <button id="confirmPanelSplitSnapDisable" type="button" class="primary-action">Disable</button>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="dropImportDialog" class="warning-dialog drop-import-dialog" aria-labelledby="dropImportDialogTitle">
+      <form id="dropImportForm" class="warning-dialog-body">
+        <div class="profile-dialog-head">
+          <div>
+            <h2 id="dropImportDialogTitle">Open Dropped Project?</h2>
+            <p id="dropImportDescription">Opening this project will replace the current scene.</p>
+          </div>
+          <button id="closeDropImportDialog" type="button" title="Close" aria-label="Close dropped file prompt">X</button>
+        </div>
+        <p id="dropImportFileName" class="drop-import-file-name"></p>
+        <p id="dropImportWarning" class="drop-import-warning">You will lose any unsaved progress in the current project.</p>
+        <fieldset id="dropObjTargetChoices" class="drop-obj-target-choices hidden">
+          <legend>Import OBJ As</legend>
+          <label>
+            <input type="radio" name="dropObjTarget" value="head" checked />
+            <span><strong>Head Mesh</strong><small>Fit the OBJ as the editable head reference.</small></span>
+          </label>
+          <label>
+            <input type="radio" name="dropObjTarget" value="body" />
+            <span><strong>Full Body Mesh</strong><small>Scale to approximately seven heads tall and align it to the scalp guide.</small></span>
+          </label>
+          <label class="disabled">
+            <input type="radio" name="dropObjTarget" value="object" disabled />
+            <span><strong>Object Mesh</strong><small>Not yet supported.</small></span>
+          </label>
+        </fieldset>
+        <div class="dialog-actions">
+          <button id="cancelDropImport" type="button">Cancel</button>
+          <button id="confirmDropImport" type="submit" class="primary-action">Open Project</button>
+        </div>
+      </form>
     </dialog>
 
     <dialog id="sweepProfileEditor" class="profile-dialog sweep-profile-dialog" aria-labelledby="sweepProfileTitle">
@@ -1379,8 +1810,8 @@
           <button id="deleteTaperPoint" type="button">Delete point</button>
           <button id="resetTaperCurve" type="button">Reset curve</button>
         </div>
-        <div class="taper-toggle-stack">
-          <label class="profile-mesh-point-toggle">
+        <div id="taperCurveOptions" class="taper-toggle-stack">
+          <label id="taperAsymmetryToggleRow" class="profile-mesh-point-toggle">
             <span>
               <strong>Asymmetric curve</strong>
             </span>
@@ -1447,6 +1878,17 @@
           <label class="file-export-option" data-export-content="weights">
             <input id="exportIncludeWeights" type="checkbox" />
             <span><strong>Weights</strong><small>Available when mesh skin weights have been authored</small></span>
+          </label>
+        </fieldset>
+        <fieldset id="projectSaveContents" class="file-export-contents hidden">
+          <legend>Project Contents</legend>
+          <label class="file-export-option">
+            <input id="projectIncludeHeadAsset" type="checkbox" checked />
+            <span><strong>Head / Body Mesh</strong><small>Embed the imported head or full-body OBJ</small></span>
+          </label>
+          <label class="file-export-option">
+            <input id="projectIncludeReferences" type="checkbox" checked />
+            <span><strong>References</strong><small>Embed all imported reference images</small></span>
           </label>
         </fieldset>
         <p id="fileActionStatus" class="file-action-status" role="status"></p>
@@ -1526,6 +1968,6 @@
         }
       }
     </script>
-    <script type="module" src="./app.js?v=20260730-118"></script>
+    <script type="module" src="./app.js?v=20260805-44"></script>
   </body>
 </html>
