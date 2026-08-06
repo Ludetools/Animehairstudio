@@ -82,7 +82,8 @@ export function radialButtonEntryDistance(angle, {
 
 export function layoutRadialOptions(options = [], {
   anchorAction = null,
-  anchorAngle = null
+  anchorAngle = null,
+  reserveBottomForList = false
 } = {}) {
   const angles = radialMenuAngles(options.length);
   const anchorIndex = anchorAction === null
@@ -91,16 +92,74 @@ export function layoutRadialOptions(options = [], {
   const rotation = anchorIndex >= 0 && Number.isFinite(anchorAngle)
     ? anchorAngle - angles[anchorIndex]
     : 0;
+  const rotatedAngles = angles.map((angle) => angle + rotation);
+  let assignedAngles = rotatedAngles;
+  if (reserveBottomForList && options.some((option) => option?.submenu)) {
+    const submenuIndexes = options
+      .map((option, index) => option?.submenu ? index : -1)
+      .filter((index) => index >= 0);
+    if (submenuIndexes.length === options.length) {
+      assignedAngles = options.length === 3
+        ? [TOP, 0, Math.PI]
+        : options.map((_, index) => (
+          -Math.PI + Math.PI * (index + 1) / (options.length + 1)
+        ));
+    } else {
+      const angularDistanceFromBottom = (angle) => Math.abs(Math.atan2(
+        Math.sin(angle - Math.PI * 0.5),
+        Math.cos(angle - Math.PI * 0.5)
+      ));
+      const anchoredSubmenuIsSafe = anchorIndex >= 0
+        && options[anchorIndex]?.submenu
+        && angularDistanceFromBottom(rotatedAngles[anchorIndex]) > Math.PI / 6;
+      const safestAngles = rotatedAngles
+        .filter((_, index) => !anchoredSubmenuIsSafe || index !== anchorIndex)
+        .sort((first, second) => (
+        angularDistanceFromBottom(second) - angularDistanceFromBottom(first)
+      ));
+      const directIndexes = options
+        .map((option, index) => option?.submenu ? -1 : index)
+        .filter((index) => index >= 0);
+      assignedAngles = [...rotatedAngles];
+      const movableSubmenuIndexes = submenuIndexes
+        .filter((index) => !anchoredSubmenuIsSafe || index !== anchorIndex);
+      movableSubmenuIndexes.forEach((optionIndex, index) => {
+        assignedAngles[optionIndex] = safestAngles[index];
+      });
+      directIndexes.forEach((optionIndex, index) => {
+        assignedAngles[optionIndex] = safestAngles[movableSubmenuIndexes.length + index];
+      });
+    }
+  }
   return options.map((option, index) => {
-    const placedOption = { ...option, angle: angles[index] + rotation };
+    const placedOption = { ...option, angle: assignedAngles[index] };
     if (options.length === 3 && index > 0) placedOption.radiusOffset = 20;
     return placedOption;
   });
 }
 
-export function partitionRadialOptions(options = [], maximumRadialOptions = 8) {
+export function radialListCorridorContains(deltaX, deltaY, {
+  halfAngle = Math.PI / 6
+} = {}) {
+  if (!(deltaY > 0)) return false;
+  const angle = Math.atan2(deltaY, deltaX);
+  const difference = Math.abs(Math.atan2(
+    Math.sin(angle - Math.PI * 0.5),
+    Math.cos(angle - Math.PI * 0.5)
+  ));
+  return difference <= halfAngle;
+}
+
+export function partitionRadialOptions(
+  options = [],
+  maximumRadialOptions = 8,
+  maximumSubmenuOptions = 5
+) {
   const capacity = Math.max(1, Math.floor(Number(maximumRadialOptions) || 8));
-  const submenuOptions = options.filter((option) => Boolean(option?.submenu));
+  const submenuCapacity = Math.max(0, Math.floor(Number(maximumSubmenuOptions) || 0));
+  const submenuOptions = options
+    .filter((option) => Boolean(option?.submenu))
+    .slice(0, submenuCapacity);
   const primaryDirectOptions = options.filter((option) => !option?.submenu && option?.list !== true);
   const radialOptions = [...submenuOptions, ...primaryDirectOptions].slice(0, capacity);
   const radialSet = new Set(radialOptions);

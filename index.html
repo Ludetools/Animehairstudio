@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Hair Studio</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=20260805-100" />
+    <link rel="stylesheet" href="./styles.css?v=20260806-101" />
   </head>
   <body>
     <main class="studio-shell">
@@ -74,6 +74,7 @@
               <button id="curvesMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">Curves</button>
               <div id="curvesMenu" class="app-menu-dropdown hidden" role="menu" aria-label="Curves">
                 <button id="openRebuildCurve" type="button" role="menuitem">Rebuild Curve...</button>
+                <button id="createCompoundStrand" type="button" role="menuitem">Create Compound Strand</button>
               </div>
             </div>
             <div class="app-menu-shell">
@@ -295,6 +296,7 @@
           <button class="tool-button" data-tool="scale" title="Scale strand thickness (R)" aria-label="Scale tool"><span class="tool-icon icon-scale" aria-hidden="true"></span><kbd>R</kbd></button>
           <button class="tool-button" data-tool="relax" title="Relax curve point (T)" aria-label="Relax curve point tool"><span class="tool-icon icon-relax" aria-hidden="true"></span><kbd>T</kbd></button>
           <button class="tool-button" data-tool="draw" title="Draw strand (D)" aria-label="Draw strand tool"><span class="tool-icon icon-draw" aria-hidden="true"></span><kbd>D</kbd></button>
+          <button class="tool-button experimental-tool-hidden" data-tool="procedural-draw" title="Procedural Draw" aria-label="Procedural Draw tool" hidden aria-hidden="true" tabindex="-1"><span class="tool-icon icon-procedural-draw" aria-hidden="true"></span></button>
           <button class="tool-button" data-tool="panel" title="Split Panel (P)" aria-label="Split Panel tool"><span class="tool-icon icon-panel" aria-hidden="true"></span><kbd>P</kbd></button>
           <button class="tool-button retired-experiment" data-tool="surface" title="Retired lattice-controlled surface experiment" aria-label="Surface tool" hidden aria-hidden="true" tabindex="-1"><span class="tool-icon icon-surface" aria-hidden="true"></span></button>
           <button class="tool-button retired-experiment" data-tool="surface-loft" title="Retired loft surface experiment" aria-label="Loft Surface tool" hidden aria-hidden="true" tabindex="-1"><span class="tool-icon icon-loft-surface" aria-hidden="true"></span></button>
@@ -638,6 +640,20 @@
           <output id="strandTopologyStats" class="topology-readout">0 verts / 0 tris</output>
         </div>
 
+        <div id="relaxToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
+          <div class="section-head">
+            <span>Relax Tool</span>
+          </div>
+          <label class="toggle-row" for="relaxPosition" title="Smooth curve-point positions and their width and depth scales.">
+            <span>Position</span>
+            <input id="relaxPosition" type="checkbox" checked />
+          </label>
+          <label class="toggle-row" for="relaxRotation" title="Smooth authored curve-point rotations without requiring position relaxation.">
+            <span>Rotation</span>
+            <input id="relaxRotation" type="checkbox" checked />
+          </label>
+        </div>
+
         <div id="transformToolPanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span id="transformToolTitle">Move Tool</span>
@@ -709,29 +725,34 @@
             <span>Continue from Tip</span>
             <input id="drawContinueFromTip" type="checkbox" checked />
           </label>
-          <fieldset id="proceduralDrawAccessorySection" class="procedural-draw-accessories hidden">
-            <legend>Accessory Strands</legend>
-            <label class="topology-control" title="Sets how many child strands are distributed around the drawn parent strand.">Count <input id="proceduralAccessoryCount" type="range" min="1" max="16" step="1" value="4" /><output id="proceduralAccessoryCountValue" class="slider-value">4</output></label>
-            <label class="topology-control" title="Sets how far accessory strands are distributed from the parent, relative to the brush size.">Distribution Radius <input id="proceduralAccessoryRadius" type="range" min="0" max="2" step="0.01" value="0.7" /><output id="proceduralAccessoryRadiusValue" class="slider-value">0.70</output></label>
-            <label class="toggle-row" for="proceduralParentVisible" title="Show the parent strand mesh. When hidden, selecting it still reveals its outline.">
-              <span>Show Parent Strand</span>
-              <input id="proceduralParentVisible" type="checkbox" checked />
-            </label>
-          </fieldset>
         </div>
 
         <div id="proceduralAccessoryEditPanel" class="panel-section sliders hidden" data-attribute-panel="strands">
           <div class="section-head">
-            <span>Procedural Accessories</span>
+            <span>Procedural Draw</span>
           </div>
           <fieldset class="procedural-draw-accessories">
             <legend>Accessory Strands</legend>
-            <label class="topology-control" title="Changes how many accessory children are generated around this procedural parent strand.">Count <input id="proceduralAccessoryEditCount" type="range" min="1" max="16" step="1" value="4" /><output id="proceduralAccessoryEditCountValue" class="slider-value">4</output></label>
+            <label class="topology-control" title="Changes how many accessory children are generated around this procedural parent strand.">Count <input id="proceduralAccessoryEditCount" type="range" min="0" max="16" step="1" value="0" /><output id="proceduralAccessoryEditCountValue" class="slider-value">0</output></label>
             <label class="topology-control" title="Changes how far this clump's accessory strands are distributed from the parent.">Distribution Radius <input id="proceduralAccessoryEditRadius" type="range" min="0" max="2" step="0.01" value="0.7" /><output id="proceduralAccessoryEditRadiusValue" class="slider-value">0.70</output></label>
             <label class="toggle-row" for="proceduralAccessoryEditParentVisible" title="Show the procedural parent mesh. When hidden, selecting it still reveals its outline.">
               <span>Show Parent Strand</span>
               <input id="proceduralAccessoryEditParentVisible" type="checkbox" checked />
             </label>
+            <div class="subsection-label">Branched Strands</div>
+            <label class="topology-control" title="Changes how many branches are distributed continuously along this procedural parent strand.">Branch Count <input id="proceduralBranchEditCount" type="range" min="0" max="64" step="1" value="4" /><output id="proceduralBranchEditCountValue" class="slider-value">4</output></label>
+            <label class="topology-control" title="Changes how far each generated branch extends along the parent strand's direction.">Branch Length <input id="proceduralBranchEditLength" type="range" min="0.1" max="3" step="0.01" value="0.6" /><output id="proceduralBranchEditLengthValue" class="slider-value">0.60</output></label>
+            <div class="subsection-label">Branch Length Curve</div>
+            <div class="shape-preview-shell">
+              <svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Procedural branch length curve preview"><path id="proceduralBranchLengthCurvePreview"></path></svg>
+              <button class="shape-edit-button edit-shape-curve" data-curve-key="proceduralBranchLengthCurve" type="button" title="Edit branch length curve" aria-label="Edit branch length curve"><span class="pencil-glyph" aria-hidden="true"></span></button>
+            </div>
+            <div class="subsection-label">Branch Shape</div>
+            <div class="shape-preview-shell">
+              <svg class="taper-preview" viewBox="0 0 160 70" preserveAspectRatio="none" role="img" aria-label="Procedural branch shape curve preview"><path id="proceduralBranchShapeCurvePreview"></path></svg>
+              <button class="shape-edit-button edit-shape-curve" data-curve-key="proceduralBranchShapeCurve" type="button" title="Edit branch shape" aria-label="Edit branch shape"><span class="pencil-glyph" aria-hidden="true"></span></button>
+            </div>
+            <label class="topology-control" title="Rotates the branches away from the parent without changing their length. Higher values produce a wider fan.">Branch Spread <input id="proceduralBranchEditTipOffset" type="range" min="0" max="2" step="0.01" value="0.35" /><output id="proceduralBranchEditTipOffsetValue" class="slider-value">0.35</output></label>
           </fieldset>
         </div>
 
@@ -742,9 +763,9 @@
           <label class="topology-control" title="Controls how strongly each brush affects nearby strands.">Strength <input id="sculptBrushStrength" type="range" min="0.05" max="1" step="0.01" value="0.2" /><output id="sculptBrushStrengthValue" class="slider-value">0.20</output></label>
           <label class="topology-control" title="Sets the brush area of influence in viewport pixels.">Radius <input id="sculptBrushRadius" type="range" min="20" max="240" step="1" value="90" /><output id="sculptBrushRadiusValue" class="slider-value">90 px</output></label>
           <label class="topology-control" title="Controls how much of the brush radius softly fades toward its edge.">Falloff Radius <input id="sculptBrushFalloff" type="range" min="0" max="1" step="0.01" value="0.5" /><output id="sculptBrushFalloffValue" class="slider-value">0.50</output></label>
-          <label id="sculptSmoothPreserveTipsSetting" class="toggle-row hidden" for="sculptSmoothPreserveTips" title="Keep the final control point fixed while smoothing the rest of each curve.">
+          <label id="sculptPreserveTipsSetting" class="toggle-row hidden" for="sculptPreserveTips" title="Keep the final control point fixed while this brush edits the rest of each curve.">
             <span>Preserve Tips</span>
-            <input id="sculptSmoothPreserveTips" type="checkbox" checked />
+            <input id="sculptPreserveTips" type="checkbox" checked />
           </label>
           <details class="sculpt-brush-debug-settings">
             <summary>Debug</summary>
@@ -950,6 +971,8 @@
           </div>
           <label class="topology-control strand-dimension-scale width-dimension-scale"><span id="widthScaleLabel">Width</span> <input id="widthScale" type="range" min="0.1" max="3" step="0.01" value="1" /><output id="widthScaleValue" class="slider-value">1.00</output></label>
           <label id="strandDepthControl" class="topology-control strand-dimension-scale depth-dimension-scale" title="Sets the base front-to-back depth before the depth curve is applied."><span id="depthScaleLabel">Depth</span> <input id="depthScale" type="range" min="0.01" max="3" step="0.01" value="0.24" /><output id="depthScaleValue" class="slider-value">0.24</output></label>
+          <label id="compoundBridgeLoopsControl" class="topology-control hidden" title="Adds lengthwise topology loops across each compound bridge.">Bridge Loops <input id="compoundBridgeLoops" type="range" min="0" max="8" step="1" value="0" /><output id="compoundBridgeLoopsValue" class="slider-value">0</output></label>
+          <label id="compoundBridgeSmoothingControl" class="topology-control hidden" title="Rounds the bridge termination and feathers the surrounding edge flow into the curve.">Bridge Smoothing <input id="compoundBridgeSmoothing" type="range" min="0" max="1" step="0.01" value="0.5" /><output id="compoundBridgeSmoothingValue" class="slider-value">0.50</output></label>
           <label class="topology-control">Root Scalp Offset <input id="rootScalpOffset" type="range" min="-1" max="1" step="0.01" /><output id="rootScalpOffsetValue" class="slider-value">0.00</output></label>
           <label class="topology-control" title="Uniformly rotates the strand profile around its center curve.">Rotation <input id="strandRotation" type="range" min="-180" max="180" step="1" value="0" /><output id="strandRotationValue" class="slider-value">0°</output></label>
           <label class="twist-control">
@@ -1183,6 +1206,7 @@
             <div class="shortcut-row"><kbd>Delete</kbd><span>Delete selected strands, guides, or references</span></div>
             <div class="shortcut-row"><kbd>O</kbd><span>Toggle World and Object transform space</span></div>
             <div class="shortcut-row"><kbd>X</kbd><span>Toggle X-axis mirror editing</span></div>
+            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Hold Z</kbd><span>+</span><span>Point drag</span></span><span>Move along the control point normal</span></div>
           </section>
           <section class="shortcuts-section">
             <h3>General and Viewport</h3>
@@ -1554,6 +1578,7 @@
               </div>
             </div>
             <button type="button" role="tab" aria-selected="false" data-preference-category="materials">Materials</button>
+            <button type="button" role="tab" aria-selected="false" data-preference-category="experimental">Experimental</button>
             <button type="button" role="tab" aria-selected="false" data-preference-category="backup">Backup</button>
           </nav>
           <div class="preferences-content">
@@ -1660,6 +1685,15 @@
                   <option value="anime-anisotropic">Anime Anisotropic</option>
                   <option value="lambert">Lambert</option>
                 </select>
+              </label>
+            </section>
+            <section class="preferences-section hidden" role="tabpanel" data-preference-panel="experimental">
+              <label class="preference-toggle" for="proceduralDrawExperimentalPreference">
+                <span>
+                  <strong>Procedural Draw</strong>
+                  <small>Show the experimental Procedural Draw tool in the viewport toolbar.</small>
+                </span>
+                <input id="proceduralDrawExperimentalPreference" type="checkbox" />
               </label>
             </section>
             <section class="preferences-section hidden" role="tabpanel" data-preference-panel="backup">
@@ -1968,6 +2002,6 @@
         }
       }
     </script>
-    <script type="module" src="./app.js?v=20260805-44"></script>
+  <script type="module" src="./app.js?v=20260806-85"></script>
   </body>
 </html>

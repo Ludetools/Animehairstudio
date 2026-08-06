@@ -91,8 +91,7 @@ function meshBlock(mesh, identifier) {
     );
   }
   if (Array.isArray(mesh.uvs) && mesh.uvs.length === points.length) {
-    const mayaUvs = mesh.uvs.map(([u, v]) => [u, 1 - finiteNumber(v)]);
-    lines.push(...primvarLines("texCoord2f", "st", mayaUvs, "faceVarying", faceVertexIndices));
+    lines.push(...primvarLines("texCoord2f", "st", mesh.uvs, "faceVarying", faceVertexIndices));
   }
   if (Array.isArray(mesh.colors) && mesh.colors.length === points.length) {
     lines.push(...primvarLines("color3f", "displayColor", mesh.colors, "vertex"));

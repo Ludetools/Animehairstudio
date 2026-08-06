@@ -2263,6 +2263,7 @@ body.reference-image-drag-active .reference-outliner-group-head.reference-drop-h
 .tool-button.setup-tool-hidden,
 .tool-button.setup-mode-hidden,
 .tool-button.edit-mode-tool-hidden,
+.tool-button.experimental-tool-hidden,
 .tool-button.guide-toolbar-tool.hidden {
   display: none;
 }

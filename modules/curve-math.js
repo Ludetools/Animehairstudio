@@ -22,6 +22,37 @@ export function relaxAngleValue(current, before, after, strength) {
   return value + neighborDelta * clamp(Number(strength) || 0, 0, 1);
 }
 
+export function curvedRelaxPositionTarget(points, index) {
+  const before = points?.[index - 1];
+  const current = points?.[index];
+  const after = points?.[index + 1];
+  if (!before || !current || !after) return null;
+  const midpoint = {
+    x: (Number(before.x) + Number(after.x)) * 0.5,
+    y: (Number(before.y) + Number(after.y)) * 0.5,
+    z: (Number(before.z) + Number(after.z)) * 0.5
+  };
+  const outerBefore = points[index - 2];
+  const outerAfter = points[index + 2];
+  const axisTarget = (axis) => {
+    if (outerBefore && outerAfter) {
+      const beforeCurvature = Number(before[axis])
+        - (Number(outerBefore[axis]) + Number(current[axis])) * 0.5;
+      const afterCurvature = Number(after[axis])
+        - (Number(current[axis]) + Number(outerAfter[axis])) * 0.5;
+      return midpoint[axis] + (beforeCurvature + afterCurvature) * 0.5;
+    }
+    if (outerAfter) {
+      return Number(before[axis]) / 3 + Number(after[axis]) - Number(outerAfter[axis]) / 3;
+    }
+    if (outerBefore) {
+      return Number(before[axis]) + Number(after[axis]) / 3 - Number(outerBefore[axis]) / 3;
+    }
+    return midpoint[axis];
+  };
+  return { x: axisTarget("x"), y: axisTarget("y"), z: axisTarget("z") };
+}
+
 function smoothstep(value, minimum, maximum) {
   const amount = clamp((value - minimum) / (maximum - minimum), 0, 1);
   return amount * amount * (3 - 2 * amount);
