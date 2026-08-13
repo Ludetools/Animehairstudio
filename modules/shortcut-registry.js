@@ -39,12 +39,20 @@ export function workspaceForShortcutKey(key) {
   return WORKSPACE_SHORTCUTS[String(key || "").toLowerCase()] || null;
 }
 
+export function pointerControlShouldReturnViewportFocus(control) {
+  const tag = control?.tagName?.toLowerCase();
+  if (tag === "input") {
+    return ["checkbox", "radio", "range"].includes(String(control.type || "").toLowerCase());
+  }
+  return tag === "button" && control?.getAttribute?.("aria-pressed") !== null;
+}
+
 export function focusedControlShouldYieldToShortcut(focused, event) {
   const tag = focused?.tagName?.toLowerCase();
   const yieldsAppShortcuts = tag === "select" || (tag === "input" && focused.type === "range");
   if (!yieldsAppShortcuts) return false;
   const key = String(event?.key || "").toLowerCase();
-  if (event?.ctrlKey || event?.metaKey) return key === "z" || key === "y" || key === "d";
+  if (event?.ctrlKey || event?.metaKey) return key === "z" || key === "y" || key === "d" || key === "h";
   if (event?.altKey) return key === "d";
   return event?.key === "Delete" || event?.code === "Space" || APPLICATION_SHORTCUT_KEYS.has(key);
 }

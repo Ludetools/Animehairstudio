@@ -17,6 +17,44 @@ export function radialMenuAngles(optionCount) {
   return Array.from({ length: count }, (_, index) => TOP + step * index);
 }
 
+function positiveAngleDifference(from, to) {
+  const fullTurn = Math.PI * 2;
+  return ((to - from) % fullTurn + fullTurn) % fullTurn;
+}
+
+export function radialOptionSector(angles = [], index = 0, {
+  gap = Math.PI / 90
+} = {}) {
+  const normalizedAngles = angles.map((angle) => Number(angle) || 0);
+  const count = normalizedAngles.length;
+  if (!count || index < 0 || index >= count) return null;
+  const angle = normalizedAngles[index];
+  if (count === 1) {
+    const boundaryStart = angle - Math.PI;
+    return {
+      boundaryStart,
+      start: boundaryStart + gap * 0.5,
+      span: Math.PI * 2 - gap
+    };
+  }
+  const ordered = normalizedAngles
+    .map((value, optionIndex) => ({ value, optionIndex }))
+    .sort((first, second) => first.value - second.value);
+  const orderedIndex = ordered.findIndex((entry) => entry.optionIndex === index);
+  const previous = ordered[(orderedIndex - 1 + count) % count].value;
+  const next = ordered[(orderedIndex + 1) % count].value;
+  const previousGap = positiveAngleDifference(previous, angle);
+  const nextGap = positiveAngleDifference(angle, next);
+  const availableSpan = (previousGap + nextGap) * 0.5;
+  const safeGap = Math.min(Math.max(0, Number(gap) || 0), availableSpan * 0.4);
+  const boundaryStart = angle - previousGap * 0.5;
+  return {
+    boundaryStart,
+    start: boundaryStart + safeGap * 0.5,
+    span: availableSpan - safeGap
+  };
+}
+
 function buttonsOverlapAtRadius(angles, radius, buttonWidth, buttonHeight, gap) {
   const points = angles.map((angle) => ({
     x: Math.cos(angle) * radius,
@@ -138,6 +176,39 @@ export function layoutRadialOptions(options = [], {
   });
 }
 
+export function layoutRadialSubmenuSlots(options = [], anchorAngle = TOP, {
+  slotCount = 8
+} = {}) {
+  const capacity = Math.max(1, Math.floor(Number(slotCount) || 8));
+  const anchor = Number.isFinite(Number(anchorAngle)) ? Number(anchorAngle) : TOP;
+  const step = Math.PI * 2 / capacity;
+  const slotAngles = Array.from({ length: capacity }, (_, index) => anchor + step * index);
+  const slotOrder = [0];
+  for (let distance = 1; slotOrder.length < capacity; distance += 1) {
+    slotOrder.push(distance);
+    if (slotOrder.length < capacity) slotOrder.push(capacity - distance);
+  }
+  const placedOptions = options.slice(0, capacity).map((option, index) => {
+    const radialSlotIndex = slotOrder[index];
+    return {
+      ...option,
+      angle: slotAngles[radialSlotIndex],
+      radialSlotIndex
+    };
+  });
+  const optionsBySlot = new Map(placedOptions.map((option) => [option.radialSlotIndex, option]));
+  const hitOptions = slotAngles.map((angle, radialSlotIndex) => (
+    optionsBySlot.get(radialSlotIndex) || {
+      action: null,
+      angle,
+      enabled: false,
+      radialSlotIndex,
+      radialPlaceholder: true
+    }
+  ));
+  return { options: placedOptions, hitOptions, slotAngles };
+}
+
 export function radialListCorridorContains(deltaX, deltaY, {
   halfAngle = Math.PI / 6
 } = {}) {
@@ -148,6 +219,19 @@ export function radialListCorridorContains(deltaX, deltaY, {
     Math.cos(angle - Math.PI * 0.5)
   ));
   return difference <= halfAngle;
+}
+
+export function radialSubmenuTravelAngle(entryAngle, {
+  bottomHalfAngle = Math.PI / 6
+} = {}) {
+  const angle = Number(entryAngle) || 0;
+  const backAngle = angle + Math.PI;
+  const differenceFromBottom = Math.abs(Math.atan2(
+    Math.sin(backAngle - Math.PI * 0.5),
+    Math.cos(backAngle - Math.PI * 0.5)
+  ));
+  if (differenceFromBottom > bottomHalfAngle) return angle;
+  return Math.cos(angle) < -1e-6 ? -Math.PI * 0.75 : -Math.PI * 0.25;
 }
 
 export function partitionRadialOptions(

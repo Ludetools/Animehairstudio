@@ -90,6 +90,8 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
   precision highp float;
 
   uniform vec3 uBaseColor;
+  uniform sampler2D uBaseGradient;
+  uniform float uUseBaseGradient;
   uniform vec3 uShadowColor;
   uniform vec3 uSoftShadowColor;
   uniform vec3 uHighlightColor;
@@ -141,6 +143,10 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
   }
 
   void main() {
+    vec3 authoredBaseColor = uBaseColor;
+    if (uUseBaseGradient > 0.5) {
+      authoredBaseColor *= texture2D(uBaseGradient, vec2(0.5, clamp(vUv.y, 0.0, 1.0))).rgb;
+    }
     float faceSign = gl_FrontFacing ? 1.0 : -1.0;
     vec3 normal = normalize(vWorldNormal) * faceSign;
     vec3 lightDirection = normalize(uLightDirection);
@@ -154,9 +160,9 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
       uShadowThreshold + transitionWidth,
       halfLambert
     );
-    vec3 multipliedShadowColor = uBaseColor * uShadowColor;
-    vec3 multipliedSoftShadowColor = uBaseColor * uSoftShadowColor;
-    vec3 color = mix(multipliedShadowColor, uBaseColor, lightBand);
+    vec3 multipliedShadowColor = authoredBaseColor * uShadowColor;
+    vec3 multipliedSoftShadowColor = authoredBaseColor * uSoftShadowColor;
+    vec3 color = mix(multipliedShadowColor, authoredBaseColor, lightBand);
 
     vec2 noisePoint = vec2(
       vUv.x * uHighlightNoiseScale,

@@ -38,6 +38,34 @@ export function compoundConnectedSegmentCount(segmentCount, connectedFraction = 
   return Math.min(count - 1, Math.max(1, Math.round(count * fraction)));
 }
 
+export function normalizeCompoundBridgeZippers(zippers, seamCount = 2) {
+  const count = Math.max(0, Math.round(Number(seamCount) || 0));
+  const source = Array.isArray(zippers) ? zippers : [];
+  return Array.from({ length: count }, (_, index) => ({
+    parameter: Math.min(0.9, Math.max(0.05, Number(source[index]?.parameter ?? 0.35))),
+    offset: Math.min(0.35, Math.max(-0.35, Number(source[index]?.offset) || 0))
+  }));
+}
+
+export function compoundBridgeSegmentCounts(segmentCount, zippers, seamCount = 2) {
+  const segments = Math.max(0, Math.round(Number(segmentCount) || 0));
+  if (segments < 2) return Array.from({ length: Math.max(0, seamCount) }, () => segments);
+  return normalizeCompoundBridgeZippers(zippers, seamCount).map((zipper) => (
+    Math.min(segments - 1, Math.max(1, Math.round(segments * zipper.parameter)))
+  ));
+}
+
+export function compoundControllerWidthScales(zippers, controllerCount = 3) {
+  const count = Math.max(1, Math.round(Number(controllerCount) || 1));
+  const normalized = normalizeCompoundBridgeZippers(zippers, Math.max(0, count - 1));
+  const scales = Array.from({ length: count }, () => 1);
+  normalized.forEach((zipper, seam) => {
+    scales[seam] += zipper.offset;
+    scales[seam + 1] -= zipper.offset;
+  });
+  return scales.map((scale) => Math.max(0.3, scale));
+}
+
 export function compoundBridgeParameters(verticalLoopCount = 0) {
   const loops = Math.min(8, Math.max(0, Math.round(Number(verticalLoopCount) || 0)));
   const segments = loops + 1;

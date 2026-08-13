@@ -1,4 +1,4 @@
-export const APP_VERSION = "0.1.4";
+export const APP_VERSION = "0.1.5";
 
 export const SCALP_REGIONS = {
   bangs: { label: "Bangs Root", color: 0xef476f },
@@ -18,7 +18,12 @@ export const ROOT_SCALP_OFFSET_DISTANCE = 0.08;
 export const DEFAULT_HAIR_MATERIAL_SETTINGS = {
   color: DEFAULT_HAIR_COLOR,
   roughness: 0.72,
-  shader: "standard-anisotropic"
+  shader: "standard-anisotropic",
+  baseColorGradientEnabled: false,
+  baseColorGradientStops: [
+    { position: 0, color: DEFAULT_HAIR_COLOR },
+    { position: 1, color: DEFAULT_HAIR_COLOR }
+  ]
 };
 
 export const STRAND_GROUPS = [

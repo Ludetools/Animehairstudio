@@ -18,7 +18,13 @@ export function relaxAngleValue(current, before, after, strength) {
     const delta = (Number(target) || 0) - value;
     return Math.atan2(Math.sin(delta), Math.cos(delta));
   };
-  const neighborDelta = (angularDelta(before) + angularDelta(after)) * 0.5;
+  const beforeAngle = Number(before) || 0;
+  const afterAngle = Number(after) || 0;
+  const meanX = Math.cos(beforeAngle) + Math.cos(afterAngle);
+  const meanY = Math.sin(beforeAngle) + Math.sin(afterAngle);
+  const neighborDelta = meanX * meanX + meanY * meanY > 0.00000001
+    ? angularDelta(Math.atan2(meanY, meanX))
+    : (angularDelta(beforeAngle) + angularDelta(afterAngle)) * 0.5;
   return value + neighborDelta * clamp(Number(strength) || 0, 0, 1);
 }
 
@@ -238,6 +244,16 @@ export function sampleAsymmetricTaperCurve(
   return sampleTaperCurve(curve, t);
 }
 
+export function mirroredAsymmetricTaperCurves(primaryCurve, secondaryCurve, asymmetric) {
+  const cloneCurve = (curve, fallback) => (curve?.length >= 2 ? curve : fallback || [])
+    .map((point) => ({ ...point }));
+  const primary = cloneCurve(primaryCurve, secondaryCurve);
+  const secondary = cloneCurve(secondaryCurve, primaryCurve);
+  return asymmetric
+    ? { primary: secondary, secondary: primary }
+    : { primary, secondary };
+}
+
 export function profileTopologyCenterWeight(coordinate, minimum, maximum) {
   const value = Number(coordinate);
   const min = Number(minimum);
@@ -246,6 +262,51 @@ export function profileTopologyCenterWeight(coordinate, minimum, maximum) {
   if (value < 0) return min < -0.000001 ? clamp(1 - value / min, 0, 1) : 0;
   if (value > 0) return max > 0.000001 ? clamp(1 - value / max, 0, 1) : 0;
   return 1;
+}
+
+export function panelTipCurveParameter(t, u, tipCurve = 0, edgeTrim = 0) {
+  const along = clamp(Number(t) || 0, 0, 1);
+  const lateral = clamp(Number(u) || 0, -1, 1);
+  const strength = clamp(Number(tipCurve) || 0, -1, 1);
+  const availableLength = 1 - clamp(Number(edgeTrim) || 0, 0, 0.75);
+  if (Math.abs(strength) < 0.000001) return along * availableLength;
+
+  const edgeWeight = lateral * lateral;
+  const bowWeight = strength > 0 ? edgeWeight : 1 - edgeWeight;
+  const featherAmount = clamp((along - 0.5) / 0.5, 0, 1);
+  const feather = featherAmount * featherAmount * (3 - 2 * featherAmount);
+  const maximumTipLoss = availableLength * 0.3;
+  return clamp(
+    along * availableLength - Math.abs(strength) * bowWeight * maximumTipLoss * feather,
+    0,
+    1
+  );
+}
+
+export function panelTipLoopParameters(baseLoopCount, extraTipLoops = 0, tipStart = 0.55) {
+  const baseLoops = Math.max(1, Math.round(Number(baseLoopCount) || 1));
+  const extraLoops = Math.max(0, Math.min(16, Math.round(Number(extraTipLoops) || 0)));
+  const start = clamp(Number(tipStart) || 0.55, 0, 0.95);
+  const parameters = Array.from({ length: baseLoops + 1 }, (_, index) => index / baseLoops);
+
+  for (let addition = 0; addition < extraLoops; addition += 1) {
+    let bestIndex = -1;
+    let bestStart = start;
+    let bestLength = -1;
+    for (let index = 0; index < parameters.length - 1; index += 1) {
+      const intervalStart = Math.max(start, parameters[index]);
+      const intervalEnd = parameters[index + 1];
+      const intervalLength = intervalEnd - intervalStart;
+      if (intervalLength > bestLength) {
+        bestIndex = index;
+        bestStart = intervalStart;
+        bestLength = intervalLength;
+      }
+    }
+    if (bestIndex < 0 || bestLength <= 0.000001) break;
+    parameters.splice(bestIndex + 1, 0, bestStart + bestLength * 0.5);
+  }
+  return parameters;
 }
 
 export function uniformCurveParameters(segmentCount, start = 0, end = 1) {

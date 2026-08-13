@@ -10,11 +10,16 @@ import {
   proceduralBranchTemplateData
 } from "./modules/procedural-draw.js?v=20260805-1";
 import {
+  resampleClosedProfilePoints
+} from "./modules/branch-knife.js?v=20260808-5";
+import {
   compoundBridgeArchWeight,
   compoundBridgeParameters,
-  compoundConnectedSegmentCount,
+  compoundBridgeSegmentCounts,
+  compoundControllerWidthScales,
+  normalizeCompoundBridgeZippers,
   compoundProfileBridgePlan
-} from "./modules/compound-strand.js?v=20260806-6";
+} from "./modules/compound-strand.js?v=20260806-7";
 import {
   adaptiveCurveParameters,
   blendDirectionPointData,
@@ -34,8 +39,11 @@ import {
   horizontalCirclePointData,
   horizontalCircleThroughPointData,
   lowestSharedHorizontalPolylinePointData,
+  mirroredAsymmetricTaperCurves,
   normalizeEnvelopeCurve,
   normalizeTaperCurve,
+  panelTipCurveParameter,
+  panelTipLoopParameters,
   profileTopologyCenterWeight,
   proximityCurveBlendAmount,
   relaxAngleValue,
@@ -56,7 +64,7 @@ import {
   twistRateUnitsFromDegrees,
   upperProfileArcIndices,
   uniformCurveParameters
-} from "./modules/curve-math.js?v=20260806-3";
+} from "./modules/curve-math.js?v=20260809-1";
 import {
   curveLatticeLoopPointIndices,
   DEFAULT_CURVE_LATTICE_PLANE,
@@ -107,6 +115,14 @@ import {
   listRecentProjects,
   rememberRecentProject
 } from "./modules/recent-projects.js?v=20260803-1";
+import {
+  clearRecoverySnapshot,
+  createRecoveryRecord,
+  DEFAULT_AUTOSAVE_INTERVAL_SECONDS,
+  normalizeAutosaveInterval,
+  readRecoverySnapshot,
+  writeRecoverySnapshot
+} from "./modules/recovery-storage.js?v=20260809-1";
 import { uvCoordinateBounds, uvViewTransform } from "./modules/uv-inspector.js?v=20260726-1";
 import {
   cameraFacingPlaneNormal,
@@ -132,12 +148,13 @@ import {
 } from "./modules/selection-sets.js?v=20260804-2";
 import {
   layoutRadialOptions,
+  layoutRadialSubmenuSlots,
   partitionRadialOptions,
-  radialButtonEntryDistance,
   radialListCorridorContains,
   radialButtonRayExtent,
-  radialMenuDimensions
-} from "./modules/radial-layout.js?v=20260806-14";
+  radialMenuDimensions,
+  radialOptionSector
+} from "./modules/radial-layout.js?v=20260812-22";
 import {
   APP_VERSION,
   CURVE_LATTICE_FEATURE_ENABLED,
@@ -165,13 +182,14 @@ import {
   TAPER_VALUE_MAX,
   TWIST_CURVE_DISPLAY_RANGE_DEFAULT,
   TWIST_CURVE_VALUE_MAX
-} from "./modules/app-config.js?v=20260805-7";
+} from "./modules/app-config.js?v=20260812-8";
 import { BoundedHistory, RestoreRefreshRegistry } from "./modules/history.js?v=20260802-1";
 import {
   focusedControlShouldYieldToShortcut,
+  pointerControlShouldReturnViewportFocus,
   shortcutToolForKey,
   workspaceForShortcutKey
-} from "./modules/shortcut-registry.js?v=20260802-2";
+} from "./modules/shortcut-registry.js?v=20260809-1";
 import {
   activateStrandSelection,
   emptyStrandSelection,
@@ -181,7 +199,12 @@ import {
   triangleIntersectsScreenBounds
 } from "./modules/selection-state.js?v=20260803-3";
 import { relativeEditValue } from "./modules/multi-edit.js?v=20260802-1";
-import { fanTriangleEdgeMasks, parseObjFaceVertexCounts } from "./modules/topology.js?v=20260724-1";
+import {
+  fanTriangleEdgeMasks,
+  parseObjFaceVertexCounts,
+  quadCellTopology,
+  triangleEdgeMasksFromFaces
+} from "./modules/topology.js?v=20260809-3";
 import {
   ANIME_ANISOTROPIC_FRAGMENT_SHADER,
   ANIME_ANISOTROPIC_NUMERIC_FIELDS,
@@ -190,18 +213,23 @@ import {
   LAMBERT_SHADER,
   normalizeHairShader,
   STANDARD_ANISOTROPIC_SHADER
-} from "./modules/anime-hair-shaders.js?v=20260730-8";
+} from "./modules/anime-hair-shaders.js?v=20260806-9";
 import {
+  hairMaterialPresetValue,
   hairMaterialUsageCounts,
+  MAX_HAIR_GRADIENT_STOPS,
+  normalizeHairGradientStops,
   normalizeHairMaterialDefinition,
+  normalizeHairMaterialPresetLibrary,
+  removeHairMaterialPreset,
   resolveHairMaterialDefinition
-} from "./modules/material-state.js?v=20260802-1";
+} from "./modules/material-state.js?v=20260809-5";
 import {
   createDocumentLocalizer,
   DEFAULT_LANGUAGE,
   LANGUAGE_STORAGE_KEY,
   normalizeLanguage
-} from "./modules/localization.js?v=20260806-46";
+} from "./modules/localization.js?v=20260812-68";
 import {
   emptyToolPresetLibrary,
   normalizeToolPresetLibrary,
@@ -211,12 +239,12 @@ import {
   emptyShapePresetLibrary,
   normalizeShapePresetLibrary,
   removeShapePreset
-} from "./modules/shape-presets.js?v=20260729-1";
+} from "./modules/shape-presets.js?v=20260809-3";
 import {
   createPreferencesBackup,
   normalizePreferencesBackup,
   preferencesBackupFileName
-} from "./modules/preferences-backup.js?v=20260726-3";
+} from "./modules/preferences-backup.js?v=20260809-4";
 import {
   readStoredBooleanPreference,
   readStoredPreference,
@@ -233,6 +261,16 @@ import {
   relaxPolyPoints
 } from "./modules/poly-topology.js?v=20260728-3";
 import {
+  buildHairShellTopology,
+  canExtrudeHairShellFace,
+  hairShellFaceCenter,
+  hairShellFaceNormal
+} from "./modules/hair-shell.js?v=20260809-1";
+import {
+  createArcHairSurfaceGrid,
+  normalizeArcHairSurfaceSettings
+} from "./modules/arc-hair-surface.js?v=20260812-1";
+import {
   createClumpBrushTemplate,
   normalizeClumpBrushTemplate
 } from "./modules/clump-brush-presets.js?v=20260803-3";
@@ -242,22 +280,38 @@ function saveLanguage(language) {
 }
 
 const RADIAL_MENUS_PREFERENCE_KEY = "anime-hair-studio-radial-menus";
+const MULTI_CAMERA_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-multi-camera";
+const FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-floating-tool-settings";
+const HOTKEY_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-hotkey-tool-settings";
+const HOTKEY_TOOL_SETTINGS_KEEP_MAIN_PREFERENCE_KEY = "anime-hair-studio-hotkey-tool-settings-keep-main";
 const PROCEDURAL_DRAW_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-procedural-draw";
+const SHOW_DEV_TEST_FEATURES_PREFERENCE_KEY = "anime-hair-studio-show-dev-test-features";
+const COMPOUND_STRAND_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-compound-strand";
+const HAIR_SHELL_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-hair-shell";
+const ARC_HAIR_SURFACE_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-arc-hair-surface";
 const NAVIGATION_TIPS_PREFERENCE_KEY = "anime-hair-studio-navigation-tips";
 const NAVIGATION_STYLE_PREFERENCE_KEY = "anime-hair-studio-navigation-style";
 const CAMERA_SMOOTHING_ENABLED_PREFERENCE_KEY = "anime-hair-studio-camera-smoothing-enabled";
 const CAMERA_SMOOTHING_STRENGTH_PREFERENCE_KEY = "anime-hair-studio-camera-smoothing-strength";
 const TOOL_TIPS_PREFERENCE_KEY = "anime-hair-studio-tool-tips";
 const COMPACT_TOOL_BUTTONS_PREFERENCE_KEY = "anime-hair-studio-compact-tool-buttons";
+const SIDE_PANEL_STYLE_PREFERENCE_KEY = "anime-hair-studio-floating-side-panels";
+const GLASS_PANEL_COLOR_PREFERENCE_KEY = "anime-hair-studio-glass-panel-color";
+const LEGACY_DEFAULT_GLASS_PANEL_COLOR = "#0b0a0e";
+const DEFAULT_GLASS_PANEL_COLOR = "#19181d";
 const VIEWPORT_STATISTICS_PREFERENCE_KEY = "anime-hair-studio-viewport-statistics";
 const TWIST_CURVE_ALL_STRANDS_PREVIEW_PREFERENCE_KEY = "anime-hair-studio-twist-curve-all-strands-preview";
 const LAYER_COLOR_SHIFTS_PREFERENCE_KEY = "anime-hair-studio-layer-color-shifts";
 const OUTLINER_FOLDER_COLORS_PREFERENCE_KEY = "anime-hair-studio-outliner-folder-colors";
+const OUTLINER_FOLDER_COLOR_OPACITY_PREFERENCE_KEY = "anime-hair-studio-outliner-folder-color-opacity";
 const CONTROL_POINT_DISPLAY_SIZE_PREFERENCE_KEY = "anime-hair-studio-control-point-display-size";
 const VIEWPORT_BACKGROUND_COLOR_PREFERENCE_KEY = "anime-hair-studio-viewport-background-color";
 const DEFAULT_VIEWPORT_BACKGROUND_COLOR = "#2b2730";
 const SIDE_NAMING_PERSPECTIVE_PREFERENCE_KEY = "anime-hair-studio-side-naming-perspective";
 const DEFAULT_HAIR_SHADER_PREFERENCE_KEY = "anime-hair-studio-default-hair-shader";
+const AUTOSAVE_ENABLED_PREFERENCE_KEY = "anime-hair-studio-autosave-enabled";
+const AUTOSAVE_INTERVAL_PREFERENCE_KEY = "anime-hair-studio-autosave-interval";
+const AUTOSAVE_QUIET_PERIOD_MS = 5000;
 
 function saveBooleanPreference(key, enabled) {
   writeStoredPreference(window, key, Boolean(enabled));
@@ -266,6 +320,11 @@ function saveBooleanPreference(key, enabled) {
 function normalizeControlPointDisplaySize(value) {
   const size = Number(value);
   return Number.isFinite(size) ? Math.min(1.5, Math.max(0.5, size)) : 1;
+}
+
+function normalizeOutlinerFolderColorOpacity(value) {
+  const opacity = Number(value);
+  return Number.isFinite(opacity) ? Math.min(100, Math.max(0, opacity)) : 100;
 }
 
 function normalizeCameraSmoothingStrength(value) {
@@ -283,12 +342,22 @@ function normalizeViewportBackgroundColor(value) {
   return /^#[0-9a-f]{6}$/.test(color) ? color : DEFAULT_VIEWPORT_BACKGROUND_COLOR;
 }
 
+function normalizeGlassPanelColor(value) {
+  const color = String(value || "").trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(color) ? color : DEFAULT_GLASS_PANEL_COLOR;
+}
+
 function normalizeSideNamingPerspective(value) {
   return value === "character" ? "character" : "viewport";
 }
 
 function normalizeNavigationStyle(value) {
   return value === "blender" ? "blender" : "anime-hair-studio";
+}
+
+function normalizeSidePanelStyle(value) {
+  if (value === "transparent" || value === "glass") return value;
+  return value === true || value === "true" ? "transparent" : "default";
 }
 
 let defaultHairShader = readStoredPreference(window, DEFAULT_HAIR_SHADER_PREFERENCE_KEY, {
@@ -385,6 +454,21 @@ setupEditableSliderControls();
 
 const viewport = document.querySelector("#viewport");
 const viewportPanel = viewport.closest(".viewport-panel");
+const viewportTopControls = document.querySelector(".viewport-top-controls");
+const viewportDisplayActions = document.querySelector(".viewport-display-actions");
+const viewportModes = document.querySelector(".viewport-modes");
+const cameraViewCubeModel = document.querySelector("#cameraViewCubeModel");
+const cameraViewCubeFaces = [...document.querySelectorAll("[data-camera-view]")];
+const strandObjectTransformPanel = document.querySelector("#strandObjectTransformPanel");
+const strandObjectTransformInputs = [...document.querySelectorAll("[data-object-transform][data-axis]")];
+const strandObjectTransformResetButtons = [...document.querySelectorAll("[data-reset-object-transform]")];
+const multiCameraViews = document.querySelector("#multiCameraViews");
+const multiCameraPreviewContainers = {
+  perspective: document.querySelector("#multiCameraPerspective"),
+  front: document.querySelector("#multiCameraFront"),
+  right: document.querySelector("#multiCameraRight"),
+  top: document.querySelector("#multiCameraTop")
+};
 const referenceImageDropTarget = document.querySelector("#referenceImageDropTarget");
 const referenceOverlayDropMarker = document.querySelector("#referenceOverlayDropMarker");
 const selectionMarquee = document.querySelector("#selectionMarquee");
@@ -415,10 +499,67 @@ const sculptBrushPreserveTipsByTool = {
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
+renderer.shadowMap.autoUpdate = true;
 renderer.localClippingEnabled = true;
 viewport.appendChild(renderer.domElement);
+renderer.domElement.tabIndex = -1;
+renderer.domElement.setAttribute("aria-label", "3D viewport");
+
+function focusViewportForHotkeys() {
+  if (document.querySelector("dialog[open]")) return;
+  renderer.domElement.focus({ preventScroll: true });
+}
+
+function pointerControlFromTarget(target) {
+  const element = target instanceof Element ? target : null;
+  if (!element) return null;
+  return element.closest("input, button") || element.closest("label")?.control || null;
+}
+
+function returnPointerControlFocusToViewport(event) {
+  const control = pointerControlFromTarget(event.target);
+  if (!pointerControlShouldReturnViewportFocus(control)) return;
+  window.requestAnimationFrame(() => {
+    if (document.activeElement !== control) return;
+    focusViewportForHotkeys();
+    if (event.shiftKey && sculptBrushToolActive()) setSculptBrushShiftSmoothHeld(true);
+  });
+}
+
+renderer.domElement.addEventListener("pointerenter", focusViewportForHotkeys);
+renderer.domElement.addEventListener("pointerdown", focusViewportForHotkeys, true);
+document.addEventListener("pointerup", returnPointerControlFocusToViewport, true);
 
 const scene = new THREE.Scene();
+let shadowMapRefreshPending = true;
+let shadowMapRefreshRequestedAt = 0;
+
+function requestShadowMapRefresh() {
+  shadowMapRefreshPending = true;
+  shadowMapRefreshRequestedAt = performance.now();
+}
+
+function liveGeometryEditActive() {
+  return Boolean(
+    transformDragging
+    || sculptMoveStroke
+    || relaxEdit
+    || viewPlaneMoveDrag
+    || strandWidthEdgeDrag
+    || taperMeshPointDrag
+    || panelSplitDrag
+    || scalpLatticeDrag
+    || scalpPaintDrag
+    || scalpBuilderStroke
+  );
+}
+
+function refreshShadowMapWhenIdle(timestamp = performance.now()) {
+  if (!shadowMapRefreshPending || liveGeometryEditActive()) return;
+  if (timestamp - shadowMapRefreshRequestedAt < 50) return;
+  renderer.shadowMap.needsUpdate = true;
+  shadowMapRefreshPending = false;
+}
 
 const sculptBrushViabilityPlane = new THREE.GridHelper(4.2, 12, 0xff4fd8, 0xff4fd8);
 sculptBrushViabilityPlane.material.depthTest = true;
@@ -446,6 +587,16 @@ scene.add(sculptBrushViabilityPlane);
 
 const perspectiveCamera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
 const orthographicCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+const multiCameraPreviewCameras = {
+  front: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.05, 200),
+  right: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.05, 200),
+  top: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.05, 200)
+};
+let multiCameraEnabled = false;
+let multiCameraActiveView = "perspective";
+let multiCameraPreviewRenderers = null;
+let multiCameraPreviewRenderCursor = 0;
+let multiCameraPreviewRenderPauseFrames = 0;
 let camera = perspectiveCamera;
 let orthographicView = false;
 let orthographicHalfHeight = 1;
@@ -459,7 +610,17 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = false;
 controls.enableRotate = false;
 controls.target.set(0, 0.75, 0);
-
+const multiCameraViewTargets = {
+  perspective: controls.target.clone(),
+  front: controls.target.clone(),
+  right: controls.target.clone(),
+  top: controls.target.clone()
+};
+const MULTI_CAMERA_VIEW_AXES = Object.freeze({
+  front: new THREE.Vector3(0, 0, 1),
+  right: new THREE.Vector3(1, 0, 0),
+  top: new THREE.Vector3(0, 1, 0.0001).normalize()
+});
 const transformControls = new TransformControls(camera, renderer.domElement);
 transformControls.setMode("translate");
 transformControls.setSize(0.72);
@@ -471,17 +632,195 @@ function copyCameraPose(source, target) {
   target.up.copy(source.up);
 }
 
+function ensureMultiCameraPreviewRenderers() {
+  if (multiCameraPreviewRenderers) return multiCameraPreviewRenderers;
+  multiCameraPreviewRenderers = Object.fromEntries(Object.entries(multiCameraPreviewContainers).map(([view, container]) => {
+    const previewRenderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+    previewRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
+    previewRenderer.shadowMap.enabled = false;
+    previewRenderer.domElement.setAttribute("aria-label", `${view} camera preview`);
+    container.prepend(previewRenderer.domElement);
+    return [view, previewRenderer];
+  }));
+  return multiCameraPreviewRenderers;
+}
+
+function multiCameraForView(view) {
+  return view === "perspective" ? perspectiveCamera : multiCameraPreviewCameras[view];
+}
+
+function multiCameraViewUsesLeftPane(view) {
+  return view === "perspective" || view === "right";
+}
+
+function multiCameraViewPaneWidth(view, paneMetrics) {
+  return multiCameraViewUsesLeftPane(view) ? paneMetrics.leftWidth : paneMetrics.rightWidth;
+}
+
+function multiCameraViewProjectionOffsetX(view, paneMetrics) {
+  return multiCameraViewUsesLeftPane(view)
+    ? paneMetrics.leftProjectionOffsetX
+    : paneMetrics.rightProjectionOffsetX;
+}
+
+function initializeMultiCameraOrthographicViews() {
+  const target = controls.target.clone();
+  const distance = Math.max(0.1, perspectiveCamera.position.distanceTo(target));
+  const halfHeight = distance * Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov * 0.5));
+  multiCameraViewTargets.perspective.copy(target);
+  Object.entries(multiCameraPreviewCameras).forEach(([view, previewCamera]) => {
+    multiCameraViewTargets[view].copy(target);
+    previewCamera.userData.multiCameraHalfHeight = halfHeight;
+    previewCamera.zoom = 1;
+    previewCamera.position.copy(target).addScaledVector(MULTI_CAMERA_VIEW_AXES[view], distance);
+    previewCamera.up.set(0, 1, 0);
+    previewCamera.lookAt(target);
+  });
+}
+
+function syncMultiCameraPreviewCameras() {
+  const paneMetrics = multiCameraPaneMetrics();
+  Object.entries(multiCameraPreviewCameras).forEach(([view, previewCamera]) => {
+    const halfHeight = Math.max(0.0001, Number(previewCamera.userData.multiCameraHalfHeight) || 1);
+    const paneWidth = multiCameraViewPaneWidth(view, paneMetrics);
+    const projectionOffsetX = multiCameraViewProjectionOffsetX(view, paneMetrics);
+    const aspect = Math.max(0.01, paneWidth / paneMetrics.height);
+    previewCamera.left = -halfHeight * aspect;
+    previewCamera.right = halfHeight * aspect;
+    previewCamera.top = halfHeight;
+    previewCamera.bottom = -halfHeight;
+    applyViewportProjectionOffset(previewCamera, paneWidth, paneMetrics.height, projectionOffsetX);
+  });
+}
+
+function multiCameraOrthographicViewActive() {
+  return multiCameraEnabled && multiCameraActiveView !== "perspective";
+}
+
+function prioritizeActiveMultiCameraViewport(frameCount = 1) {
+  multiCameraPreviewRenderPauseFrames = Math.max(
+    multiCameraPreviewRenderPauseFrames,
+    Math.max(0, Math.round(Number(frameCount) || 0))
+  );
+}
+
+function renderNextInactiveMultiCameraPreview() {
+  if (!multiCameraEnabled || !multiCameraPreviewRenderers) return;
+  if (multiCameraPreviewRenderPauseFrames > 0) {
+    multiCameraPreviewRenderPauseFrames -= 1;
+    return;
+  }
+  const inactivePreviews = Object.entries(multiCameraPreviewRenderers)
+    .filter(([view]) => view !== multiCameraActiveView);
+  if (!inactivePreviews.length) return;
+  const [view, previewRenderer] = inactivePreviews[
+    multiCameraPreviewRenderCursor % inactivePreviews.length
+  ];
+  multiCameraPreviewRenderCursor = (multiCameraPreviewRenderCursor + 1) % inactivePreviews.length;
+  previewRenderer.render(scene, multiCameraForView(view));
+}
+
+function setMultiCameraActiveView(view, { resizeViewport = true } = {}) {
+  if (!Object.hasOwn(multiCameraPreviewContainers, view)) return;
+  if (multiCameraViewTargets[multiCameraActiveView]) {
+    multiCameraViewTargets[multiCameraActiveView].copy(controls.target);
+  }
+  multiCameraActiveView = view;
+  camera = multiCameraForView(view);
+  controls.object = camera;
+  controls.target.copy(multiCameraViewTargets[view]);
+  controls.enableRotate = false;
+  transformControls.camera = camera;
+  Object.entries(multiCameraPreviewContainers).forEach(([candidate, container]) => {
+    container.classList.toggle("active", candidate === view);
+    container.setAttribute("aria-pressed", String(candidate === view));
+  });
+  ["perspective", "front", "right", "top"].forEach((candidate) => {
+    viewportPanel.classList.toggle(`multi-camera-active-${candidate}`, candidate === view);
+  });
+  controls.update();
+  updateReferencePlaneVisibility();
+  if (resizeViewport) resize();
+}
+
+function setMultiCameraEnabled(enabled) {
+  const nextEnabled = Boolean(enabled);
+  if (nextEnabled && !multiCameraExperimentalEnabled) return;
+  if (nextEnabled && orthographicView) setOrthographicView(false);
+  multiCameraEnabled = nextEnabled;
+  viewportPanel.classList.toggle("multi-camera-view", multiCameraEnabled);
+  multiCameraViews.setAttribute("aria-hidden", String(!multiCameraEnabled));
+  multiCameraViewToggle.classList.toggle("active", multiCameraEnabled);
+  multiCameraViewToggle.setAttribute("aria-pressed", String(multiCameraEnabled));
+  orthographicViewToggle.disabled = multiCameraEnabled;
+  if (multiCameraEnabled) {
+    ensureMultiCameraPreviewRenderers();
+    initializeMultiCameraOrthographicViews();
+  }
+  setMultiCameraActiveView("perspective", { resizeViewport: false });
+  resize();
+}
+
 function updateCameraProjectionForViewport() {
-  const width = Math.max(1, viewport.clientWidth);
-  const height = Math.max(1, viewport.clientHeight);
+  const paneMetrics = multiCameraPaneMetrics();
+  const width = multiCameraEnabled
+    ? multiCameraViewPaneWidth("perspective", paneMetrics)
+    : Math.max(1, viewport.clientWidth);
+  const height = multiCameraEnabled ? paneMetrics.height : Math.max(1, viewport.clientHeight);
+  const projectionOffsetX = multiCameraEnabled
+    ? multiCameraViewProjectionOffsetX("perspective", paneMetrics)
+    : floatingPanelProjectionOffsetX();
   const aspect = width / height;
   perspectiveCamera.aspect = aspect;
   perspectiveCamera.updateProjectionMatrix();
+  applyViewportProjectionOffset(perspectiveCamera, width, height, projectionOffsetX);
   orthographicCamera.left = -orthographicHalfHeight * aspect;
   orthographicCamera.right = orthographicHalfHeight * aspect;
   orthographicCamera.top = orthographicHalfHeight;
   orthographicCamera.bottom = -orthographicHalfHeight;
   orthographicCamera.updateProjectionMatrix();
+  applyViewportProjectionOffset(orthographicCamera, width, height, projectionOffsetX);
+}
+
+function floatingPanelsCoverViewport() {
+  return sidePanelStyle !== "default" && !document.body.classList.contains("compact-sidebar-docked");
+}
+
+function floatingPanelWidths() {
+  if (!floatingPanelsCoverViewport()) return { left: 0, right: 0 };
+  return {
+    left: outlinerPanel.getBoundingClientRect().width,
+    right: toolPanel.getBoundingClientRect().width
+  };
+}
+
+function floatingPanelProjectionOffsetX() {
+  const panelWidths = floatingPanelWidths();
+  return (panelWidths.right - panelWidths.left) * 0.5;
+}
+
+function multiCameraPaneMetrics() {
+  const fullWidth = Math.max(2, viewport.clientWidth);
+  const height = Math.max(1, viewport.clientHeight * 0.5);
+  const panelWidths = floatingPanelWidths();
+  const leftWidth = THREE.MathUtils.clamp(
+    fullWidth * 0.5 + (panelWidths.left - panelWidths.right) * 0.5,
+    1,
+    fullWidth - 1
+  );
+  return {
+    leftWidth,
+    rightWidth: fullWidth - leftWidth,
+    height,
+    leftProjectionOffsetX: panelWidths.left > 0 ? -panelWidths.left * 0.5 : 0,
+    rightProjectionOffsetX: panelWidths.right > 0 ? panelWidths.right * 0.5 : 0
+  };
+}
+
+function applyViewportProjectionOffset(targetCamera, width, height, offsetX = floatingPanelProjectionOffsetX()) {
+  targetCamera.clearViewOffset();
+  if (Math.abs(offsetX) < 0.5) return;
+  targetCamera.setViewOffset(width, height, offsetX, 0, width, height);
 }
 
 function syncOrthographicFramingFromDistance() {
@@ -804,6 +1143,7 @@ transformControls.addEventListener("dragging-changed", (event) => {
     commitClumpMemberRestState(editedLock);
     commitClumpMemberRestState(mirrorPartnerFor(editedLock));
     flushPendingLockGeometryUpdates();
+    if (editedLock) syncInputs(editedLock);
     activeHandleEdit = null;
     activeLatticeMultiEdit = null;
   }
@@ -829,6 +1169,7 @@ transformControls.addEventListener("objectChange", () => {
   applyUniformTransformScale(handle);
   if (handle.userData.strandObjectTransform) {
     updateStrandObjectTransform(handle);
+    syncStrandObjectTransformPanel({ preview: true });
     return;
   }
   if (handle.userData.guideObjectTransform) {
@@ -902,7 +1243,7 @@ transformControls.addEventListener("objectChange", () => {
   updateLockGeometry(lock);
   updatePullGuideVisual();
   syncActiveMirror(lock);
-  syncInputs(lock);
+  if (!transformDragging) syncInputs(lock);
 });
 
 const keyLight = new THREE.DirectionalLight(0xffead6, 2.5);
@@ -964,27 +1305,30 @@ const guideSurfaceGroup = new THREE.Group();
 scene.add(guideSurfaceGroup);
 const referenceImageGroup = new THREE.Group();
 scene.add(referenceImageGroup);
-const hairMaterialDefinitions = [{
+const hairMaterialDefinitions = [normalizeHairMaterialDefinition({
   id: DEFAULT_HAIR_MATERIAL_ID,
   name: "Default Purple",
   ...DEFAULT_HAIR_MATERIAL_SETTINGS,
   shader: defaultHairShader
-}];
+})];
 let hairMaterialIndex = 1;
 let activeHairMaterialId = DEFAULT_HAIR_MATERIAL_ID;
-function nextStrandName(region = "unassigned") {
+let customHairMaterialPresets = [];
+let activeHairMaterialPresetId = "";
+let pendingHairMaterialPresetSave = null;
+let pendingHairMaterialPresetRemoval = null;
+let activeHairGradientStopIndex = 0;
+let hairGradientStopDrag = null;
+const hairGradientTextures = new Map();
+function nextStrandName(region = "unassigned", excludedLockId = null) {
   const group = STRAND_GROUPS.find((item) => item.id === region) || STRAND_GROUPS.at(-1);
-  const usedNumbers = new Set(
+  const usedNames = new Set(
     locks
-      .filter((lock) => (lock.scalpRegion || "unassigned") === group.id)
-      .map((lock) => {
-        const match = lock.name.match(new RegExp(`^${group.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} (\\d+)$`));
-        return match ? Number(match[1]) : null;
-      })
-      .filter(Number.isFinite)
+      .filter((lock) => lock.id !== excludedLockId)
+      .map((lock) => lock.name)
   );
   let number = 1;
-  while (usedNumbers.has(number)) number += 1;
+  while (usedNames.has(`${group.label} ${number}`)) number += 1;
   return `${group.label} ${number}`;
 }
 
@@ -1223,7 +1567,10 @@ const panelCreationDefaults = {
   panelCurvature: 0.18,
   panelLeftEdgeTrim: 0,
   panelRightEdgeTrim: 0,
+  panelTipCurve: 0,
+  panelTipLoops: 0,
   panelSplitEnabled: true,
+  panelHardZipperEdges: false,
   panelSplitSnapToLoops: true,
   panelSplitHeight: 0.3,
   panelSplits: [
@@ -1260,6 +1607,7 @@ function snapPanelSplitHeight(height, lengthLoops) {
 }
 const CREATION_PRESET_STORAGE_KEY = "anime-hair-studio-creation-presets-v1";
 const SHAPE_PRESET_STORAGE_KEY = "anime-hair-studio-shape-presets-v1";
+const HAIR_MATERIAL_PRESET_STORAGE_KEY = "anime-hair-studio-material-presets-v1";
 const LEGACY_CLUMP_PRESET_STORAGE_KEY = "anime-hair-studio-clump-presets-v1";
 const BRAID_TOOL_PRESETS = {
   classic: {
@@ -2075,14 +2423,20 @@ let bodyMeshVisible = true;
 let selectedId;
 let selectedStrandIds = new Set();
 let isolatedStrandIds = null;
+let selectedHairShellFace = null;
+let hairShellFaceSelectionGroup = null;
 
 function currentStrandSelectionState() {
   return { activeId: selectedId, selectedIds: [...selectedStrandIds] };
 }
 
 function applyStrandSelectionState(selection) {
+  const previousActiveId = selectedId;
   selectedId = selection?.activeId;
   selectedStrandIds = new Set(selection?.selectedIds || []);
+  if (previousActiveId !== selectedId || !selectedHairShellFace || selectedHairShellFace.lockId !== selectedId) {
+    clearHairShellFaceSelection();
+  }
 }
 
 function clearStrandSelectionState() {
@@ -2118,6 +2472,7 @@ let hierarchyEditing = false;
 let mirrorXEditing = false;
 let recursiveHierarchyTransforms = false;
 let proportionalEditing = false;
+let proportionalPreviewLockId = null;
 let proportionalRootLocked = false;
 let scalpShapeEditing = false;
 let scalpLatticeEditing = false;
@@ -2194,9 +2549,50 @@ let proportionalSizeEdit = null;
 let proportionalHotkeyPress = null;
 let toolShortcutPress = null;
 let radialMenusEnabled = readStoredBooleanPreference(window, RADIAL_MENUS_PREFERENCE_KEY, true);
+let multiCameraExperimentalEnabled = readStoredBooleanPreference(
+  window,
+  MULTI_CAMERA_EXPERIMENTAL_PREFERENCE_KEY,
+  false
+);
+let floatingToolSettingsExperimentalEnabled = readStoredBooleanPreference(
+  window,
+  FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
+  false
+);
+let hotkeyToolSettingsExperimentalEnabled = readStoredBooleanPreference(
+  window,
+  HOTKEY_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
+  false
+);
+let hotkeyToolSettingsKeepMain = readStoredBooleanPreference(
+  window,
+  HOTKEY_TOOL_SETTINGS_KEEP_MAIN_PREFERENCE_KEY,
+  true
+);
+let hotkeyToolSettingsHoldActive = false;
 let proceduralDrawExperimentalEnabled = readStoredBooleanPreference(
   window,
   PROCEDURAL_DRAW_EXPERIMENTAL_PREFERENCE_KEY,
+  false
+);
+let showDevTestFeatures = readStoredBooleanPreference(
+  window,
+  SHOW_DEV_TEST_FEATURES_PREFERENCE_KEY,
+  false
+);
+let compoundStrandExperimentalEnabled = readStoredBooleanPreference(
+  window,
+  COMPOUND_STRAND_EXPERIMENTAL_PREFERENCE_KEY,
+  false
+);
+let hairShellExperimentalEnabled = readStoredBooleanPreference(
+  window,
+  HAIR_SHELL_EXPERIMENTAL_PREFERENCE_KEY,
+  false
+);
+let arcHairSurfaceExperimentalEnabled = readStoredBooleanPreference(
+  window,
+  ARC_HAIR_SURFACE_EXPERIMENTAL_PREFERENCE_KEY,
   false
 );
 let navigationTipsEnabled = readStoredBooleanPreference(window, NAVIGATION_TIPS_PREFERENCE_KEY, true);
@@ -2212,6 +2608,15 @@ let cameraSmoothingStrength = readStoredPreference(window, CAMERA_SMOOTHING_STRE
 let scaleSensitivity = 0.3;
 let toolTipsEnabled = readStoredBooleanPreference(window, TOOL_TIPS_PREFERENCE_KEY, true);
 let compactToolButtonsEnabled = readStoredBooleanPreference(window, COMPACT_TOOL_BUTTONS_PREFERENCE_KEY, false);
+let sidePanelStyle = readStoredPreference(window, SIDE_PANEL_STYLE_PREFERENCE_KEY, {
+  fallback: "default",
+  normalize: normalizeSidePanelStyle
+});
+let glassPanelColor = readStoredPreference(window, GLASS_PANEL_COLOR_PREFERENCE_KEY, {
+  fallback: DEFAULT_GLASS_PANEL_COLOR,
+  normalize: normalizeGlassPanelColor
+});
+if (glassPanelColor === LEGACY_DEFAULT_GLASS_PANEL_COLOR) glassPanelColor = DEFAULT_GLASS_PANEL_COLOR;
 let viewportStatisticsEnabled = readStoredBooleanPreference(window, VIEWPORT_STATISTICS_PREFERENCE_KEY, true);
 let twistCurveAllStrandsPreviewEnabled = readStoredBooleanPreference(
   window,
@@ -2220,6 +2625,10 @@ let twistCurveAllStrandsPreviewEnabled = readStoredBooleanPreference(
 );
 let layerColorShiftsEnabled = readStoredBooleanPreference(window, LAYER_COLOR_SHIFTS_PREFERENCE_KEY, true);
 let outlinerFolderColorsEnabled = readStoredBooleanPreference(window, OUTLINER_FOLDER_COLORS_PREFERENCE_KEY, true);
+let outlinerFolderColorOpacity = readStoredPreference(window, OUTLINER_FOLDER_COLOR_OPACITY_PREFERENCE_KEY, {
+  fallback: 100,
+  normalize: normalizeOutlinerFolderColorOpacity
+});
 let controlPointDisplaySize = readStoredPreference(window, CONTROL_POINT_DISPLAY_SIZE_PREFERENCE_KEY, {
   fallback: 1,
   normalize: normalizeControlPointDisplaySize
@@ -2235,6 +2644,11 @@ if (viewportBackgroundColor === "#17151c") {
 let sideNamingPerspective = readStoredPreference(window, SIDE_NAMING_PERSPECTIVE_PREFERENCE_KEY, {
   fallback: "viewport",
   normalize: normalizeSideNamingPerspective
+});
+let autosaveEnabled = readStoredBooleanPreference(window, AUTOSAVE_ENABLED_PREFERENCE_KEY, true);
+let autosaveIntervalSeconds = readStoredPreference(window, AUTOSAVE_INTERVAL_PREFERENCE_KEY, {
+  fallback: DEFAULT_AUTOSAVE_INTERVAL_SECONDS,
+  normalize: normalizeAutosaveInterval
 });
 let preferencesOpenSnapshot = null;
 let brushSizeDrag = null;
@@ -2258,6 +2672,16 @@ let sweepProfileEdit = null;
 let sweepProfileMirrorEnabled = false;
 let taperCurveEdit = null;
 let taperMeshPointsVisible = false;
+const moveGrabHandleVisibility = {
+  width: true,
+  depth: false,
+  uniform: false
+};
+const moveCurveControlVisibility = {
+  taperCurve: false,
+  depthCurve: false,
+  twistCurve: false
+};
 let taperMeshPointDrag = null;
 const taperMeshPointGeometry = new THREE.SphereGeometry(0.016, 12, 8);
 const taperMeshPointMaterial = new THREE.MeshBasicMaterial({
@@ -2312,6 +2736,7 @@ scene.add(taperMeshPointsGroup);
 const lastPointer = { x: 0, y: 0 };
 let pendingPlacedLockId = null;
 const locks = [];
+const historyRootAttachmentCache = new WeakMap();
 const selectionSets = [];
 const guides = [];
 const referenceImages = [];
@@ -2353,6 +2778,7 @@ let outlinerContextTarget = null;
 let strandRadialTargetId = null;
 let strandRadialGesture = null;
 let toolRadialGesture = null;
+let selectionSetMembershipMode = null;
 let viewportEditMode = "strand";
 let duplicatePlacement = null;
 let proceduralDuplicateModeActive = false;
@@ -2392,11 +2818,27 @@ const hairMaterialSelect = document.querySelector("#hairMaterialSelect");
 const newHairMaterialButton = document.querySelector("#newHairMaterial");
 const addProjectHairMaterialButton = document.querySelector("#addProjectHairMaterial");
 const hairMaterialOutliner = document.querySelector("#hairMaterialOutliner");
+const hairMaterialPresetInput = document.querySelector("#hairMaterialPreset");
+const saveHairMaterialPresetButton = document.querySelector("#saveHairMaterialPreset");
+const removeHairMaterialPresetButton = document.querySelector("#removeHairMaterialPreset");
 const hairMaterialNameInput = document.querySelector("#hairMaterialName");
 const hairMaterialShaderInput = document.querySelector("#hairMaterialShader");
 const hairMaterialStandardControls = document.querySelector("#hairMaterialStandardControls");
 const hairMaterialAnimeControls = document.querySelector("#hairMaterialAnimeControls");
 const hairMaterialColorInput = document.querySelector("#hairMaterialColor");
+const hairMaterialGradientEnabledInput = document.querySelector("#hairMaterialGradientEnabled");
+const editHairMaterialGradientButton = document.querySelector("#editHairMaterialGradient");
+const hairMaterialGradientPreview = document.querySelector("#hairMaterialGradientPreview");
+const hairMaterialGradientDialog = document.querySelector("#hairMaterialGradientDialog");
+const closeHairMaterialGradientDialogButton = document.querySelector("#closeHairMaterialGradientDialog");
+const doneHairMaterialGradientButton = document.querySelector("#doneHairMaterialGradient");
+const hairMaterialGradientTrack = document.querySelector("#hairMaterialGradientTrack");
+const hairMaterialGradientStopColorInput = document.querySelector("#hairMaterialGradientStopColor");
+const hairMaterialGradientStopPositionInput = document.querySelector("#hairMaterialGradientStopPosition");
+const hairMaterialGradientStopPositionValue = document.querySelector("#hairMaterialGradientStopPositionValue");
+const addHairMaterialGradientStopButton = document.querySelector("#addHairMaterialGradientStop");
+const deleteHairMaterialGradientStopButton = document.querySelector("#deleteHairMaterialGradientStop");
+const resetHairMaterialGradientButton = document.querySelector("#resetHairMaterialGradient");
 const hairMaterialRoughnessControl = document.querySelector("#hairMaterialRoughnessControl");
 const hairMaterialRoughnessInput = document.querySelector("#hairMaterialRoughness");
 const hairMaterialRoughnessValue = document.querySelector("#hairMaterialRoughnessValue");
@@ -2465,17 +2907,35 @@ const preferenceCategoryGroups = [...document.querySelectorAll("[data-preference
 const preferenceAnchorButtons = [...document.querySelectorAll("[data-preference-anchor]")];
 const preferencePanels = [...document.querySelectorAll("[data-preference-panel]")];
 const radialMenusPreferenceInput = document.querySelector("#radialMenusPreference");
+const multiCameraExperimentalPreferenceInput = document.querySelector("#multiCameraExperimentalPreference");
+const floatingToolSettingsExperimentalPreferenceInput = document.querySelector("#floatingToolSettingsExperimentalPreference");
+const hotkeyToolSettingsExperimentalPreferenceInput = document.querySelector("#hotkeyToolSettingsExperimentalPreference");
+const hotkeyToolSettingsKeepMainPreferenceInput = document.querySelector("#hotkeyToolSettingsKeepMainPreference");
+const hotkeyToolSettingsKeepMainPreferenceRow = document.querySelector("#hotkeyToolSettingsKeepMainPreferenceRow");
 const proceduralDrawExperimentalPreferenceInput = document.querySelector("#proceduralDrawExperimentalPreference");
+const showDevTestFeaturesPreferenceInput = document.querySelector("#showDevTestFeaturesPreference");
+const devTestFeaturePreferenceRows = [...document.querySelectorAll("[data-dev-test-feature]")];
+const compoundStrandExperimentalPreferenceInput = document.querySelector("#compoundStrandExperimentalPreference");
+const hairShellExperimentalPreferenceInput = document.querySelector("#hairShellExperimentalPreference");
+const arcHairSurfaceExperimentalPreferenceInput = document.querySelector("#arcHairSurfaceExperimentalPreference");
 const navigationTipsPreferenceInput = document.querySelector("#navigationTipsPreference");
 const navigationStylePreferenceInput = document.querySelector("#navigationStylePreference");
 const cameraSmoothingPreferenceInput = document.querySelector("#cameraSmoothingPreference");
 const cameraSmoothingStrengthPreferenceInput = document.querySelector("#cameraSmoothingStrengthPreference");
 const toolTipsPreferenceInput = document.querySelector("#toolTipsPreference");
 const compactToolButtonsPreferenceInput = document.querySelector("#compactToolButtonsPreference");
+const sidePanelStylePreferenceInput = document.querySelector("#sidePanelStylePreference");
+const glassPanelColorPreferenceInput = document.querySelector("#glassPanelColorPreference");
+const glassPanelColorPreferenceValue = document.querySelector("#glassPanelColorPreferenceValue");
+const resetGlassPanelColorButton = document.querySelector("#resetGlassPanelColor");
 const viewportStatisticsPreferenceInput = document.querySelector("#viewportStatisticsPreference");
 const twistCurvePreviewPreferenceButtons = [...document.querySelectorAll("[data-twist-curve-preview]")];
 const layerColorShiftsPreferenceInput = document.querySelector("#layerColorShiftsPreference");
 const outlinerFolderColorsPreferenceInput = document.querySelector("#outlinerFolderColorsPreference");
+const outlinerFolderColorOpacityPreferenceInput = document.querySelector("#outlinerFolderColorOpacityPreference");
+const outlinerFolderColorOpacityPreferenceNumberInput = outlinerFolderColorOpacityPreferenceInput
+  .closest(".slider-input-row")
+  ?.querySelector('input[type="number"]');
 const sideNamingPerspectivePreferenceInput = document.querySelector("#sideNamingPerspectivePreference");
 const controlPointDisplaySizePreferenceInput = document.querySelector("#controlPointDisplaySizePreference");
 const controlPointDisplaySizePreferenceNumberInput = controlPointDisplaySizePreferenceInput
@@ -2489,6 +2949,15 @@ const loadPreferencesAndPresetsButton = document.querySelector("#loadPreferences
 const downloadPreferencesAndPresetsButton = document.querySelector("#downloadPreferencesAndPresets");
 const preferencesAndPresetsFile = document.querySelector("#preferencesAndPresetsFile");
 const preferencesBackupStatus = document.querySelector("#preferencesBackupStatus");
+const autosavePreferenceInput = document.querySelector("#autosavePreference");
+const autosaveIntervalPreferenceInput = document.querySelector("#autosaveIntervalPreference");
+const recoveryDialog = document.querySelector("#recoveryDialog");
+const recoveryProjectName = document.querySelector("#recoveryProjectName");
+const recoveryProjectTime = document.querySelector("#recoveryProjectTime");
+const recoveryStatus = document.querySelector("#recoveryStatus");
+const discardRecoveryButton = document.querySelector("#discardRecovery");
+const downloadRecoveryButton = document.querySelector("#downloadRecovery");
+const recoverProjectButton = document.querySelector("#recoverProject");
 const radialShortcutRows = [...document.querySelectorAll(".radial-shortcut-row")];
 const openShortcutsButton = document.querySelector("#openShortcuts");
 const shortcutsDialog = document.querySelector("#shortcutsDialog");
@@ -2558,6 +3027,7 @@ const scalpGuideVisibilityToggle = document.querySelector("#scalpGuideVisibility
 const guideViewContextMenu = document.querySelector("#guideViewContextMenu");
 const guideViewModeActions = [...guideViewContextMenu.querySelectorAll("[data-guide-view-mode]")];
 const orthographicViewToggle = document.querySelector("#orthographicViewToggle");
+const multiCameraViewToggle = document.querySelector("#multiCameraViewToggle");
 const groupColorToggle = document.querySelector("#groupColorToggle");
 const lightAzimuthInput = document.querySelector("#lightAzimuth");
 const lightElevationInput = document.querySelector("#lightElevation");
@@ -2617,6 +3087,8 @@ const redoButton = document.querySelector("#redoAction");
 const deleteSelectionAction = document.querySelector("#deleteSelectionAction");
 const openRebuildCurveButton = document.querySelector("#openRebuildCurve");
 const createCompoundStrandButton = document.querySelector("#createCompoundStrand");
+const createHairShellButton = document.querySelector("#createHairShell");
+const createArcHairSurfaceButton = document.querySelector("#createArcHairSurface");
 const rebuildCurveDialog = document.querySelector("#rebuildCurveDialog");
 const rebuildCurveForm = document.querySelector("#rebuildCurveForm");
 const rebuildCurvePointCountInput = document.querySelector("#rebuildCurvePointCount");
@@ -2625,6 +3097,13 @@ const rebuildCurveSelectionNote = document.querySelector("#rebuildCurveSelection
 const closeRebuildCurveButton = document.querySelector("#closeRebuildCurve");
 const cancelRebuildCurveButton = document.querySelector("#cancelRebuildCurve");
 const confirmRebuildCurveButton = document.querySelector("#confirmRebuildCurve");
+const selectionSetMembershipDialog = document.querySelector("#selectionSetMembershipDialog");
+const selectionSetMembershipForm = document.querySelector("#selectionSetMembershipForm");
+const selectionSetMembershipDialogTitle = document.querySelector("#selectionSetMembershipDialogTitle");
+const selectionSetMembershipDialogDescription = document.querySelector("#selectionSetMembershipDialogDescription");
+const selectionSetMembershipList = document.querySelector("#selectionSetMembershipList");
+const cancelSelectionSetMembershipButton = document.querySelector("#cancelSelectionSetMembership");
+const confirmSelectionSetMembershipButton = document.querySelector("#confirmSelectionSetMembership");
 const proceduralDuplicateDialog = document.querySelector("#proceduralDuplicateDialog");
 const proceduralDuplicateForm = document.querySelector("#proceduralDuplicateForm");
 const proceduralDuplicateCountInput = document.querySelector("#proceduralDuplicateCount");
@@ -2671,6 +3150,25 @@ const groupSettingsPanel = document.querySelector("#groupSettingsPanel");
 const groupSettingsTitle = document.querySelector("#groupSettingsTitle");
 const selectedStrandPanel = document.querySelector("#selectedStrandPanel");
 const selectedStrandTitle = document.querySelector("#selectedStrandTitle");
+const arcHairSurfacePanel = document.querySelector("#arcHairSurfacePanel");
+const arcHairSurfaceInputs = {
+  width: document.querySelector("#arcHairSurfaceWidth"),
+  arcHeight: document.querySelector("#arcHairSurfaceHeight"),
+  legLength: document.querySelector("#arcHairSurfaceLegLength"),
+  depth: document.querySelector("#arcHairSurfaceDepth"),
+  arcSegments: document.querySelector("#arcHairSurfaceArcSegments"),
+  legSegments: document.querySelector("#arcHairSurfaceLegSegments"),
+  depthSegments: document.querySelector("#arcHairSurfaceDepthSegments")
+};
+const arcHairSurfaceValues = {
+  width: document.querySelector("#arcHairSurfaceWidthValue"),
+  arcHeight: document.querySelector("#arcHairSurfaceHeightValue"),
+  legLength: document.querySelector("#arcHairSurfaceLegLengthValue"),
+  depth: document.querySelector("#arcHairSurfaceDepthValue"),
+  arcSegments: document.querySelector("#arcHairSurfaceArcSegmentsValue"),
+  legSegments: document.querySelector("#arcHairSurfaceLegSegmentsValue"),
+  depthSegments: document.querySelector("#arcHairSurfaceDepthSegmentsValue")
+};
 const selectedStrandSelectionSummary = document.querySelector("#selectedStrandSelectionSummary");
 const clumpGuidePanel = document.querySelector("#clumpGuidePanel");
 const clumpGuideStatus = document.querySelector("#clumpGuideStatus");
@@ -2710,6 +3208,7 @@ const mirrorInstanceAction = document.querySelector("#mirrorInstanceAction");
 const deleteOutlinerAction = document.querySelector("#deleteOutlinerAction");
 const strandRadialMenu = document.querySelector("#strandRadialMenu");
 let strandRadialActions = [...strandRadialMenu.querySelectorAll("[data-strand-radial-action]")];
+let strandRadialSubmenuActions = [];
 const strandRadialActionList = document.querySelector("#strandRadialActionList");
 const strandRadialLine = document.querySelector("#strandRadialLine");
 const strandRadialCenter = document.querySelector("#strandRadialCenter");
@@ -2718,9 +3217,10 @@ let toolRadialActions = [...toolRadialMenu.querySelectorAll("[data-tool-radial-i
 const toolRadialActionList = document.querySelector("#toolRadialActionList");
 const toolRadialLine = document.querySelector("#toolRadialLine");
 const toolRadialCenter = document.querySelector("#toolRadialCenter");
+const outlinerPanel = document.querySelector(".outliner-panel");
 const toolPanel = document.querySelector(".tool-panel");
 const attributeEditorTabs = [...document.querySelectorAll("[data-attribute-tab]")];
-const attributeEditorPanels = [...document.querySelectorAll(".tool-panel > .panel-section")];
+const attributeEditorPanels = [...document.querySelectorAll(".attribute-editor-content > .panel-section")];
 const toggleAttributeEditorPanelButton = document.querySelector("#toggleAttributeEditorPanel");
 const toggleOutlinerPanelButton = document.querySelector("#toggleOutlinerPanel");
 const hairMaterialPanel = document.querySelector("#hairMaterialPanel");
@@ -2737,6 +3237,19 @@ const viewPlaneMoveSetting = document.querySelector("#viewPlaneMoveSetting");
 const viewPlaneMoveInput = document.querySelector("#viewPlaneMove");
 const viewPlaneMoveSnappedSetting = document.querySelector("#viewPlaneMoveSnappedSetting");
 const viewPlaneMoveSnappedOnlyInput = document.querySelector("#viewPlaneMoveSnappedOnly");
+const moveGrabHandlesSetting = document.querySelector("#moveGrabHandlesSetting");
+const moveWidthGrabHandlesInput = document.querySelector("#moveWidthGrabHandles");
+const moveDepthGrabHandlesInput = document.querySelector("#moveDepthGrabHandles");
+const moveUniformGrabHandlesInput = document.querySelector("#moveUniformGrabHandles");
+const moveCurveControlsSetting = document.querySelector("#moveCurveControlsSetting");
+const moveWidthCurveControlsInput = document.querySelector("#moveWidthCurveControls");
+const moveDepthCurveControlsInput = document.querySelector("#moveDepthCurveControls");
+const moveTwistCurveControlsInput = document.querySelector("#moveTwistCurveControls");
+const moveAsymmetricWidthInput = document.querySelector("#moveAsymmetricWidth");
+const moveAsymmetricWidthLabel = document.querySelector("#moveAsymmetricWidthLabel");
+const moveAsymmetricDepthInput = document.querySelector("#moveAsymmetricDepth");
+const moveAsymmetricDepthLabel = document.querySelector("#moveAsymmetricDepthLabel");
+const moveCenterAsymmetricProfileInput = document.querySelector("#moveCenterAsymmetricProfile");
 const pullMoveSetting = document.querySelector("#pullMoveSetting");
 const pullMoveInput = document.querySelector("#pullMove");
 const pullRigiditySetting = document.querySelector("#pullRigiditySetting");
@@ -2881,6 +3394,28 @@ const panelSurfaceNormalInfluenceInput = document.querySelector("#panelSurfaceNo
 const panelSurfaceNormalInfluenceValue = document.querySelector("#panelSurfaceNormalInfluenceValue");
 const panelAutoShowScalpInput = document.querySelector("#panelAutoShowScalp");
 const surfaceGuideToolPanel = document.querySelector("#surfaceGuideToolPanel");
+const floatingToolSettingsPanel = document.querySelector("#floatingToolSettingsPanel");
+const viewportToolRail = document.querySelector(".viewport-tools");
+const floatingToolSettingPanels = [
+  transformToolPanel,
+  relaxToolPanel,
+  placeStrandToolPanel,
+  drawStrandToolPanel,
+  sculptMoveToolPanel,
+  polyBrushToolPanel,
+  braidToolPanel,
+  panelStrandToolPanel,
+  curveSurfaceToolPanel,
+  surfaceGuideToolPanel,
+  proportionalPanel,
+  hierarchyPanel
+].filter(Boolean);
+const floatingToolSettingAnchors = new Map();
+floatingToolSettingPanels.forEach((panel) => {
+  const anchor = document.createComment(`floating-tool-settings:${panel.id}`);
+  panel.before(anchor);
+  floatingToolSettingAnchors.set(panel, anchor);
+});
 const capsuleGuideDrawSettings = document.querySelector("#capsuleGuideDrawSettings");
 const capsuleGuideCurveStepInput = document.querySelector("#capsuleGuideCurveStep");
 const capsuleGuideCurveStepValue = document.querySelector("#capsuleGuideCurveStepValue");
@@ -2930,6 +3465,7 @@ const surfaceLatticeColumnsValue = document.querySelector("#surfaceLatticeColumn
 const surfaceLatticeRowsInput = document.querySelector("#surfaceLatticeRows");
 const surfaceLatticeRowsValue = document.querySelector("#surfaceLatticeRowsValue");
 const panelCurvatureControl = document.querySelector("#panelCurvatureControl");
+const panelTipCurveControl = document.querySelector("#panelTipCurveControl");
 const panelShapeInputs = {
   width: document.querySelector("#panelWidth"),
   panelThickness: document.querySelector("#panelThickness"),
@@ -2938,7 +3474,10 @@ const panelShapeInputs = {
   panelCurvature: document.querySelector("#panelCurvature"),
   panelLeftEdgeTrim: document.querySelector("#panelLeftEdgeTrim"),
   panelRightEdgeTrim: document.querySelector("#panelRightEdgeTrim"),
+  panelTipCurve: document.querySelector("#panelTipCurve"),
+  panelTipLoops: document.querySelector("#panelTipLoops"),
   panelSplitEnabled: document.querySelector("#panelSplitEnabled"),
+  panelHardZipperEdges: document.querySelector("#panelHardZipperEdges"),
   panelSplitSnapToLoops: document.querySelector("#panelSplitSnapToLoops"),
   panelSplitGap: document.querySelector("#panelSplitGap")
 };
@@ -2950,6 +3489,8 @@ const panelShapeValues = {
   panelCurvature: document.querySelector("#panelCurvatureValue"),
   panelLeftEdgeTrim: document.querySelector("#panelLeftEdgeTrimValue"),
   panelRightEdgeTrim: document.querySelector("#panelRightEdgeTrimValue"),
+  panelTipCurve: document.querySelector("#panelTipCurveValue"),
+  panelTipLoops: document.querySelector("#panelTipLoopsValue"),
   panelSplitGap: document.querySelector("#panelSplitGapValue")
 };
 const strandSplitInputs = {
@@ -3144,6 +3685,15 @@ const presetCatalog = [
 let activePresetFilter = "full";
 let currentProjectName = "Untitled Hair Project";
 let projectSaveInProgress = false;
+let recoveryChangeVersion = 0;
+let recoveryDirty = false;
+let recoveryQuietTimer = null;
+let recoveryMaximumTimer = null;
+let recoveryIdleHandle = null;
+let recoveryWriteInProgress = false;
+let recoveryWriteQueued = false;
+let recoveryWritePromise = null;
+let pendingRecoveryRecord = null;
 let pendingFileAction = null;
 let importedHeadAsset = null;
 
@@ -3212,6 +3762,7 @@ function applyHeadTransform() {
     fittedCenter.z + headTransform.positionZ - sourceCenter.z * scaleZ
   );
   guideModel.updateMatrixWorld(true);
+  requestShadowMapRefresh();
 }
 
 function syncScalpRoughScaleInputs() {
@@ -3362,7 +3913,7 @@ function loadDefaultGuideModel(options = {}) {
   });
 }
 
-loadDefaultGuideModel().catch((error) => {
+const defaultGuideModelReady = loadDefaultGuideModel().catch((error) => {
   console.error("Could not load base head OBJ", error);
 });
 
@@ -3574,7 +4125,7 @@ loadBraidMeshPreset("chain-links", "./assets/chainlinks.obj?v=20260720-1", { aut
 
 function createSplitControlHandle() {
   const handle = new THREE.Mesh(
-    new THREE.SphereGeometry(0.052, 18, 12),
+    new THREE.SphereGeometry(0.042, 18, 12),
     new THREE.MeshBasicMaterial({
       color: 0xff42cf,
       depthTest: false,
@@ -6310,7 +6861,7 @@ const REFERENCE_VIEW_BY_CAMERA_AXIS = Object.freeze({
 
 function snappedReferenceImageView() {
   const snapped = isCameraInSnappedView();
-  if (!orthographicView || !snapped) return null;
+  if (!camera.isOrthographicCamera || !snapped) return null;
   return REFERENCE_VIEW_BY_CAMERA_AXIS[cardinalAxisKey(viewPlaneNormal())] || null;
 }
 
@@ -6367,7 +6918,7 @@ function applyReferenceImageRuntime(reference) {
       texture.offset.x = reference.flipX ? 1 : 0;
       texture.repeat.y = 1;
       texture.offset.y = 0;
-      texture.needsUpdate = true;
+      if (texture.image) texture.needsUpdate = true;
     }
     updateReferencePlaneVisibility();
   }
@@ -6413,7 +6964,10 @@ function createReferenceImageRuntime(reference) {
   }
 
   const aspect = Math.max(0.05, Number(reference.aspect || 1));
-  const texture = new THREE.TextureLoader().load(reference.source);
+  const texture = new THREE.TextureLoader().load(
+    reference.source,
+    () => applyReferenceImageRuntime(reference)
+  );
   texture.colorSpace = THREE.SRGBColorSpace;
   const geometry = new THREE.PlaneGeometry(3 * aspect, 3);
   const material = new THREE.MeshBasicMaterial({
@@ -6557,6 +7111,66 @@ function serializeReferenceImage(reference) {
     scale: reference.scale,
     position: { ...reference.position },
     rotation: { ...reference.rotation }
+  };
+}
+
+function serializeGuide(guide) {
+  if (guide.type === "capsule") {
+    return {
+      id: guide.id,
+      type: guide.type,
+      name: guide.name,
+      color: normalizeCapsuleGuideColor(guide.color),
+      outlinerVisible: guide.outlinerVisible !== false,
+      start: vectorToData(guide.start),
+      end: vectorToData(guide.end),
+      radius: guide.radius,
+      radialLoops: guide.radialLoops,
+      lengthLoops: guide.lengthLoops,
+      subdivisionSteps: guide.subdivisionSteps,
+      opacity: guide.opacity,
+      fresnel: guide.fresnel,
+      centerVisibility: guide.centerVisibility,
+      controlPoints: guide.controlPoints?.map(vectorToData) || null,
+      controlFaces: guide.controlFaces?.map((face) => [...face]) || null
+    };
+  }
+  if (guide.type === "curve-lattice") {
+    return {
+      id: guide.id,
+      type: guide.type,
+      standalone: Boolean(guide.standalone),
+      name: guide.name,
+      outlinerVisible: guide.outlinerVisible !== false,
+      columns: guide.columns,
+      rows: guide.rows,
+      opacity: guide.opacity,
+      scalpRegion: guide.scalpRegion || "bangs",
+      color: guide.color,
+      points: guide.points.map(vectorToData),
+      rootPoints: (guide.rootPoints || []).map(vectorToData),
+      deformRestPoints: (guide.deformRestPoints || guide.points).map(vectorToData),
+      deformRestRootPoints: (guide.deformRestRootPoints || guide.rootPoints || []).map(vectorToData)
+    };
+  }
+  return {
+    id: guide.id,
+    name: guide.name,
+    outlinerVisible: guide.outlinerVisible !== false,
+    x: guide.x,
+    y: guide.y,
+    z: guide.z,
+    width: guide.width,
+    height: guide.height,
+    depth: guide.depth,
+    bend: guide.bend,
+    verticalBend: guide.verticalBend,
+    topCurve: guide.topCurve,
+    bottomCurve: guide.bottomCurve,
+    density: guide.density,
+    opacity: guide.opacity,
+    objectQuaternion: guide.objectQuaternion || null,
+    objectScale: guide.objectScale || null
   };
 }
 
@@ -6802,7 +7416,10 @@ function refreshSelectionModeVisuals() {
   updateSelectedPointLabel();
   updateViewPlaneGrid();
   updateViewportToolVisibility();
+  syncMoveCurveControls();
+  updateTaperMeshPoints();
   updatePlacementStatus();
+  syncStrandObjectTransformPanel();
 }
 
 function setViewportSelectionMode(mode) {
@@ -10715,9 +11332,10 @@ function frameViewportBounds(bounds) {
   viewDirection.normalize();
   shiftSnappedViewActive = false;
   controls.target.copy(center);
-  if (orthographicView) {
-    orthographicHalfHeight = radius * 1.16;
-    orthographicCamera.zoom = 1;
+  if (camera.isOrthographicCamera) {
+    if (camera === orthographicCamera) orthographicHalfHeight = radius * 1.16;
+    else camera.userData.multiCameraHalfHeight = radius * 1.16;
+    camera.zoom = 1;
     camera.position.copy(center).addScaledVector(viewDirection, currentDistance);
     updateCameraProjectionForViewport();
   } else {
@@ -10899,7 +11517,7 @@ function setActiveTool(tool) {
   }
   if (referenceCropDrag) finishReferenceCrop(null, { cancel: true });
   if (RETIRED_CURVE_LATTICE_SURFACE_TOOLS.has(tool)) tool = "select";
-  if (tool === "procedural-draw" && !proceduralDrawExperimentalEnabled) tool = "draw";
+  if (tool === "procedural-draw" && (!showDevTestFeatures || !proceduralDrawExperimentalEnabled)) tool = "draw";
   const leavingLoftSurface = activeTool === "surface-loft" && tool !== "surface-loft";
   const enteringLoftSurface = activeTool !== "surface-loft" && tool === "surface-loft";
   const leavingCurveSurface = activeTool === "curve-surface" && tool !== "curve-surface";
@@ -10964,10 +11582,7 @@ function setActiveTool(tool) {
   const proportionalVisualStateChanged = proportionalEditing
     && ["move", "rotate", "scale", "relax"].includes(previousTool)
       !== ["move", "rotate", "scale", "relax"].includes(activeTool);
-  if (proportionalVisualStateChanged) {
-    const proportionalLock = locks.find((lock) => lock.id === selectedPoint?.lockId);
-    if (proportionalLock) updateLockGeometry(proportionalLock, { immediate: true });
-  }
+  if (proportionalVisualStateChanged) refreshProportionalStrandColors();
   if (enteringLoftSurface) resetLoftSurfaceDraft();
   if (enteringCurveSurface) resetCurveSurfaceDraft();
   autoShowScalpGuideForActiveTool();
@@ -11058,7 +11673,7 @@ function setHierarchyEditing(enabled) {
   if (!proportionalEditing) endProportionalSizeEdit();
   hierarchyToggle.classList.toggle("active", hierarchyEditing);
   proportionalToggle.classList.toggle("active", proportionalEditing);
-  locks.forEach((lock) => updateLockGeometry(lock));
+  refreshProportionalStrandColors();
   locks.forEach((lock) => updateCurveObjects(lock, { visible: lock.id === selectedId }));
   updateAttributeEditorMode();
   updatePlacementStatus();
@@ -11070,7 +11685,7 @@ function setProportionalEditing(enabled) {
   proportionalToggle.classList.toggle("active", proportionalEditing);
   hierarchyToggle.classList.toggle("active", hierarchyEditing);
   if (!sculptBrushToolActive()) {
-    locks.forEach((lock) => updateLockGeometry(lock));
+    refreshProportionalStrandColors();
     locks.forEach((lock) => updateCurveObjects(lock, { visible: lock.id === selectedId }));
   }
   updateScalpBuilderHandleColors();
@@ -11080,6 +11695,13 @@ function setProportionalEditing(enabled) {
   if (!proportionalEditing) endProportionalSizeEdit();
   updateInteractionLocks();
   updateAttributeEditorMode();
+  updatePlacementStatus();
+}
+
+function setProportionalRootLocked(enabled) {
+  proportionalRootLocked = Boolean(enabled);
+  proportionalLockRootInput.checked = proportionalRootLocked;
+  refreshProportionalPreview();
   updatePlacementStatus();
 }
 
@@ -11123,8 +11745,9 @@ function activateProportionalHotkeyHold() {
 
 function refreshProportionalPreview() {
   if (sculptBrushToolActive()) return;
-  locks.forEach((lock) => updateLockGeometry(lock));
-  locks.forEach((lock) => updateCurveObjects(lock, { visible: lock.id === selectedId }));
+  refreshProportionalStrandColors();
+  const selectedLock = locks.find((lock) => lock.id === selectedPoint?.lockId);
+  if (selectedLock) updateCurveObjects(selectedLock, { visible: selectedLock.id === selectedId });
   updateScalpBuilderHandleColors();
   const capsule = getSelectedGuide();
   if (capsule?.type === "capsule") updateCapsuleGuideHandleColors(capsule, capsule.selectedPointIndex ?? -1);
@@ -11361,6 +11984,171 @@ function strandObjectRoot(lock) {
   return lock?.points?.[strandObjectRootIndex(lock)] || lock?.points?.[0] || null;
 }
 
+const EMPTY_STRAND_OBJECT_TRANSFORM = Object.freeze({
+  location: Object.freeze({ x: 0, y: 0, z: 0 }),
+  rotation: Object.freeze({ x: 0, y: 0, z: 0 }),
+  scale: Object.freeze({ x: 0, y: 0, z: 0 })
+});
+
+function normalizeStrandObjectTransform(value) {
+  const normalized = {};
+  ["location", "rotation", "scale"].forEach((group) => {
+    normalized[group] = {};
+    ["x", "y", "z"].forEach((axis) => {
+      const number = Number(value?.[group]?.[axis]);
+      normalized[group][axis] = Number.isFinite(number) ? number : EMPTY_STRAND_OBJECT_TRANSFORM[group][axis];
+    });
+  });
+  ["x", "y", "z"].forEach((axis) => {
+    normalized.scale[axis] = Math.max(-0.95, normalized.scale[axis]);
+  });
+  return normalized;
+}
+
+function strandObjectTransformQuaternionFromValues(values) {
+  const rotation = normalizeStrandObjectTransform(values).rotation;
+  return new THREE.Quaternion().setFromEuler(new THREE.Euler(
+    THREE.MathUtils.degToRad(rotation.x),
+    THREE.MathUtils.degToRad(rotation.y),
+    THREE.MathUtils.degToRad(rotation.z),
+    "XYZ"
+  ));
+}
+
+function strandObjectTransformValuesAfterHandle(baseValue, edit, handle) {
+  const base = normalizeStrandObjectTransform(baseValue);
+  const translation = handle.position.clone().sub(edit.position);
+  const deltaRotation = handle.quaternion.clone().multiply(edit.quaternion.clone().invert());
+  const nextQuaternion = deltaRotation.multiply(strandObjectTransformQuaternionFromValues(base));
+  const nextEuler = new THREE.Euler().setFromQuaternion(nextQuaternion, "XYZ");
+  const next = {
+    location: {
+      x: base.location.x + translation.x,
+      y: base.location.y + translation.y,
+      z: base.location.z + translation.z
+    },
+    rotation: {
+      x: THREE.MathUtils.radToDeg(nextEuler.x),
+      y: THREE.MathUtils.radToDeg(nextEuler.y),
+      z: THREE.MathUtils.radToDeg(nextEuler.z)
+    },
+    scale: {}
+  };
+  ["x", "y", "z"].forEach((axis) => {
+    const ratio = handle.scale[axis] / Math.max(0.0001, edit.scale[axis]);
+    next.scale[axis] = Math.max(-0.95, (1 + base.scale[axis]) * ratio - 1);
+  });
+  return normalizeStrandObjectTransform(next);
+}
+
+function mirroredStrandObjectTransform(value) {
+  const source = normalizeStrandObjectTransform(value);
+  return {
+    location: { x: -source.location.x, y: source.location.y, z: source.location.z },
+    rotation: { x: source.rotation.x, y: -source.rotation.y, z: -source.rotation.z },
+    scale: { ...source.scale }
+  };
+}
+
+function objectTransformPanelLock() {
+  if (viewportEditMode !== "strand" || componentEditModeActive()) return null;
+  const selected = selectedLocksInOrder();
+  if (selected.length !== 1 || selected[0].locked) return null;
+  return selected[0];
+}
+
+function formatStrandObjectTransformValue(value) {
+  const rounded = Math.abs(Number(value)) < 0.00005 ? 0 : Number(Number(value).toFixed(4));
+  return String(rounded);
+}
+
+function syncStrandObjectTransformPanel({ preview = false } = {}) {
+  const lock = objectTransformPanelLock();
+  strandObjectTransformPanel?.classList.toggle("hidden", !lock);
+  if (!lock) return;
+  let values = normalizeStrandObjectTransform(lock.objectTransform);
+  const editTarget = preview
+    ? activeStrandObjectTransform?.targets?.find((target) => target.lockId === lock.id)
+    : null;
+  if (editTarget) {
+    values = strandObjectTransformValuesAfterHandle(
+      editTarget.objectTransform,
+      activeStrandObjectTransform,
+      strandObjectTransformHandle
+    );
+  }
+  strandObjectTransformInputs.forEach((input) => {
+    const group = input.dataset.objectTransform;
+    const axis = input.dataset.axis;
+    input.disabled = group === "location" && Boolean(lock.branchParentId);
+    if (document.activeElement !== input) input.value = formatStrandObjectTransformValue(values[group][axis]);
+  });
+  strandObjectTransformResetButtons.forEach((button) => {
+    button.disabled = button.dataset.resetObjectTransform === "location" && Boolean(lock.branchParentId);
+  });
+}
+
+function applyStrandObjectTransformPanelValues() {
+  const lock = objectTransformPanelLock();
+  const root = strandObjectRoot(lock);
+  if (!lock || !root) return;
+  const previous = normalizeStrandObjectTransform(lock.objectTransform);
+  const next = normalizeStrandObjectTransform(previous);
+  strandObjectTransformInputs.forEach((input) => {
+    const group = input.dataset.objectTransform;
+    const axis = input.dataset.axis;
+    if (group === "location" && lock.branchParentId) return;
+    const value = Number(input.value);
+    if (Number.isFinite(value)) next[group][axis] = value;
+  });
+  if (JSON.stringify(previous) === JSON.stringify(next)) {
+    syncStrandObjectTransformPanel();
+    return;
+  }
+
+  pushUndoState();
+  strandObjectTransformHandle.position.copy(root);
+  strandObjectTransformHandle.quaternion.copy(
+    objectSpaceEditing ? strandObjectTransformQuaternion(lock) : new THREE.Quaternion()
+  );
+  strandObjectTransformHandle.scale.set(1, 1, 1);
+  strandObjectTransformHandle.userData.lockId = lock.id;
+  beginStrandObjectTransform(strandObjectTransformHandle);
+  const edit = activeStrandObjectTransform;
+  if (!edit) return;
+  edit.authoredTransformOverrides = new Map([[lock.id, next]]);
+  strandObjectTransformHandle.position.add(new THREE.Vector3(
+    next.location.x - previous.location.x,
+    next.location.y - previous.location.y,
+    next.location.z - previous.location.z
+  ));
+  const rotationDelta = strandObjectTransformQuaternionFromValues(next)
+    .multiply(strandObjectTransformQuaternionFromValues(previous).invert());
+  strandObjectTransformHandle.quaternion.premultiply(rotationDelta);
+  ["x", "y", "z"].forEach((axis) => {
+    strandObjectTransformHandle.scale[axis] *= (1 + next.scale[axis]) / Math.max(0.05, 1 + previous.scale[axis]);
+  });
+  finishStrandObjectTransform();
+  syncStrandObjectTransformPanel();
+}
+
+strandObjectTransformInputs.forEach((input) => {
+  input.addEventListener("change", applyStrandObjectTransformPanelValues);
+});
+
+strandObjectTransformResetButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const group = button.dataset.resetObjectTransform;
+    const axis = button.dataset.axis;
+    const input = strandObjectTransformInputs.find((candidate) => (
+      candidate.dataset.objectTransform === group && candidate.dataset.axis === axis
+    ));
+    if (!input) return;
+    input.value = "0";
+    applyStrandObjectTransformPanelValues();
+  });
+});
+
 function strandObjectTransformQuaternion(lock) {
   const index = strandObjectRootIndex(lock);
   return curveFrameAtPoint(lock, index)?.quaternion?.clone() || new THREE.Quaternion();
@@ -11552,7 +12340,8 @@ function strandObjectTransformSnapshot(lock, sharedPivot = null) {
     clumpGuideRestPoints: cloneOptionalVectors(lock.clumpGuideRestPoints),
     rootSurfacePoint: lock.rootSurfacePoint?.clone() || null,
     rootSurfaceNormal: lock.rootSurfaceNormal?.clone() || null,
-    placementFrame: clonePlacementFrame(lock.placementFrame)
+    placementFrame: clonePlacementFrame(lock.placementFrame),
+    objectTransform: normalizeStrandObjectTransform(lock.objectTransform)
   };
 }
 
@@ -11765,6 +12554,8 @@ function commitStrandObjectTransform(edit, handle) {
   edit.targets.forEach((target) => {
     const lock = target.lock;
     if (!lock) return;
+    lock.objectTransform = edit.authoredTransformOverrides?.get(lock.id)
+      || strandObjectTransformValuesAfterHandle(target.objectTransform, edit, handle);
     const pointTransform = lock.branchParentId ? transformPointAroundFixedPivot : transformPoint;
     const mapPoints = (points) => points?.map((point) => pointTransform(point, target.pivot)) || null;
     lock.points = mapPoints(target.points) || lock.points;
@@ -11812,6 +12603,7 @@ function finishStrandObjectTransform() {
     if (lock) updateCurveObjects(lock, { visible: false });
   });
   attachStrandObjectTransform();
+  syncStrandObjectTransformPanel();
 }
 
 function surfaceObjectAnchorPose(lock) {
@@ -11971,6 +12763,9 @@ function beginHandleEdit(handle = transformControls.object) {
     handlePosition: handle.position.clone(),
     handleQuaternion: handle.quaternion.clone(),
     handleScale: handle.scale.clone(),
+    proportionalWeights: proportionalEditing
+      ? lock.points.map((_, index) => proportionalWeight(index, handle.userData.pointIndex))
+      : null,
     selectedIndices
   };
 }
@@ -12163,9 +12958,9 @@ function applyProportionalMove(lock, pointIndex, handle) {
   const delta = handle.position.clone().sub(edit.handlePosition);
   const range = curveSurfaceControllerPointRange(lock);
   for (let i = range.start; i < range.end; i += 1) {
-    const weight = proportionalWeight(i, pointIndex);
+    const weight = edit.proportionalWeights?.[i] ?? proportionalWeight(i, pointIndex);
     if (weight <= 0) continue;
-    lock.points[i].copy(edit.points[i]).add(delta.clone().multiplyScalar(weight));
+    lock.points[i].copy(edit.points[i]).addScaledVector(delta, weight);
   }
 }
 
@@ -12449,7 +13244,6 @@ function updateViewPlaneMove(event) {
   syncLockFromCurve(lock);
   updateLockGeometry(lock);
   syncActiveMirror(lock);
-  syncInputs(lock);
   event.preventDefault();
   event.stopImmediatePropagation();
 }
@@ -12463,6 +13257,7 @@ function endViewPlaneMove(event) {
   viewPlaneMoveDrag = null;
   updateViewPlaneNormalGuide();
   flushPendingLockGeometryUpdates();
+  if (editedLock) syncInputs(editedLock);
   activeHandleEdit = null;
   activeLatticeMultiEdit = null;
   if (renderer.domElement.hasPointerCapture?.(pointerId)) renderer.domElement.releasePointerCapture(pointerId);
@@ -12534,7 +13329,7 @@ function applyProportionalRotate(lock, pointIndex, handle) {
 
   const range = curveSurfaceControllerPointRange(lock);
   for (let i = range.start; i < range.end; i += 1) {
-    const weight = proportionalWeight(i, pointIndex);
+    const weight = edit.proportionalWeights?.[i] ?? proportionalWeight(i, pointIndex);
     if (weight <= 0) continue;
     const weightedQ = identity.clone().slerp(deltaQ, weight);
     lock.points[i].copy(edit.points[i]).sub(pivot).applyQuaternion(weightedQ).add(pivot);
@@ -12561,7 +13356,7 @@ function applyProportionalScale(lock, pointIndex, handle) {
   const ratioX = Math.max(0.18, handle.scale.x) / Math.max(0.18, edit.handleScale.x);
   const ratioZ = Math.max(0.18, handle.scale.z) / Math.max(0.18, edit.handleScale.z);
   for (let i = 0; i < lock.pointScales.length; i += 1) {
-    const weight = proportionalWeight(i, pointIndex);
+    const weight = edit.proportionalWeights?.[i] ?? proportionalWeight(i, pointIndex);
     if (weight <= 0) continue;
     setPointScale(
       lock,
@@ -12599,29 +13394,102 @@ function proportionalStrandVisualsActive(lock) {
     && selectedPoint?.lockId === lock.id;
 }
 
-function strandInfluenceColor(lock, t) {
+const PROPORTIONAL_INFLUENCE_COLOR_STOPS = [
+  { weight: 0, color: new THREE.Color(0x77777d) },
+  { weight: 0.16, color: new THREE.Color(0x4d84ff) },
+  { weight: 0.38, color: new THREE.Color(0x36d87c) },
+  { weight: 0.6, color: new THREE.Color(0xffe35a) },
+  { weight: 0.8, color: new THREE.Color(0xff8b2f) },
+  { weight: 1, color: new THREE.Color(0xff3030) }
+];
+const PROPORTIONAL_INFLUENCE_WHITE = new THREE.Color(1, 1, 1);
+const proportionalInfluenceColorCaches = new WeakMap();
+let proportionalInfluenceColorVersion = 0;
+
+function strandInfluenceColor(lock, t, target = null) {
   if (!proportionalStrandVisualsActive(lock)) {
-    return new THREE.Color(1, 1, 1);
+    return target ? target.copy(PROPORTIONAL_INFLUENCE_WHITE) : PROPORTIONAL_INFLUENCE_WHITE;
   }
+  let cache = proportionalInfluenceColorCaches.get(lock);
+  if (!cache || cache.version !== proportionalInfluenceColorVersion) {
+    cache = { version: proportionalInfluenceColorVersion, colors: new Map() };
+    proportionalInfluenceColorCaches.set(lock, cache);
+  }
+  const key = Math.round(THREE.MathUtils.clamp(Number(t) || 0, 0, 1) * 100000);
+  const cached = cache.colors.get(key);
+  if (cached) return target ? target.copy(cached) : cached;
   const scaledIndex = t * (lock.points.length - 1);
   const weight = proportionalWeight(scaledIndex, selectedPoint.pointIndex);
-  const stops = [
-    { weight: 0, color: new THREE.Color(0x77777d) },
-    { weight: 0.16, color: new THREE.Color(0x4d84ff) },
-    { weight: 0.38, color: new THREE.Color(0x36d87c) },
-    { weight: 0.6, color: new THREE.Color(0xffe35a) },
-    { weight: 0.8, color: new THREE.Color(0xff8b2f) },
-    { weight: 1, color: new THREE.Color(0xff3030) }
-  ];
-  for (let i = 0; i < stops.length - 1; i += 1) {
-    const start = stops[i];
-    const end = stops[i + 1];
+  const color = new THREE.Color();
+  for (let i = 0; i < PROPORTIONAL_INFLUENCE_COLOR_STOPS.length - 1; i += 1) {
+    const start = PROPORTIONAL_INFLUENCE_COLOR_STOPS[i];
+    const end = PROPORTIONAL_INFLUENCE_COLOR_STOPS[i + 1];
     if (weight <= end.weight) {
       const blend = THREE.MathUtils.clamp((weight - start.weight) / (end.weight - start.weight), 0, 1);
-      return start.color.clone().lerp(end.color, blend);
+      color.copy(start.color).lerp(end.color, blend);
+      cache.colors.set(key, color);
+      return target ? target.copy(color) : color;
     }
   }
-  return stops.at(-1).color.clone();
+  color.copy(PROPORTIONAL_INFLUENCE_COLOR_STOPS.at(-1).color);
+  cache.colors.set(key, color);
+  return target ? target.copy(color) : color;
+}
+
+function proportionalGeometryParameters(geometry) {
+  const position = geometry?.getAttribute?.("position");
+  if (!position) return null;
+  const cached = geometry.userData.proportionalParameters;
+  if (cached?.length === position.count) return cached;
+  const uv = geometry.getAttribute("uv");
+  const parameters = new Float32Array(position.count);
+  if (!uv || uv.count !== position.count) {
+    for (let index = 0; index < position.count; index += 1) {
+      parameters[index] = position.count <= 1 ? 0 : index / (position.count - 1);
+    }
+  } else {
+    let minimum = Infinity;
+    let maximum = -Infinity;
+    for (let index = 0; index < uv.count; index += 1) {
+      const value = uv.getY(index);
+      minimum = Math.min(minimum, value);
+      maximum = Math.max(maximum, value);
+    }
+    const range = Math.max(0.000001, maximum - minimum);
+    for (let index = 0; index < uv.count; index += 1) {
+      parameters[index] = THREE.MathUtils.clamp((uv.getY(index) - minimum) / range, 0, 1);
+    }
+  }
+  geometry.userData.proportionalParameters = parameters;
+  return parameters;
+}
+
+function updateProportionalInfluenceColors(lock) {
+  const geometry = lock?.mesh?.geometry;
+  const colorAttribute = geometry?.getAttribute?.("color");
+  const parameters = proportionalGeometryParameters(geometry);
+  if (!colorAttribute || !parameters || colorAttribute.count !== parameters.length) return;
+  const color = new THREE.Color();
+  for (let index = 0; index < colorAttribute.count; index += 1) {
+    strandInfluenceColor(lock, parameters[index], color);
+    colorAttribute.setXYZ(index, color.r, color.g, color.b);
+  }
+  colorAttribute.needsUpdate = true;
+  setStrandSelectionVisual(lock);
+}
+
+function refreshProportionalStrandColors() {
+  proportionalInfluenceColorVersion += 1;
+  const nextLockId = proportionalEditing
+    && ["move", "rotate", "scale", "relax"].includes(activeTool)
+    ? selectedPoint?.lockId || null
+    : null;
+  const affectedIds = new Set([proportionalPreviewLockId, nextLockId].filter(Boolean));
+  affectedIds.forEach((lockId) => {
+    const lock = locks.find((item) => item.id === lockId);
+    if (lock) updateProportionalInfluenceColors(lock);
+  });
+  proportionalPreviewLockId = nextLockId;
 }
 
 function beginRelaxEdit(lock, pointIndex, event) {
@@ -12646,6 +13514,9 @@ function beginRelaxEdit(lock, pointIndex, event) {
     originalGroupLatticeBasePoints: lock.groupLatticeBasePoints?.map((point) => point.clone()) || null,
     originalScales,
     originalTwists,
+    proportionalWeights: proportionalEditing
+      ? lock.points.map((_, index) => proportionalWeight(index, pointIndex))
+      : null,
     relaxPosition,
     relaxRotation
   };
@@ -12668,7 +13539,9 @@ function updateRelaxEdit(event) {
     const sourceScales = relaxedScales.map((scale) => ({ ...scale }));
     const sourceTwists = [...relaxedTwists];
     for (let index = 1; index < relaxedPoints.length - 1; index += 1) {
-      const weight = proportionalEditing ? proportionalWeight(index, relaxEdit.pointIndex) : index === relaxEdit.pointIndex ? 1 : 0;
+      const weight = proportionalEditing
+        ? relaxEdit.proportionalWeights[index]
+        : index === relaxEdit.pointIndex ? 1 : 0;
       const strength = passStrength * weight;
       if (strength <= 0) continue;
       if (relaxEdit.relaxPosition) {
@@ -12710,7 +13583,6 @@ function updateRelaxEdit(event) {
   syncLockFromCurve(lock);
   updateLockGeometry(lock);
   syncActiveMirror(lock);
-  syncInputs(lock);
 }
 
 function endRelaxEdit() {
@@ -12720,6 +13592,7 @@ function endRelaxEdit() {
   commitClumpMemberRestState(mirrorPartnerFor(editedLock));
   relaxEdit = null;
   flushPendingLockGeometryUpdates();
+  if (editedLock) syncInputs(editedLock);
   updateInteractionLocks();
 }
 
@@ -13372,13 +14245,14 @@ function transportedStrandFrameAt(lock, curve, t, options = {}) {
   return frame;
 }
 
-function smoothCoincidentPanelNormals(geometry, tolerance = 0.0001) {
+function smoothCoincidentPanelNormals(geometry, protectedVertices = new Set(), tolerance = 0.0001) {
   const positions = geometry.getAttribute("position");
   const normals = geometry.getAttribute("normal");
   if (!positions || !normals) return;
   const buckets = new Map();
   const inverseTolerance = 1 / tolerance;
   for (let index = 0; index < positions.count; index += 1) {
+    if (protectedVertices.has(index)) continue;
     const key = `${Math.round(positions.getX(index) * inverseTolerance)}|${Math.round(positions.getY(index) * inverseTolerance)}|${Math.round(positions.getZ(index) * inverseTolerance)}`;
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(index);
@@ -13408,19 +14282,30 @@ function smoothCoincidentPanelNormals(geometry, tolerance = 0.0001) {
   normals.needsUpdate = true;
 }
 
-function weldPanelGeometryData(positions, uvs, colors, indices, quadFaces, tolerance = 0.00001) {
+function weldPanelGeometryData(
+  positions,
+  uvs,
+  colors,
+  indices,
+  quadFaces,
+  weldGroups = [],
+  tolerance = 0.00001
+) {
   const inverseTolerance = 1 / tolerance;
   const vertexMap = new Map();
   const remap = new Array(positions.length / 3);
   const weldedPositions = [];
   const weldedUvs = [];
   const weldedColors = [];
+  const protectedVertices = new Set();
   for (let vertex = 0; vertex < remap.length; vertex += 1) {
     const positionOffset = vertex * 3;
     const uvOffset = vertex * 2;
-    const key = [
+    const positionKey = [
       positions[positionOffset], positions[positionOffset + 1], positions[positionOffset + 2]
     ].map((value) => Math.round(value * inverseTolerance)).join("|");
+    const weldGroup = weldGroups[vertex];
+    const key = weldGroup == null ? positionKey : `${positionKey}|${weldGroup}`;
     let weldedVertex = vertexMap.get(key);
     if (weldedVertex == null) {
       weldedVertex = weldedPositions.length / 3;
@@ -13438,13 +14323,15 @@ function weldPanelGeometryData(positions, uvs, colors, indices, quadFaces, toler
       );
     }
     remap[vertex] = weldedVertex;
+    if (weldGroup != null) protectedVertices.add(weldedVertex);
   }
   return {
     positions: weldedPositions,
     uvs: weldedUvs,
     colors: weldedColors,
     indices: indices.map((index) => remap[index]),
-    quadFaces: quadFaces.map((face) => face.map((index) => remap[index]))
+    quadFaces: quadFaces.map((face) => face.map((index) => remap[index])),
+    protectedVertices
   };
 }
 
@@ -13489,7 +14376,10 @@ function surfacePanelPoint(lock, t, u, shell = 0) {
 function createPanelStrandGeometry(lock) {
   const latticeControlled = lock.geometryType === "surface";
   const curve = latticeControlled ? null : strandGeometryCurve(lock);
-  const lengthLoops = THREE.MathUtils.clamp(Math.round(lock.panelLengthLoops ?? 10), 3, 32);
+  const baseLengthLoops = THREE.MathUtils.clamp(Math.round(lock.panelLengthLoops ?? 10), 3, 32);
+  const tipLoops = THREE.MathUtils.clamp(Math.round(lock.panelTipLoops ?? 0), 0, 16);
+  const rowParameters = panelTipLoopParameters(baseLengthLoops, tipLoops);
+  const lengthLoops = rowParameters.length - 1;
   const widthLoops = THREE.MathUtils.clamp(
     Math.round(lock.panelWidthLoops ?? 6),
     latticeControlled ? 2 : 3,
@@ -13500,7 +14390,9 @@ function createPanelStrandGeometry(lock) {
   const curvature = Number(lock.panelCurvature ?? 0.18);
   const leftEdgeTrim = THREE.MathUtils.clamp(Number(lock.panelLeftEdgeTrim ?? 0), 0, 0.75);
   const rightEdgeTrim = THREE.MathUtils.clamp(Number(lock.panelRightEdgeTrim ?? 0), 0, 0.75);
+  const tipCurve = latticeControlled ? 0 : THREE.MathUtils.clamp(Number(lock.panelTipCurve ?? 0), -1, 1);
   const splitEnabled = lock.panelSplitEnabled !== false;
+  const hardSplitEdges = splitEnabled && Boolean(lock.panelHardZipperEdges);
   const splitGap = THREE.MathUtils.clamp(Number(lock.panelSplitGap ?? 0.07), 0, 0.28);
   const splits = splitEnabled
     ? normalizePanelSplits(lock.panelSplits, lock.panelSplitHeight, widthLoops - 1).filter((split) => split.height > 0.005)
@@ -13509,7 +14401,7 @@ function createPanelStrandGeometry(lock) {
   let previousFrame = null;
   if (!latticeControlled) {
     for (let row = 0; row <= lengthLoops; row += 1) {
-      previousFrame = strandGeometryFrameAt(lock, curve, row / lengthLoops, previousFrame);
+      previousFrame = strandGeometryFrameAt(lock, curve, rowParameters[row], previousFrame);
       frames.push(previousFrame);
     }
   }
@@ -13517,9 +14409,31 @@ function createPanelStrandGeometry(lock) {
   const positions = [];
   const uvs = [];
   const colors = [];
+  const weldGroups = [];
   const indices = [];
   const quadFaces = [];
   const triangleEdgeMasks = [];
+  const hardEdgeVertexCache = new Map();
+  const duplicateHardEdgeVertex = (sourceIndex, group) => {
+    const cacheKey = `${sourceIndex}|${group}`;
+    const cached = hardEdgeVertexCache.get(cacheKey);
+    if (cached != null) return cached;
+    const duplicate = positions.length / 3;
+    positions.push(
+      positions[sourceIndex * 3],
+      positions[sourceIndex * 3 + 1],
+      positions[sourceIndex * 3 + 2]
+    );
+    uvs.push(uvs[sourceIndex * 2], uvs[sourceIndex * 2 + 1]);
+    colors.push(
+      colors[sourceIndex * 3],
+      colors[sourceIndex * 3 + 1],
+      colors[sourceIndex * 3 + 2]
+    );
+    weldGroups.push(group);
+    hardEdgeVertexCache.set(cacheKey, duplicate);
+    return duplicate;
+  };
   const addQuad = (a, b, c, d, reverse = false) => {
     if (reverse) {
       indices.push(a, c, b, a, d, c);
@@ -13550,10 +14464,12 @@ function createPanelStrandGeometry(lock) {
     ));
   };
   const panelFrameAt = (t) => {
-    const scaled = THREE.MathUtils.clamp(t, 0, 1) * lengthLoops;
-    const lowerIndex = Math.min(lengthLoops, Math.floor(scaled));
-    const upperIndex = Math.min(lengthLoops, lowerIndex + 1);
-    const alpha = scaled - lowerIndex;
+    const parameter = THREE.MathUtils.clamp(t, 0, 1);
+    let upperIndex = rowParameters.findIndex((rowParameter) => rowParameter >= parameter);
+    if (upperIndex < 0) upperIndex = lengthLoops;
+    const lowerIndex = Math.max(0, upperIndex - 1);
+    const interval = Math.max(0.000001, rowParameters[upperIndex] - rowParameters[lowerIndex]);
+    const alpha = upperIndex === lowerIndex ? 0 : (parameter - rowParameters[lowerIndex]) / interval;
     const lower = frames[lowerIndex];
     const upper = frames[upperIndex];
     const point = curve.getPoint(t);
@@ -13588,9 +14504,9 @@ function createPanelStrandGeometry(lock) {
       );
   };
   const panelPoint = (row, u, shell) => {
-    const t = row / lengthLoops;
+    const t = rowParameters[row];
     const edgeTrim = THREE.MathUtils.lerp(leftEdgeTrim, rightEdgeTrim, (u + 1) * 0.5);
-    const sampleT = THREE.MathUtils.clamp(t * (1 - edgeTrim), 0, 1);
+    const sampleT = panelTipCurveParameter(t, u, tipCurve, edgeTrim);
     return rawPanelPoint(sampleT, u, shell);
   };
   const addPatch = (rowStart, rowEnd, uStart, uEnd, columns, options = {}) => {
@@ -13599,7 +14515,8 @@ function createPanelStrandGeometry(lock) {
     const back = [];
     for (let localRow = 0; localRow <= rows; localRow += 1) {
       const row = rowStart + localRow;
-      const color = strandInfluenceColor(lock, row / lengthLoops);
+      const rowParameter = rowParameters[row];
+      const color = strandInfluenceColor(lock, rowParameter);
       const frontRow = [];
       const backRow = [];
       for (let column = 0; column <= columns; column += 1) {
@@ -13608,15 +14525,30 @@ function createPanelStrandGeometry(lock) {
         const backPoint = panelPoint(row, u, -1);
         frontRow.push(positions.length / 3);
         positions.push(frontPoint.x, frontPoint.y, frontPoint.z);
-        uvs.push((u + 1) * 0.5, row / lengthLoops);
+        uvs.push((u + 1) * 0.5, rowParameter);
         colors.push(color.r, color.g, color.b);
+        weldGroups.push(null);
         backRow.push(positions.length / 3);
         positions.push(backPoint.x, backPoint.y, backPoint.z);
-        uvs.push((u + 1) * 0.5, row / lengthLoops);
+        uvs.push((u + 1) * 0.5, rowParameter);
         colors.push(color.r, color.g, color.b);
+        weldGroups.push(null);
       }
       front.push(frontRow);
       back.push(backRow);
+    }
+    if (hardSplitEdges) {
+      for (let row = 0; row <= rows; row += 1) {
+        const globalRow = rowStart + row;
+        if (globalRow >= Number(options.leftWallStartRow ?? rowStart)) {
+          weldGroups[front[row][0]] = `hard-surface-left-${options.patchIndex}`;
+          weldGroups[back[row][0]] = `hard-surface-left-${options.patchIndex}`;
+        }
+        if (globalRow >= Number(options.rightWallStartRow ?? rowStart)) {
+          weldGroups[front[row][columns]] = `hard-surface-right-${options.patchIndex}`;
+          weldGroups[back[row][columns]] = `hard-surface-right-${options.patchIndex}`;
+        }
+      }
     }
     for (let row = 0; row < rows; row += 1) {
       for (let column = 0; column < columns; column += 1) {
@@ -13625,28 +14557,52 @@ function createPanelStrandGeometry(lock) {
       }
       const globalRow = rowStart + row;
       if (globalRow >= Number(options.leftWallStartRow ?? rowStart)) {
-        addQuad(front[row][0], back[row][0], back[row + 1][0], front[row + 1][0]);
+        const group = `hard-left-${options.patchIndex}`;
+        addQuad(
+          hardSplitEdges ? duplicateHardEdgeVertex(front[row][0], group) : front[row][0],
+          hardSplitEdges ? duplicateHardEdgeVertex(back[row][0], group) : back[row][0],
+          hardSplitEdges ? duplicateHardEdgeVertex(back[row + 1][0], group) : back[row + 1][0],
+          hardSplitEdges ? duplicateHardEdgeVertex(front[row + 1][0], group) : front[row + 1][0]
+        );
       }
       if (globalRow >= Number(options.rightWallStartRow ?? rowStart)) {
-        addQuad(front[row][columns], front[row + 1][columns], back[row + 1][columns], back[row][columns]);
+        const group = `hard-right-${options.patchIndex}`;
+        addQuad(
+          hardSplitEdges ? duplicateHardEdgeVertex(front[row][columns], group) : front[row][columns],
+          hardSplitEdges ? duplicateHardEdgeVertex(front[row + 1][columns], group) : front[row + 1][columns],
+          hardSplitEdges ? duplicateHardEdgeVertex(back[row + 1][columns], group) : back[row + 1][columns],
+          hardSplitEdges ? duplicateHardEdgeVertex(back[row][columns], group) : back[row][columns]
+        );
       }
     }
     if (options.capStart) {
+      const group = `hard-start-${options.patchIndex}`;
       for (let column = 0; column < columns; column += 1) {
-        addQuad(front[0][column], front[0][column + 1], back[0][column + 1], back[0][column]);
+        addQuad(
+          hardSplitEdges ? duplicateHardEdgeVertex(front[0][column], group) : front[0][column],
+          hardSplitEdges ? duplicateHardEdgeVertex(front[0][column + 1], group) : front[0][column + 1],
+          hardSplitEdges ? duplicateHardEdgeVertex(back[0][column + 1], group) : back[0][column + 1],
+          hardSplitEdges ? duplicateHardEdgeVertex(back[0][column], group) : back[0][column]
+        );
       }
     }
     if (options.capEnd) {
       const last = rows;
+      const group = `hard-end-${options.patchIndex}`;
       for (let column = 0; column < columns; column += 1) {
-        addQuad(front[last][column], back[last][column], back[last][column + 1], front[last][column + 1]);
+        addQuad(
+          hardSplitEdges ? duplicateHardEdgeVertex(front[last][column], group) : front[last][column],
+          hardSplitEdges ? duplicateHardEdgeVertex(back[last][column], group) : back[last][column],
+          hardSplitEdges ? duplicateHardEdgeVertex(back[last][column + 1], group) : back[last][column + 1],
+          hardSplitEdges ? duplicateHardEdgeVertex(front[last][column + 1], group) : front[last][column + 1]
+        );
       }
     }
   };
 
   const splitOpening = (split, row) => {
     const start = 1 - split.height;
-    const t = row / lengthLoops;
+    const t = rowParameters[row];
     if (t <= start) return 0;
     return splitGap * THREE.MathUtils.smoothstep((t - start) / Math.max(0.0001, 1 - start), 0, 1);
   };
@@ -13675,10 +14631,15 @@ function createPanelStrandGeometry(lock) {
       ? rightSplit.position - splitOpening(rightSplit, row)
       : 1;
     addPatch(0, lengthLoops, uStart, uEnd, columns, {
+      patchIndex: segment,
       capStart: true,
       capEnd: true,
-      leftWallStartRow: leftSplit ? Math.ceil((1 - leftSplit.height) * lengthLoops) : 0,
-      rightWallStartRow: rightSplit ? Math.ceil((1 - rightSplit.height) * lengthLoops) : 0
+      leftWallStartRow: leftSplit
+        ? rowParameters.findIndex((parameter) => parameter >= 1 - leftSplit.height)
+        : 0,
+      rightWallStartRow: rightSplit
+        ? rowParameters.findIndex((parameter) => parameter >= 1 - rightSplit.height)
+        : 0
     });
   }
 
@@ -13690,7 +14651,7 @@ function createPanelStrandGeometry(lock) {
     }
   }
 
-  const welded = weldPanelGeometryData(positions, uvs, colors, indices, quadFaces);
+  const welded = weldPanelGeometryData(positions, uvs, colors, indices, quadFaces, weldGroups);
 
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(welded.positions, 3));
@@ -13699,8 +14660,9 @@ function createPanelStrandGeometry(lock) {
   geometry.setIndex(welded.indices);
   geometry.userData.quadFaces = welded.quadFaces;
   geometry.userData.triangleEdgeMasks = triangleEdgeMasks;
+  geometry.userData.topology = "quad-patches-with-zipper-boundaries";
   geometry.computeVertexNormals();
-  smoothCoincidentPanelNormals(geometry);
+  smoothCoincidentPanelNormals(geometry, welded.protectedVertices);
   geometry.computeBoundingSphere();
   return geometry;
 }
@@ -13745,6 +14707,31 @@ function orientedQuadFace(vertices, a, b, c, d, outward) {
   return normal.dot(outward) < 0 ? [a, d, c, b] : [a, b, c, d];
 }
 
+function orientedPolygonFace(vertices, face, outward) {
+  if (!Array.isArray(face) || face.length < 3) return [];
+  const pointA = new THREE.Vector3(
+    vertices[face[0] * 3],
+    vertices[face[0] * 3 + 1],
+    vertices[face[0] * 3 + 2]
+  );
+  for (let index = 1; index < face.length - 1; index += 1) {
+    const pointB = new THREE.Vector3(
+      vertices[face[index] * 3],
+      vertices[face[index] * 3 + 1],
+      vertices[face[index] * 3 + 2]
+    );
+    const pointC = new THREE.Vector3(
+      vertices[face[index + 1] * 3],
+      vertices[face[index + 1] * 3 + 1],
+      vertices[face[index + 1] * 3 + 2]
+    );
+    const normal = pointB.sub(pointA).cross(pointC.sub(pointA));
+    if (normal.lengthSq() <= 0.000000000001) continue;
+    return normal.dot(outward) < 0 ? [...face].reverse() : [...face];
+  }
+  return [];
+}
+
 function createSplitStrandGeometry(lock, curve, profilePoints) {
   const radialSegments = THREE.MathUtils.clamp(Math.round(lock.radialSegments || 10), 6, 32);
   const profileCurve = createSmoothSweepProfileCurve(profilePoints);
@@ -13783,6 +14770,8 @@ function createSplitStrandGeometry(lock, curve, profilePoints) {
   const uvs = [];
   const colors = [];
   const indices = [];
+  const authoredFaces = [];
+  const triangleEdgeMasks = [];
   const splitHeight = THREE.MathUtils.clamp(Number(lock.strandSplitHeight ?? 0.3), 0.02, 0.8);
   const splitStart = 1 - splitHeight;
   const splitGap = THREE.MathUtils.clamp(Number(lock.strandSplitGap ?? 0.12), 0, 0.5);
@@ -13829,6 +14818,9 @@ function createSplitStrandGeometry(lock, curve, profilePoints) {
         const c = sectionStart + (row + 1) * ringSize + column;
         const d = sectionStart + (row + 1) * ringSize + next;
         indices.push(a, c, b, b, c, d);
+        const topology = quadCellTopology(vertices, [a, c, d, b]);
+        authoredFaces.push(...topology.faces);
+        triangleEdgeMasks.push(...topology.triangleEdgeMasks);
         sideTriangleCount += 2;
       }
     }
@@ -13840,9 +14832,36 @@ function createSplitStrandGeometry(lock, curve, profilePoints) {
     const endOffset = sectionStart + actualLengthSegments * ringSize;
     const startOutward = frames[0].y.clone().negate();
     const endOutward = frames[actualLengthSegments].y;
+    const startFace = orientedPolygonFace(
+      vertices,
+      Array.from({ length: ringSize }, (_, index) => sectionStart + index),
+      startOutward
+    );
+    const endFace = orientedPolygonFace(
+      vertices,
+      Array.from({ length: ringSize }, (_, index) => endOffset + index),
+      endOutward
+    );
+    if (startFace.length) authoredFaces.push(startFace);
+    if (endFace.length) authoredFaces.push(endFace);
+    const boundaryEdge = (a, b, offset) => {
+      const first = a - offset;
+      const second = b - offset;
+      const difference = Math.abs(first - second);
+      return difference === 1 || difference === ringSize - 1 ? 1 : 0;
+    };
+    const capEdgeMask = (face, offset) => [
+      boundaryEdge(face[1], face[2], offset),
+      boundaryEdge(face[2], face[0], offset),
+      boundaryEdge(face[0], face[1], offset)
+    ];
     capTriangles.forEach(([a, b, c]) => {
+      const startIndex = indices.length;
       pushOrientedTriangle(indices, vertices, sectionStart + a, sectionStart + b, sectionStart + c, startOutward);
+      triangleEdgeMasks.push(capEdgeMask(indices.slice(startIndex, startIndex + 3), sectionStart));
+      const endIndex = indices.length;
       pushOrientedTriangle(indices, vertices, endOffset + a, endOffset + b, endOffset + c, endOutward);
+      triangleEdgeMasks.push(capEdgeMask(indices.slice(endIndex, endIndex + 3), endOffset));
     });
   });
 
@@ -13852,8 +14871,11 @@ function createSplitStrandGeometry(lock, curve, profilePoints) {
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
+  geometry.userData.quadFaces = authoredFaces;
+  geometry.userData.triangleEdgeMasks = triangleEdgeMasks;
   geometry.userData.sideTriangleCount = sideTriangleCount;
   geometry.userData.actualLengthSegments = actualLengthSegments;
+  geometry.userData.topology = "quad-strips-with-polygon-caps";
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
   return geometry;
@@ -13974,6 +14996,9 @@ function createPolyGeometry(lock) {
   geometry.setIndex(buffers.indices);
   geometry.userData.quadFaces = buffers.quadFaces;
   geometry.userData.triangleQuadIds = buffers.triangleQuadIds;
+  if (lock.geometryType === "hair-shell") {
+    geometry.userData.hairShellFaceSources = [...(lock.hairShellFaceSources || [])];
+  }
   geometry.userData.openSurface = true;
   if (buffers.indices.length) geometry.computeVertexNormals();
   geometry.computeBoundingBox();
@@ -14291,17 +15316,26 @@ function createCompoundStrandGeometry(lock) {
   if (!bridgePlan) return createConnectedCurveCardGeometry(lock);
 
   const profileCount = profileSamples.length;
-  const connectedSegmentCount = compoundConnectedSegmentCount(renderRows - 1);
+  const bridgeZippers = normalizeCompoundBridgeZippers(
+    lock.compoundBridgeZippers,
+    controllerCount - 1
+  );
+  const bridgeConnectedSegmentCounts = compoundBridgeSegmentCounts(
+    renderRows - 1,
+    bridgeZippers,
+    controllerCount - 1
+  );
+  const controllerWidthScales = compoundControllerWidthScales(bridgeZippers, controllerCount);
   const vertexIndex = (row, controllerIndex, profileIndex) => (
     (row * controllerCount + controllerIndex) * profileCount + profileIndex
   );
   for (let row = 0; row < renderRows; row += 1) {
     const t = row / Math.max(1, renderRows - 1);
-    const warpedProfiles = controllerLocks.map((controller) => strandProfileTopologyAt(
+    const warpedProfiles = controllerLocks.map((controller, controllerIndex) => strandProfileTopologyAt(
       controller,
       t,
       profileSamples,
-      sampleScale(controller.pointScales, t, "x"),
+      sampleScale(controller.pointScales, t, "x") * controllerWidthScales[controllerIndex],
       sampleScale(controller.pointScales, t, "z")
     ));
     const color = strandInfluenceColor(lock, t);
@@ -14330,8 +15364,10 @@ function createCompoundStrandGeometry(lock) {
     Math.max(authoredBridgeLoops, bridgeSmoothing > 0 ? 1 : 0)
   );
   const bridgeSegmentCount = bridgeParameters.length - 1;
-  const bridgeVertexIndices = bridgePlan.bridges.map((bridge) => (
-    Array.from({ length: connectedSegmentCount + 1 }, (_, row) => {
+  const bridgeVertexIndices = bridgePlan.bridges.map((bridge, bridgeIndex) => {
+    const seam = Math.floor(bridgeIndex / 2);
+    const connectedSegmentCount = bridgeConnectedSegmentCounts[seam];
+    return Array.from({ length: connectedSegmentCount + 1 }, (_, row) => {
       const leftIndex = vertexIndex(row, bridge.leftController, bridge.leftProfileIndex);
       const rightIndex = vertexIndex(row, bridge.rightController, bridge.rightProfileIndex);
       return bridgeParameters.map((parameter, parameterIndex) => {
@@ -14369,14 +15405,21 @@ function createCompoundStrandGeometry(lock) {
         colors.push(color.r, color.g, color.b);
         return index;
       });
-    })
-  ));
+    });
+  });
 
   for (let row = 0; row < renderRows - 1; row += 1) {
-    const connectedSection = row < connectedSegmentCount;
     for (let controllerIndex = 0; controllerIndex < controllerCount; controllerIndex += 1) {
       for (let profileIndex = 0; profileIndex < profileCount; profileIndex += 1) {
-        if (connectedSection && bridgePlan.removedEdges[controllerIndex].includes(profileIndex)) continue;
+        const connectedSeam = profileIndex === bridgePlan.rightEdge && controllerIndex < controllerCount - 1
+          ? controllerIndex
+          : profileIndex === bridgePlan.leftEdge && controllerIndex > 0
+            ? controllerIndex - 1
+            : null;
+        if (
+          connectedSeam !== null
+          && row < bridgeConnectedSegmentCounts[connectedSeam]
+        ) continue;
         const nextProfile = (profileIndex + 1) % profileCount;
         const a = vertexIndex(row, controllerIndex, profileIndex);
         const b = vertexIndex(row, controllerIndex, nextProfile);
@@ -14386,8 +15429,9 @@ function createCompoundStrandGeometry(lock) {
         quadFaces.push([a, c, d, b]);
       }
     }
-    if (connectedSection) {
-      bridgePlan.bridges.forEach((bridge, bridgeIndex) => {
+    bridgePlan.bridges.forEach((bridge, bridgeIndex) => {
+      const seam = Math.floor(bridgeIndex / 2);
+      if (row < bridgeConnectedSegmentCounts[seam]) {
         const outward = controllerFrames[bridge.leftController][row].z.clone()
           .add(controllerFrames[bridge.rightController][row].z);
         if (outward.lengthSq() < 0.0001) {
@@ -14403,13 +15447,14 @@ function createCompoundStrandGeometry(lock) {
           pushOrientedTriangle(indices, vertices, b, c, d, outward);
           quadFaces.push([a, c, d, b]);
         }
-      });
-    }
+      }
+    });
   }
 
   for (let seam = 0; seam < controllerCount - 1; seam += 1) {
     const upperBridgeIndex = seam * 2;
     const lowerBridgeIndex = upperBridgeIndex + 1;
+    const connectedSegmentCount = bridgeConnectedSegmentCounts[seam];
     const capOutward = controllerFrames[seam][connectedSegmentCount].y.clone()
       .add(controllerFrames[seam + 1][connectedSegmentCount].y);
     if (capOutward.lengthSq() < 0.0001) {
@@ -14446,7 +15491,9 @@ function createCompoundStrandGeometry(lock) {
   geometry.userData.curveSurfaceControllerCount = controllerCount;
   geometry.userData.actualLengthSegments = renderRows - 1;
   geometry.userData.compoundStrand = true;
-  geometry.userData.compoundConnectedSegmentCount = connectedSegmentCount;
+  geometry.userData.compoundConnectedSegmentCount = Math.max(...bridgeConnectedSegmentCounts);
+  geometry.userData.compoundBridgeConnectedSegmentCounts = [...bridgeConnectedSegmentCounts];
+  geometry.userData.compoundBridgeZippers = bridgeZippers.map((zipper) => ({ ...zipper }));
   geometry.userData.compoundIndependentControllerFrames = true;
   geometry.userData.compoundBridgeLoops = authoredBridgeLoops;
   geometry.userData.compoundBridgeSmoothing = bridgeSmoothing;
@@ -14525,7 +15572,7 @@ function createHairGeometry(lock) {
 }
 
 function createBaseHairGeometry(lock) {
-  if (lock.geometryType === "poly") return createPolyGeometry(lock);
+  if (["poly", "hair-shell"].includes(lock.geometryType)) return createPolyGeometry(lock);
   if (lock.geometryType === "curve-surface") {
     return lock.curveSurfaceCompoundProfile
       ? createCompoundStrandGeometry(lock)
@@ -14559,13 +15606,16 @@ function createBaseHairGeometry(lock) {
   const uvs = [];
   const colors = [];
   const indices = [];
+  const triangleEdgeMasks = [];
   const profileSlotPoints = profileTopology.slots.map((profileSample) => profileSample.point);
+  const frames = [];
 
   let previousFrame = null;
   curveParameters.forEach((t) => {
     const point = curve.getPoint(t);
     const frame = strandGeometryFrameAt(lock, curve, t, previousFrame);
     previousFrame = frame;
+    frames.push(frame);
     const scaleX = sampleScale(lock.pointScales, t, "x");
     const scaleZ = sampleScale(lock.pointScales, t, "z");
     const warpedProfile = strandProfileTopologyAt(lock, t, profileSlotPoints, scaleX, scaleZ);
@@ -14602,6 +15652,162 @@ function createBaseHairGeometry(lock) {
   const endColor = strandInfluenceColor(lock, 1);
   colors.push(endColor.r, endColor.g, endColor.b);
 
+  const vertexVector = (values, index, itemSize = 3) => new THREE.Vector3(
+    values[index * itemSize],
+    values[index * itemSize + 1],
+    values[index * itemSize + 2]
+  );
+  const interpolateTriangleAttribute = (values, itemSize, triangle, weights, component) => (
+    values[triangle[0] * itemSize + component] * weights.x
+    + values[triangle[1] * itemSize + component] * weights.y
+    + values[triangle[2] * itemSize + component] * weights.z
+  );
+  const parentTriangleIntersection = (ray, triangle, gridCoordinates) => {
+    const trianglePoints = triangle.map((index) => vertexVector(vertices, index));
+    const position = ray.intersectTriangle(
+      trianglePoints[0], trianglePoints[1], trianglePoints[2], false, new THREE.Vector3()
+    );
+    if (!position) return null;
+    const weights = THREE.Triangle.getBarycoord(
+      position,
+      trianglePoints[0],
+      trianglePoints[1],
+      trianglePoints[2],
+      new THREE.Vector3()
+    );
+    if (!weights) return null;
+    const interpolateGrid = (axis) => (
+      gridCoordinates[0][axis] * weights.x
+      + gridCoordinates[1][axis] * weights.y
+      + gridCoordinates[2][axis] * weights.z
+    );
+    const normal = new THREE.Vector3(
+      interpolateTriangleAttribute(normals, 3, triangle, weights, 0),
+      interpolateTriangleAttribute(normals, 3, triangle, weights, 1),
+      interpolateTriangleAttribute(normals, 3, triangle, weights, 2)
+    ).normalize();
+    const tangent = new THREE.Vector3(
+      interpolateTriangleAttribute(tangents, 4, triangle, weights, 0),
+      interpolateTriangleAttribute(tangents, 4, triangle, weights, 1),
+      interpolateTriangleAttribute(tangents, 4, triangle, weights, 2)
+    ).normalize();
+    return {
+      position,
+      normal,
+      tangent,
+      tangentW: interpolateTriangleAttribute(tangents, 4, triangle, weights, 3),
+      uv: new THREE.Vector2(
+        interpolateTriangleAttribute(uvs, 2, triangle, weights, 0),
+        interpolateTriangleAttribute(uvs, 2, triangle, weights, 1)
+      ),
+      color: new THREE.Color(
+        interpolateTriangleAttribute(colors, 3, triangle, weights, 0),
+        interpolateTriangleAttribute(colors, 3, triangle, weights, 1),
+        interpolateTriangleAttribute(colors, 3, triangle, weights, 2)
+      ),
+      gridU: interpolateGrid("u"),
+      gridV: interpolateGrid("v"),
+      distance: ray.origin.distanceTo(position)
+    };
+  };
+  const projectBranchProfileToParent = (child, profile) => {
+    const childCurve = strandGeometryCurve(child);
+    const childFrame = strandGeometryFrameAt(child, childCurve, 0);
+    const probeDistance = Math.max(
+      1,
+      curve.getLength() + childCurve.getLength() + Number(lock.width || 0) * 4
+    );
+    const hits = [];
+    let closestRow = 0;
+    let closestDistance = Infinity;
+    frames.slice(0, -1).forEach((frame, row) => {
+      const distance = frame.point.distanceToSquared(childFrame.point);
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestRow = row;
+      }
+    });
+    const firstCandidateRow = Math.max(0, closestRow - 2);
+    const lastCandidateRow = Math.min(actualLengthSegments - 1, closestRow + 2);
+    for (const profilePoint of resampleClosedProfilePoints(profile, 12)) {
+      const rootProfilePoint = childFrame.point.clone()
+        .addScaledVector(childFrame.x, profilePoint.x)
+        .addScaledVector(childFrame.z, profilePoint.z);
+      const ray = new THREE.Ray(
+        rootProfilePoint.clone().addScaledVector(childFrame.y, probeDistance),
+        childFrame.y.clone().negate()
+      );
+      let bestHit = null;
+      for (let row = firstCandidateRow; row <= lastCandidateRow; row += 1) {
+        profileTopology.edges.forEach((edge, edgeIndex) => {
+          const a = row * profileVertexCount + edge.start;
+          const b = row * profileVertexCount + edge.end;
+          const c = (row + 1) * profileVertexCount + edge.start;
+          const d = (row + 1) * profileVertexCount + edge.end;
+          const candidates = [
+            parentTriangleIntersection(ray, [a, c, b], [
+              { u: edgeIndex, v: row },
+              { u: edgeIndex, v: row + 1 },
+              { u: edgeIndex + 1, v: row }
+            ]),
+            parentTriangleIntersection(ray, [b, c, d], [
+              { u: edgeIndex + 1, v: row },
+              { u: edgeIndex, v: row + 1 },
+              { u: edgeIndex + 1, v: row + 1 }
+            ])
+          ].filter(Boolean);
+          candidates.forEach((candidate) => {
+            if (!bestHit || candidate.distance < bestHit.distance) bestHit = candidate;
+          });
+        });
+      }
+      if (!bestHit) return [];
+      hits.push(bestHit);
+    }
+    if (hits.length < 6) return [];
+    for (let index = 1; index < hits.length; index += 1) {
+      while (hits[index].gridU - hits[index - 1].gridU > profileTopology.edges.length * 0.5) {
+        hits[index].gridU -= profileTopology.edges.length;
+      }
+      while (hits[index].gridU - hits[index - 1].gridU < -profileTopology.edges.length * 0.5) {
+        hits[index].gridU += profileTopology.edges.length;
+      }
+    }
+    return hits;
+  };
+
+  const branchKnifeLoops = [];
+  branchChildrenFor(lock).forEach((child) => {
+    if (
+      child.proceduralBranch
+      || child.geometryType !== "strand"
+      || child.hairCard
+      || child.strandSplitEnabled
+      || !child.points?.length
+    ) return;
+    const childProfilePoints = trimmedSweepProfile(
+      (child.sweepProfile?.length >= 4 ? child.sweepProfile : DEFAULT_SWEEP_PROFILE)
+        .map((point) => ({ ...point, z: point.z + Number(child.profileOffset || 0) })),
+      child
+    );
+    const childProfileCurve = createSmoothSweepProfileCurve(childProfilePoints);
+    const childTopology = createSweepProfileTopology(
+      childProfilePoints,
+      THREE.MathUtils.clamp(Math.round(child.radialSegments || 10), 4, 24),
+      childProfileCurve
+    );
+    const childProfile = strandProfileTopologyAt(
+      child,
+      0,
+      childTopology.slots.map((sample) => sample.point),
+      sampleScale(child.pointScales, 0, "x"),
+      sampleScale(child.pointScales, 0, "z")
+    );
+    const hits = projectBranchProfileToParent(child, childProfile);
+    if (hits.length < 6) return;
+    branchKnifeLoops.push(hits);
+  });
+
   for (let i = 0; i < actualLengthSegments; i += 1) {
     profileTopology.edges.forEach((edge) => {
       const a = i * profileVertexCount + edge.start;
@@ -14609,6 +15815,7 @@ function createBaseHairGeometry(lock) {
       const c = (i + 1) * profileVertexCount + edge.start;
       const d = (i + 1) * profileVertexCount + edge.end;
       indices.push(a, c, b, b, c, d);
+      triangleEdgeMasks.push([0, 1, 1], [1, 1, 0]);
     });
   }
 
@@ -14618,7 +15825,9 @@ function createBaseHairGeometry(lock) {
     const c = actualLengthSegments * profileVertexCount + edge.start;
     const d = actualLengthSegments * profileVertexCount + edge.end;
     pushOrientedTriangle(indices, vertices, startCenter, a, b, startFrame.y.clone().negate());
+    triangleEdgeMasks.push([1, 1, 1]);
     pushOrientedTriangle(indices, vertices, endCenter, c, d, endFrame.y);
+    triangleEdgeMasks.push([1, 1, 1]);
   });
 
   const geometry = new THREE.BufferGeometry();
@@ -14628,8 +15837,13 @@ function createBaseHairGeometry(lock) {
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geometry.setIndex(indices);
-  geometry.userData.sideTriangleCount = actualLengthSegments * profileTopology.edges.length * 2;
+  geometry.userData.sideTriangleCount = indices.length / 3 - profileTopology.edges.length * 2;
   geometry.userData.actualLengthSegments = actualLengthSegments;
+  geometry.userData.triangleEdgeMasks = triangleEdgeMasks;
+  geometry.userData.branchKnifeLoops = branchKnifeLoops.map((loop) => loop.map((hit) => (
+    hit.position.clone().addScaledVector(hit.normal, 0.003)
+  )));
+  geometry.userData.branchKnifeImprintCount = branchKnifeLoops.length;
   geometry.computeVertexNormals();
   return geometry;
 }
@@ -14646,6 +15860,70 @@ function activeHairMaterialDefinition() {
   const definition = hairMaterialDefinition(activeHairMaterialId);
   activeHairMaterialId = definition.id;
   return definition;
+}
+
+function hairGradientCss(stops) {
+  return `linear-gradient(90deg, ${normalizeHairGradientStops(stops)
+    .map((stop) => `${stop.color} ${Math.round(stop.position * 100)}%`)
+    .join(", ")})`;
+}
+
+function sampleHairGradientColor(stops, position, target = new THREE.Color()) {
+  const normalized = normalizeHairGradientStops(stops);
+  const t = THREE.MathUtils.clamp(Number(position) || 0, 0, 1);
+  let right = normalized.findIndex((stop) => stop.position >= t);
+  if (right <= 0) return target.set(normalized[Math.max(0, right)]?.color || normalized[0].color);
+  if (right < 0) return target.set(normalized.at(-1).color);
+  const left = normalized[right - 1];
+  const next = normalized[right];
+  const span = Math.max(0.000001, next.position - left.position);
+  return target.set(left.color).lerp(new THREE.Color(next.color), (t - left.position) / span);
+}
+
+function syncHairGradientTexture(definition) {
+  let texture = hairGradientTextures.get(definition.id);
+  if (!texture) {
+    texture = new THREE.DataTexture(new Uint8Array(256 * 4), 1, 256, THREE.RGBAFormat);
+    texture.name = `HairBaseGradient:${definition.id}`;
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.generateMipmaps = false;
+    hairGradientTextures.set(definition.id, texture);
+  }
+  const data = texture.image.data;
+  const color = new THREE.Color();
+  for (let index = 0; index < 256; index += 1) {
+    sampleHairGradientColor(definition.baseColorGradientStops, index / 255, color);
+    const offset = index * 4;
+    data[offset] = Math.round(THREE.MathUtils.clamp(color.r, 0, 1) * 255);
+    data[offset + 1] = Math.round(THREE.MathUtils.clamp(color.g, 0, 1) * 255);
+    data[offset + 2] = Math.round(THREE.MathUtils.clamp(color.b, 0, 1) * 255);
+    data[offset + 3] = 255;
+  }
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function hairMaterialGradientActive(lock) {
+  return Boolean(materialForLock(lock)?.baseColorGradientEnabled && !showGroupColors);
+}
+
+function strandGradientTintColor(lock) {
+  const white = new THREE.Color(0xffffff);
+  if (lock.locked) return `#${white.lerp(new THREE.Color(0x747780), 0.18).getHexString()}`;
+  if (sculptBrushSelectionMaskActive() && !sculptBrushSelectionAllows(lock)) return 0x474747;
+  if (proportionalStrandVisualsActive(lock)) return 0xffffff;
+  const selectedLock = getSelectedLock();
+  const selectedClumpId = clumpViewportSelection ? selectedLock?.clumpId : null;
+  if (selectedClumpId && lock.clumpId === selectedClumpId) {
+    return `#${white.lerp(new THREE.Color(lock.id === selectedId ? 0x76d4d9 : 0x5bbec4), 0.18).getHexString()}`;
+  }
+  if (lock.id === selectedId) return `#${white.lerp(new THREE.Color(STRAND_SELECTION_OUTLINE_COLOR), 0.12).getHexString()}`;
+  if (selectedStrandIds.has(lock.id)) return `#${white.lerp(new THREE.Color(STRAND_SELECTION_OUTLINE_COLOR), 0.08).getHexString()}`;
+  if (strandMirrorPartnerHighlighted(lock)) return `#${white.lerp(new THREE.Color(STRAND_MIRROR_OUTLINE_COLOR), 0.12).getHexString()}`;
+  return 0xffffff;
 }
 
 function strandDisplayColor(lock) {
@@ -14679,12 +15957,28 @@ function setAnimeHairBaseColor(material, color) {
   material.color.set(color);
 }
 
+function applyHairBaseGradient(material, lock) {
+  const definition = materialForLock(lock);
+  const enabled = hairMaterialGradientActive(lock);
+  const texture = enabled ? syncHairGradientTexture(definition) : null;
+  if (material.userData.hairShader === ANIME_ANISOTROPIC_SHADER) {
+    material.uniforms.uBaseGradient.value = texture || material.uniforms.uBaseGradient.value;
+    material.uniforms.uUseBaseGradient.value = enabled ? 1 : 0;
+    return;
+  }
+  const hadMap = Boolean(material.map);
+  material.map = texture;
+  if (hadMap !== Boolean(texture)) material.needsUpdate = true;
+}
+
 function createAnimeAnisotropicMaterial(lock) {
   const definition = materialForLock(lock);
   const material = new THREE.ShaderMaterial({
     name: "HairAnimeAnisotropicMaterial",
     uniforms: {
-      uBaseColor: { value: new THREE.Color(strandDisplayColor(lock)) },
+      uBaseColor: { value: new THREE.Color(hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandDisplayColor(lock)) },
+      uBaseGradient: { value: syncHairGradientTexture(definition) },
+      uUseBaseGradient: { value: definition.baseColorGradientEnabled && !showGroupColors ? 1 : 0 },
       uShadowColor: { value: new THREE.Color(definition.animeShadowColor) },
       uSoftShadowColor: { value: new THREE.Color(definition.animeSoftShadowColor) },
       uHighlightColor: { value: new THREE.Color(definition.animeHighlightColor) },
@@ -14729,7 +16023,8 @@ function createHairMaterial(lock) {
   if (definition.shader === LAMBERT_SHADER) {
     const material = new THREE.MeshLambertMaterial({
       name: "HairLambertMaterial",
-      color: strandDisplayColor(lock),
+      color: hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandDisplayColor(lock),
+      map: hairMaterialGradientActive(lock) ? syncHairGradientTexture(definition) : null,
       vertexColors: true,
       side: THREE.FrontSide,
       transparent: false,
@@ -14742,7 +16037,8 @@ function createHairMaterial(lock) {
   }
   const material = new THREE.MeshPhysicalMaterial({
     name: "HairAnisotropicMaterial",
-    color: strandDisplayColor(lock),
+    color: hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandDisplayColor(lock),
+    map: hairMaterialGradientActive(lock) ? syncHairGradientTexture(definition) : null,
     roughness: definition.roughness,
     metalness: 0,
     anisotropy: 1,
@@ -14797,6 +16093,7 @@ function createStrandSelectionOutline(geometry) {
 
 function strandUsesDoubleSidedMaterial(lock) {
   return ["braid", "poly"].includes(lock?.geometryType)
+    || lock?.hairShellPrimitive === "arc"
     || Boolean(lock?.hairCard)
     || (
       lock?.geometryType === "curve-surface"
@@ -14818,7 +16115,11 @@ function applyMaterialDefinitionToLock(lock) {
     previousMaterial.dispose();
   }
   lock.mesh.material.userData.definition = definition;
-  setAnimeHairBaseColor(lock.mesh.material, strandViewportBaseColor(lock));
+  setAnimeHairBaseColor(
+    lock.mesh.material,
+    hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandViewportBaseColor(lock)
+  );
+  applyHairBaseGradient(lock.mesh.material, lock);
   if (lock.mesh.material.userData.hairShader === STANDARD_ANISOTROPIC_SHADER) {
     lock.mesh.material.roughness = definition.roughness;
   } else if (lock.mesh.material.userData.hairShader === ANIME_ANISOTROPIC_SHADER) {
@@ -14829,6 +16130,123 @@ function applyMaterialDefinitionToLock(lock) {
   }
   updateStrandSelectionHighlightForLock(lock);
   if (uvCheckerEnabled) ensureUvCheckerForLock(lock);
+}
+
+function loadCustomHairMaterialPresets() {
+  try {
+    customHairMaterialPresets = normalizeHairMaterialPresetLibrary(
+      JSON.parse(localStorage.getItem(HAIR_MATERIAL_PRESET_STORAGE_KEY) || "null")
+    );
+  } catch (error) {
+    console.warn("Could not load material presets", error);
+    customHairMaterialPresets = [];
+  }
+}
+
+function saveCustomHairMaterialPresets() {
+  try {
+    localStorage.setItem(HAIR_MATERIAL_PRESET_STORAGE_KEY, JSON.stringify(customHairMaterialPresets));
+  } catch (error) {
+    console.warn("Could not save material presets", error);
+  }
+}
+
+function populateHairMaterialPresetSelect(selectedId = activeHairMaterialPresetId) {
+  const currentOption = document.createElement("option");
+  currentOption.value = "";
+  currentOption.textContent = "Current Material";
+  hairMaterialPresetInput.replaceChildren(currentOption, ...customHairMaterialPresets.map((preset) => {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = preset.name;
+    return option;
+  }));
+  activeHairMaterialPresetId = customHairMaterialPresets.some((preset) => preset.id === selectedId)
+    ? selectedId
+    : "";
+  hairMaterialPresetInput.value = activeHairMaterialPresetId;
+  removeHairMaterialPresetButton.disabled = !activeHairMaterialPresetId;
+}
+
+function markHairMaterialPresetCustom() {
+  if (!activeHairMaterialPresetId && !hairMaterialPresetInput.value) return;
+  activeHairMaterialPresetId = "";
+  hairMaterialPresetInput.value = "";
+  removeHairMaterialPresetButton.disabled = true;
+}
+
+function openSaveHairMaterialPreset() {
+  pendingShapePresetSave = null;
+  pendingCreationPresetType = null;
+  pendingHairMaterialPresetSave = hairMaterialPresetValue(activeHairMaterialDefinition());
+  creationPresetDialogTitle.textContent = "Create Material Preset";
+  creationPresetDescription.textContent = "Save the current material settings in this browser.";
+  creationPresetNameInput.value = activeHairMaterialDefinition().name || "New Material Preset";
+  creationPresetDialog.showModal();
+  requestAnimationFrame(() => {
+    creationPresetNameInput.focus();
+    creationPresetNameInput.select();
+  });
+}
+
+function commitCustomHairMaterialPreset() {
+  const name = creationPresetNameInput.value.trim();
+  if (!pendingHairMaterialPresetSave || !name) return false;
+  const preset = {
+    id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    name,
+    value: hairMaterialPresetValue(pendingHairMaterialPresetSave)
+  };
+  customHairMaterialPresets.push(preset);
+  saveCustomHairMaterialPresets();
+  activeHairMaterialPresetId = preset.id;
+  populateHairMaterialPresetSelect(preset.id);
+  pendingHairMaterialPresetSave = null;
+  creationPresetDialog.close();
+  return true;
+}
+
+function applyHairMaterialPreset(presetId) {
+  const preset = customHairMaterialPresets.find((item) => item.id === presetId);
+  if (!preset) {
+    markHairMaterialPresetCustom();
+    return;
+  }
+  pushUndoState();
+  const definition = activeHairMaterialDefinition();
+  const applied = normalizeHairMaterialDefinition({
+    id: definition.id,
+    name: preset.name,
+    ...hairMaterialPresetValue(preset.value)
+  });
+  Object.keys(definition).forEach((key) => delete definition[key]);
+  Object.assign(definition, applied);
+  activeHairMaterialPresetId = preset.id;
+  refreshMaterialUsers(definition.id);
+  syncHairMaterialEditor();
+  populateHairMaterialPresetSelect(preset.id);
+}
+
+function openRemoveHairMaterialPreset() {
+  const preset = customHairMaterialPresets.find((item) => item.id === hairMaterialPresetInput.value);
+  if (!preset) return;
+  pendingShapePresetRemoval = null;
+  pendingCreationPresetRemoval = null;
+  pendingHairMaterialPresetRemoval = preset.id;
+  removeCreationPresetDialogTitle.textContent = "Remove Material Preset";
+  removeCreationPresetMessage.textContent = `Remove "${preset.name}"? This only removes it from this browser.`;
+  removeCreationPresetDialog.showModal();
+}
+
+function commitRemoveHairMaterialPreset() {
+  if (!pendingHairMaterialPresetRemoval) return false;
+  customHairMaterialPresets = removeHairMaterialPreset(customHairMaterialPresets, pendingHairMaterialPresetRemoval);
+  saveCustomHairMaterialPresets();
+  pendingHairMaterialPresetRemoval = null;
+  activeHairMaterialPresetId = "";
+  populateHairMaterialPresetSelect();
+  removeCreationPresetDialog.close();
+  return true;
 }
 
 function refreshMaterialUsers(materialId) {
@@ -14854,9 +16272,13 @@ function renderHairMaterialOutliner() {
 
     const swatch = document.createElement("span");
     swatch.className = "material-outliner-swatch";
-    swatch.style.backgroundColor = normalizeHairShader(material.shader) === ANIME_ANISOTROPIC_SHADER
-      ? material.animeBaseColor
-      : material.color;
+    if (material.baseColorGradientEnabled) {
+      swatch.style.background = hairGradientCss(material.baseColorGradientStops);
+    } else {
+      swatch.style.background = normalizeHairShader(material.shader) === ANIME_ANISOTROPIC_SHADER
+        ? material.animeBaseColor
+        : material.color;
+    }
     const name = document.createElement("span");
     name.className = "material-outliner-name";
     name.textContent = material.name;
@@ -14870,6 +16292,69 @@ function renderHairMaterialOutliner() {
   }));
 }
 
+function updateHairMaterialGradientDefinition({ interactive = false } = {}) {
+  const definition = activeHairMaterialDefinition();
+  definition.baseColorGradientStops = normalizeHairGradientStops(
+    definition.baseColorGradientStops,
+    definition.shader === ANIME_ANISOTROPIC_SHADER ? definition.animeBaseColor : definition.color
+  );
+  syncHairGradientTexture(definition);
+  if (!interactive) renderHairMaterialOutliner();
+  syncHairMaterialGradientEditor();
+}
+
+function syncHairMaterialGradientEditor() {
+  const definition = activeHairMaterialDefinition();
+  const stops = normalizeHairGradientStops(
+    definition.baseColorGradientStops,
+    definition.shader === ANIME_ANISOTROPIC_SHADER ? definition.animeBaseColor : definition.color
+  );
+  definition.baseColorGradientStops = stops;
+  activeHairGradientStopIndex = THREE.MathUtils.clamp(activeHairGradientStopIndex, 0, stops.length - 1);
+  const background = hairGradientCss(stops);
+  hairMaterialGradientPreview.style.background = background;
+  hairMaterialGradientTrack.style.background = background;
+  hairMaterialGradientEnabledInput.checked = definition.baseColorGradientEnabled;
+  editHairMaterialGradientButton.disabled = !definition.baseColorGradientEnabled;
+  const selected = stops[activeHairGradientStopIndex];
+  hairMaterialGradientStopColorInput.value = selected.color;
+  hairMaterialGradientStopPositionInput.value = String(selected.position);
+  hairMaterialGradientStopPositionValue.textContent = `${Math.round(selected.position * 100)}%`;
+  deleteHairMaterialGradientStopButton.disabled = stops.length <= 2;
+  addHairMaterialGradientStopButton.disabled = stops.length >= MAX_HAIR_GRADIENT_STOPS;
+  hairMaterialGradientTrack.replaceChildren(...stops.map((stop, index) => {
+    const marker = document.createElement("button");
+    marker.type = "button";
+    marker.className = "material-gradient-stop";
+    marker.classList.toggle("active", index === activeHairGradientStopIndex);
+    marker.dataset.gradientStopIndex = String(index);
+    marker.style.left = `${stop.position * 100}%`;
+    marker.style.background = stop.color;
+    marker.title = `${Math.round(stop.position * 100)}%`;
+    marker.setAttribute("aria-label", `Gradient stop ${index + 1}`);
+    return marker;
+  }));
+}
+
+function openHairMaterialGradientEditor() {
+  activeHairGradientStopIndex = 0;
+  syncHairMaterialGradientEditor();
+  hairMaterialGradientDialog.showModal();
+}
+
+function setActiveHairGradientStopPosition(value, { interactive = false } = {}) {
+  const definition = activeHairMaterialDefinition();
+  const stops = normalizeHairGradientStops(definition.baseColorGradientStops);
+  const selected = stops[activeHairGradientStopIndex];
+  if (!selected) return;
+  selected.position = THREE.MathUtils.clamp(Number(value) || 0, 0, 1);
+  const selectedReference = selected;
+  stops.sort((first, second) => first.position - second.position);
+  activeHairGradientStopIndex = stops.indexOf(selectedReference);
+  definition.baseColorGradientStops = stops;
+  updateHairMaterialGradientDefinition({ interactive });
+}
+
 function renderHairMaterialOptions(selectedMaterialId = DEFAULT_HAIR_MATERIAL_ID) {
   hairMaterialSelect.replaceChildren(...hairMaterialDefinitions.map((material) => {
     const option = document.createElement("option");
@@ -14881,7 +16366,10 @@ function renderHairMaterialOptions(selectedMaterialId = DEFAULT_HAIR_MATERIAL_ID
 }
 
 function syncHairMaterialEditor(lock = null) {
-  if (lock) activeHairMaterialId = materialForLock(lock).id;
+  if (lock) {
+    activeHairMaterialId = materialForLock(lock).id;
+    markHairMaterialPresetCustom();
+  }
   const definition = activeHairMaterialDefinition();
   const assignedMaterialId = getSelectedLock()?.materialId || DEFAULT_HAIR_MATERIAL_ID;
   renderHairMaterialOptions(assignedMaterialId);
@@ -14891,6 +16379,7 @@ function syncHairMaterialEditor(lock = null) {
   hairMaterialColorInput.value = definition.color;
   hairMaterialRoughnessInput.value = String(definition.roughness);
   hairMaterialRoughnessValue.textContent = definition.roughness.toFixed(2);
+  syncHairMaterialGradientEditor();
   const animeShader = definition.shader === ANIME_ANISOTROPIC_SHADER;
   hairMaterialStandardControls.classList.toggle("hidden", animeShader);
   hairMaterialRoughnessControl.classList.toggle("hidden", definition.shader !== STANDARD_ANISOTROPIC_SHADER);
@@ -14915,6 +16404,7 @@ function createProjectHairMaterial({ assignToSelected = false } = {}) {
   material.name = `Hair Material ${hairMaterialIndex}`;
   hairMaterialDefinitions.push(material);
   activeHairMaterialId = material.id;
+  markHairMaterialPresetCustom();
   if (assignToSelected && lock) {
     editSelectedLocks((item) => {
       item.materialId = material.id;
@@ -14932,10 +16422,15 @@ function createHairTopologyGeometry(sourceGeometry) {
   const edgeMask = new Float32Array(vertexCount * 3);
   const sideTriangleCount = sourceGeometry.userData.sideTriangleCount || 0;
   const authoredEdgeMasks = sourceGeometry.userData.triangleEdgeMasks;
+  const authoredFaceMasks = triangleEdgeMasksFromFaces(
+    sourceGeometry.getIndex()?.array,
+    sourceGeometry.userData.quadFaces
+  );
   for (let index = 0; index < vertexCount; index += 3) {
     barycentric.set([1, 0, 0, 0, 1, 0, 0, 0, 1], index * 3);
     const triangleIndex = index / 3;
-    const mask = authoredEdgeMasks?.[triangleIndex]
+    const mask = authoredFaceMasks[triangleIndex]
+      || authoredEdgeMasks?.[triangleIndex]
       || (triangleIndex < sideTriangleCount
         ? triangleIndex % 2 === 0 ? [0, 1, 1] : [1, 1, 0]
         : [1, 1, 1]);
@@ -14944,6 +16439,53 @@ function createHairTopologyGeometry(sourceGeometry) {
   geometry.setAttribute("barycentric", new THREE.BufferAttribute(barycentric, 3));
   geometry.setAttribute("edgeMask", new THREE.BufferAttribute(edgeMask, 3));
   return geometry;
+}
+
+function createBranchKnifeOverlayGeometry(sourceGeometry) {
+  const positions = [];
+  (sourceGeometry.userData.branchKnifeLoops || []).forEach((loop) => {
+    if (!Array.isArray(loop) || loop.length < 3) return;
+    loop.forEach((point, index) => {
+      const next = loop[(index + 1) % loop.length];
+      positions.push(point.x, point.y, point.z, next.x, next.y, next.z);
+    });
+  });
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  return geometry;
+}
+
+function syncBranchKnifeOverlay(overlay, sourceGeometry) {
+  if (!overlay) return;
+  let knifeOverlay = overlay.userData.branchKnifeOverlay;
+  if (!knifeOverlay) {
+    knifeOverlay = new THREE.LineSegments(
+      createBranchKnifeOverlayGeometry(sourceGeometry),
+      new THREE.LineBasicMaterial({
+        color: 0x66f5ff,
+        transparent: true,
+        opacity: 0.9,
+        depthTest: true,
+        depthWrite: false
+      })
+    );
+    knifeOverlay.renderOrder = 4;
+    knifeOverlay.frustumCulled = false;
+    overlay.userData.branchKnifeOverlay = knifeOverlay;
+    overlay.add(knifeOverlay);
+    return;
+  }
+  knifeOverlay.geometry.dispose();
+  knifeOverlay.geometry = createBranchKnifeOverlayGeometry(sourceGeometry);
+}
+
+function disposeBranchKnifeOverlay(overlay) {
+  const knifeOverlay = overlay?.userData?.branchKnifeOverlay;
+  if (!knifeOverlay) return;
+  knifeOverlay.geometry.dispose();
+  knifeOverlay.material.dispose();
+  overlay.remove(knifeOverlay);
+  delete overlay.userData.branchKnifeOverlay;
 }
 
 function createHairTopologyOverlay(sourceGeometry) {
@@ -14990,6 +16532,7 @@ function createHairTopologyOverlay(sourceGeometry) {
   );
   overlay.visible = hairTopologyVisible;
   overlay.renderOrder = 3;
+  syncBranchKnifeOverlay(overlay, sourceGeometry);
   return overlay;
 }
 
@@ -15920,31 +17463,64 @@ function taperMeshPointExtentPerValue(lock, position, side, axis) {
   );
 }
 
-function updateTaperMeshPoints() {
-  clearTaperMeshPoints();
-  const lock = taperCurveEdit?.type === "strand"
-    ? locks.find((item) => item.id === taperCurveEdit.id)
-    : null;
-  const target = activeTaperTarget();
-  const curvePoints = activeTaperCurve();
-  const applicable = Boolean(
-    taperMeshPointsVisible
-    && ["taperCurve", "depthCurve", "twistCurve"].includes(taperCurveEdit?.curveKey)
-    && lock
-    && curvePoints?.length
+function moveCurveControlsApplicable(lock = getSelectedLock()) {
+  return Boolean(
+    activeTool === "move"
+    && viewportEditMode === "strand"
+    && componentEditModeActive()
+    && lock?.points?.length >= 2
+    && !["poly", "surface", "hair-shell"].includes(lock.geometryType)
   );
-  if (!applicable) return;
+}
 
-  const curve = strandGeometryCurve(lock);
-  const editingTwist = twistCurveEditing();
-  const axis = editingTwist ? "twist" : taperCurveEdit.curveKey === "depthCurve" ? "z" : "x";
+function moveGrabHandlesApplicable(lock = getSelectedLock()) {
+  return Boolean(
+    activeTool === "move"
+    && viewportEditMode === "strand"
+    && componentEditModeActive()
+    && lock?.geometryType === "strand"
+    && lock.points?.length >= 2
+  );
+}
+
+function moveGrabHandleVisible(dimension) {
+  if (moveGrabHandleVisibility.uniform) return dimension === "uniform";
+  return dimension !== "uniform" && Boolean(moveGrabHandleVisibility[dimension]);
+}
+
+function visibleTaperMeshCurveEdits() {
+  const edits = [];
+  const selectedLock = getSelectedLock();
+  if (moveCurveControlsApplicable(selectedLock)) {
+    Object.entries(moveCurveControlVisibility).forEach(([curveKey, visible]) => {
+      if (visible) edits.push({ lock: selectedLock, curveKey });
+    });
+  }
+  if (
+    taperMeshPointsVisible
+    && taperCurveEdit?.type === "strand"
+    && ["taperCurve", "depthCurve", "twistCurve"].includes(taperCurveEdit.curveKey)
+  ) {
+    const lock = locks.find((item) => item.id === taperCurveEdit.id);
+    if (lock && !edits.some((edit) => edit.lock === lock && edit.curveKey === taperCurveEdit.curveKey)) {
+      edits.push({ lock, curveKey: taperCurveEdit.curveKey });
+    }
+  }
+  return edits;
+}
+
+function addTaperMeshPointsForCurve(lock, curveKey) {
+  const editingTwist = twistCurveEditing(curveKey);
+  const axis = editingTwist ? "twist" : curveKey === "depthCurve" ? "z" : "x";
   const frameAxis = axis === "z" ? "z" : "x";
   const asymmetric = Boolean(
-    axis === "z" ? target?.asymmetricDepthCurve : target?.asymmetricWidthCurve
+    axis === "z" ? lock.asymmetricDepthCurve : lock.asymmetricWidthCurve
   );
   const primaryCurve = editingTwist
-    ? target.twistCurve
-    : axis === "z" ? target.depthCurve : target.taperCurve;
+    ? lock.twistCurve
+    : axis === "z" ? lock.depthCurve : lock.taperCurve;
+  if (!primaryCurve?.length) return;
+  const curve = strandGeometryCurve(lock);
   const twistDisplayRange = editingTwist
     ? taperMeshPointDrag?.displayRange || twistCurveDisplayRange(
         primaryCurve,
@@ -15958,7 +17534,7 @@ function updateTaperMeshPoints() {
     ? [
         { curvePoints: primaryCurve, sides: [1], curveSide: "primary" },
         {
-          curvePoints: ensureSecondaryTaperCurve(target, taperCurveEdit.curveKey),
+          curvePoints: ensureSecondaryTaperCurve(lock, curveKey),
           sides: [-1],
           curveSide: "secondary"
         }
@@ -15966,9 +17542,12 @@ function updateTaperMeshPoints() {
     : [{ curvePoints: primaryCurve, sides: [-1, 1], curveSide: "primary" }];
   if (editingTwist) addTwistMeshCurvePath(lock, curve, primaryCurve, twistDisplayRange);
   curveSides.forEach(({ curvePoints: sideCurvePoints, sides, curveSide }) => sideCurvePoints.forEach((point, pointIndex) => {
-    const frame = taperMeshPointFrame(lock, curve, point.position, taperCurveEdit.curveKey);
+    const frame = taperMeshPointFrame(lock, curve, point.position, curveKey);
     sides.forEach((side) => {
-      const selected = curveSide === taperCurveEdit.side && pointIndex === taperCurveEdit.selectedIndex;
+      const selected = taperCurveEdit?.id === lock.id
+        && taperCurveEdit.curveKey === curveKey
+        && curveSide === taperCurveEdit.side
+        && pointIndex === taperCurveEdit.selectedIndex;
       const handle = new THREE.Mesh(
         taperMeshPointGeometry,
         selected ? taperMeshPointSelectedMaterial : taperMeshPointMaterial
@@ -15986,6 +17565,7 @@ function updateTaperMeshPoints() {
       handle.userData.pointIndex = pointIndex;
       handle.userData.side = side;
       handle.userData.curveSide = curveSide;
+      handle.userData.curveKey = curveKey;
       if (selected) {
         const center = new THREE.Mesh(taperMeshPointGeometry, taperMeshPointCenterMaterial);
         center.scale.setScalar(0.46);
@@ -15996,7 +17576,13 @@ function updateTaperMeshPoints() {
       taperMeshPointsGroup.add(handle);
     });
   }));
-  taperMeshPointsGroup.visible = true;
+}
+
+function updateTaperMeshPoints() {
+  clearTaperMeshPoints();
+  const edits = visibleTaperMeshCurveEdits();
+  edits.forEach(({ lock, curveKey }) => addTaperMeshPointsForCurve(lock, curveKey));
+  taperMeshPointsGroup.visible = edits.length > 0;
 }
 
 function setTaperMeshPointsVisible(visible) {
@@ -16340,6 +17926,7 @@ function closeTaperCurveEditor() {
   setTaperMeshPointsVisible(false);
   taperMeshPointsToggleRow.classList.add("hidden");
   taperCurveEdit = null;
+  updateTaperMeshPoints();
   if (taperCurveEditor.open) taperCurveEditor.close();
   updateViewportStatsVisibility();
 }
@@ -16497,6 +18084,7 @@ function addLock(presetName, overrides = {}, options = {}) {
     materialId: base.materialId || DEFAULT_HAIR_MATERIAL_ID,
     outlinerVisible: base.outlinerVisible !== false,
     locked: Boolean(base.locked),
+    objectTransform: normalizeStrandObjectTransform(base.objectTransform),
     proceduralParentHidden: Boolean(base.proceduralParentHidden),
     proceduralDrawGuide: Boolean(base.proceduralDrawGuide),
     proceduralAccessory: Boolean(base.proceduralAccessory),
@@ -16571,7 +18159,7 @@ function addLock(presetName, overrides = {}, options = {}) {
     ? "panel"
     : base.geometryType === "curve-surface" && base.points?.length !== curveSurfaceColumns * curveSurfaceRows
       ? "strand"
-      : ["braid", "panel", "surface", "curve-surface", "poly"].includes(base.geometryType) ? base.geometryType : "strand";
+      : ["braid", "panel", "surface", "curve-surface", "poly", "hair-shell"].includes(base.geometryType) ? base.geometryType : "strand";
   lock.surfaceColumns = lock.geometryType === "surface" ? surfaceColumns : null;
   lock.surfaceRows = lock.geometryType === "surface" ? surfaceRows : null;
   lock.curveSurfaceColumns = lock.geometryType === "curve-surface" ? curveSurfaceColumns : null;
@@ -16584,6 +18172,9 @@ function addLock(presetName, overrides = {}, options = {}) {
     : null;
   lock.compoundBridgeSmoothing = lock.curveSurfaceCompoundProfile
     ? THREE.MathUtils.clamp(Number(base.compoundBridgeSmoothing) || 0, 0, 1)
+    : null;
+  lock.compoundBridgeZippers = lock.curveSurfaceCompoundProfile
+    ? normalizeCompoundBridgeZippers(base.compoundBridgeZippers, curveSurfaceColumns - 1)
     : null;
   lock.curveSurfaceCenterCurve = lock.geometryType === "curve-surface"
     ? THREE.MathUtils.clamp(Math.round(Number(base.curveSurfaceCenterCurve) || 0), 0, curveSurfaceColumns - 1)
@@ -16612,7 +18203,14 @@ function addLock(presetName, overrides = {}, options = {}) {
     : Number(base.panelCurvature ?? panelCreationDefaults.panelCurvature);
   lock.panelLeftEdgeTrim = Number(base.panelLeftEdgeTrim ?? panelCreationDefaults.panelLeftEdgeTrim);
   lock.panelRightEdgeTrim = Number(base.panelRightEdgeTrim ?? panelCreationDefaults.panelRightEdgeTrim);
+  lock.panelTipCurve = lock.geometryType === "surface"
+    ? 0
+    : THREE.MathUtils.clamp(Number(base.panelTipCurve ?? panelCreationDefaults.panelTipCurve), -1, 1);
+  lock.panelTipLoops = lock.geometryType === "surface"
+    ? 0
+    : THREE.MathUtils.clamp(Math.round(Number(base.panelTipLoops ?? panelCreationDefaults.panelTipLoops)), 0, 16);
   lock.panelSplitEnabled = base.panelSplitEnabled !== false;
+  lock.panelHardZipperEdges = Boolean(base.panelHardZipperEdges);
   lock.panelSplitSnapToLoops = base.panelSplitSnapToLoops !== false;
   lock.panelSplitHeight = Number(base.panelSplitHeight ?? panelCreationDefaults.panelSplitHeight);
   lock.panelSplits = clonePanelSplits(base.panelSplits, lock.panelSplitHeight);
@@ -16647,8 +18245,35 @@ function addLock(presetName, overrides = {}, options = {}) {
   lock.rootSurfaceNormal = base.rootSurfaceNormal?.clone()?.normalize() || null;
   lock.sweepProfile = (base.sweepProfile || topologyDefaults.sweepProfile).map((point) => ({ ...point }));
   lock.points = base.points ? base.points.map((point) => point.clone()) : createCurvePoints(lock);
-  lock.polyFaces = lock.geometryType === "poly" ? normalizePolyFaces(lock.points, base.polyFaces) : [];
-  lock.rootAttachmentEnabled = lock.geometryType !== "poly" && base.rootAttachmentEnabled !== false;
+  lock.polyFaces = ["poly", "hair-shell"].includes(lock.geometryType)
+    ? normalizePolyFaces(lock.points, base.polyFaces)
+    : [];
+  lock.hairShellBasePoints = lock.geometryType === "hair-shell"
+    ? (base.hairShellBasePoints || lock.points).map((point) => point.clone())
+    : [];
+  lock.hairShellBaseFaces = lock.geometryType === "hair-shell"
+    ? (base.hairShellBaseFaces || lock.polyFaces).map((face) => [...face])
+    : [];
+  lock.hairShellExtrusions = lock.geometryType === "hair-shell"
+    ? (base.hairShellExtrusions || []).map((extrusion) => ({
+        faceIndex: Number(extrusion.faceIndex),
+        loops: Number(extrusion.loops),
+        curvePoints: (extrusion.curvePoints || []).map((point) => point.clone())
+      }))
+    : [];
+  lock.hairShellFaceSources = lock.geometryType === "hair-shell"
+    ? [...(base.hairShellFaceSources || lock.polyFaces.map((_, index) => index))]
+    : [];
+  lock.hairShellPrimitive = lock.geometryType === "hair-shell" && base.hairShellPrimitive === "arc"
+    ? "arc"
+    : null;
+  lock.arcHairSurfaceSettings = lock.hairShellPrimitive === "arc"
+    ? normalizeArcHairSurfaceSettings(base.arcHairSurfaceSettings)
+    : null;
+  lock.arcHairSurfaceOrigin = lock.hairShellPrimitive === "arc"
+    ? (base.arcHairSurfaceOrigin?.clone?.() || dataToVector(base.arcHairSurfaceOrigin || { x: 0, y: 0, z: 0 }))
+    : null;
+  lock.rootAttachmentEnabled = !["poly", "hair-shell"].includes(lock.geometryType) && base.rootAttachmentEnabled !== false;
   lock.rootAttachment = lock.rootAttachmentEnabled
     ? rootAttachmentFromData(base.rootAttachment || null, lock)
     : null;
@@ -16661,7 +18286,7 @@ function addLock(presetName, overrides = {}, options = {}) {
   lock.pointWidths = lock.points.map(() => 1);
   lock.baseWidth = lock.width;
   fitPointAttributes(lock, lock.points.length);
-  if (base.layerOffsetApplied == null && lock.geometryType !== "poly") applyLayerOffset(lock);
+  if (base.layerOffsetApplied == null && !["poly", "hair-shell"].includes(lock.geometryType)) applyLayerOffset(lock);
   lock.mesh = new THREE.Mesh(
     createHairGeometry(lock),
     createHairMaterial(lock)
@@ -16687,6 +18312,7 @@ function addLock(presetName, overrides = {}, options = {}) {
     renderLockList();
     updateCount();
   }
+  requestShadowMapRefresh();
   return lock;
 }
 
@@ -16732,6 +18358,11 @@ function createMirrorPartner(lock, options = {}) {
   if (!lock) return null;
   const existing = mirrorPartnerFor(lock);
   if (existing) return existing;
+  const mirroredWidthCurves = mirroredAsymmetricTaperCurves(
+    lock.taperCurve,
+    lock.taperCurveSecondary,
+    lock.asymmetricWidthCurve
+  );
   const mirrored = addLock("front", {
     materialId: lock.materialId || DEFAULT_HAIR_MATERIAL_ID,
     scalpRegion: mirroredScalpRegion(lock.scalpRegion),
@@ -16753,6 +18384,7 @@ function createMirrorPartner(lock, options = {}) {
     curveSurfaceCompoundProfile: Boolean(lock.curveSurfaceCompoundProfile),
     compoundBridgeLoops: Number(lock.compoundBridgeLoops || 0),
     compoundBridgeSmoothing: Number(lock.compoundBridgeSmoothing || 0),
+    compoundBridgeZippers: lock.compoundBridgeZippers?.map((zipper) => ({ ...zipper })) || null,
     curveSurfaceCenterCurve: lock.curveSurfaceCenterCurve,
     curveSurfaceStripWidth: lock.curveSurfaceStripWidth,
     curveSurfaceSide: mirroredVector(lock.curveSurfaceSide),
@@ -16768,6 +18400,8 @@ function createMirrorPartner(lock, options = {}) {
     panelCurvature: lock.panelCurvature,
     panelLeftEdgeTrim: lock.panelLeftEdgeTrim,
     panelRightEdgeTrim: lock.panelRightEdgeTrim,
+    panelTipCurve: lock.panelTipCurve,
+    panelTipLoops: lock.panelTipLoops,
     profileTrimLeft: lock.profileTrimRight,
     profileTrimRight: lock.profileTrimLeft,
     profileTrimRoundness: lock.profileTrimRoundness,
@@ -16777,6 +18411,7 @@ function createMirrorPartner(lock, options = {}) {
     strandSplitHeight: Number(lock.strandSplitHeight ?? 0.3),
     strandSplitGap: Number(lock.strandSplitGap ?? 0.12),
     panelSplitEnabled: lock.panelSplitEnabled,
+    panelHardZipperEdges: Boolean(lock.panelHardZipperEdges),
     panelSplitSnapToLoops: lock.panelSplitSnapToLoops !== false,
     panelSplitHeight: lock.panelSplitHeight,
     panelSplits: clonePanelSplits(lock.panelSplits, lock.panelSplitHeight)
@@ -16790,9 +18425,9 @@ function createMirrorPartner(lock, options = {}) {
     widthScale: lock.widthScale,
     depthScale: lock.depthScale,
     depth: lock.depth,
-    taperCurve: lock.taperCurve.map((point) => ({ ...point })),
+    taperCurve: mirroredWidthCurves.primary,
     depthCurve: lock.depthCurve.map((point) => ({ ...point })),
-    taperCurveSecondary: lock.taperCurveSecondary.map((point) => ({ ...point })),
+    taperCurveSecondary: mirroredWidthCurves.secondary,
     depthCurveSecondary: lock.depthCurveSecondary.map((point) => ({ ...point })),
     asymmetricWidthCurve: Boolean(lock.asymmetricWidthCurve),
     asymmetricDepthCurve: Boolean(lock.asymmetricDepthCurve),
@@ -16868,6 +18503,7 @@ function decoupleMirroredClump(guide) {
 
 function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), options = {}) {
   if (!lock || !partner || partner === lock) return null;
+  partner.objectTransform = mirroredStrandObjectTransform(lock.objectTransform);
   partner.outlinerVisible = lock.outlinerVisible !== false;
   partner.proceduralParentHidden = Boolean(lock.proceduralParentHidden);
   partner.proceduralDrawGuide = Boolean(lock.proceduralDrawGuide);
@@ -16930,6 +18566,9 @@ function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), optio
   partner.compoundBridgeSmoothing = lock.curveSurfaceCompoundProfile
     ? THREE.MathUtils.clamp(Number(lock.compoundBridgeSmoothing) || 0, 0, 1)
     : null;
+  partner.compoundBridgeZippers = lock.curveSurfaceCompoundProfile
+    ? normalizeCompoundBridgeZippers(lock.compoundBridgeZippers, lock.curveSurfaceColumns - 1)
+    : null;
   partner.curveSurfaceCenterCurve = lock.curveSurfaceCenterCurve;
   partner.curveSurfaceStripWidth = lock.curveSurfaceStripWidth;
   partner.curveSurfaceSide = mirroredVector(lock.curveSurfaceSide);
@@ -16947,6 +18586,12 @@ function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), optio
     : Number(lock.panelCurvature ?? panelCreationDefaults.panelCurvature);
   partner.panelLeftEdgeTrim = Number(lock.panelRightEdgeTrim ?? panelCreationDefaults.panelRightEdgeTrim);
   partner.panelRightEdgeTrim = Number(lock.panelLeftEdgeTrim ?? panelCreationDefaults.panelLeftEdgeTrim);
+  partner.panelTipCurve = lock.geometryType === "surface"
+    ? 0
+    : THREE.MathUtils.clamp(Number(lock.panelTipCurve ?? panelCreationDefaults.panelTipCurve), -1, 1);
+  partner.panelTipLoops = lock.geometryType === "surface"
+    ? 0
+    : THREE.MathUtils.clamp(Math.round(Number(lock.panelTipLoops ?? panelCreationDefaults.panelTipLoops)), 0, 16);
   partner.profileTrimLeft = Number(lock.profileTrimRight ?? 0);
   partner.profileTrimRight = Number(lock.profileTrimLeft ?? 0);
   partner.profileTrimRoundness = Number(lock.profileTrimRoundness ?? 1);
@@ -16956,6 +18601,7 @@ function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), optio
   partner.strandSplitHeight = Number(lock.strandSplitHeight ?? 0.3);
   partner.strandSplitGap = Number(lock.strandSplitGap ?? 0.12);
   partner.panelSplitEnabled = lock.panelSplitEnabled !== false;
+  partner.panelHardZipperEdges = Boolean(lock.panelHardZipperEdges);
   partner.panelSplitSnapToLoops = lock.panelSplitSnapToLoops !== false;
   partner.panelSplitHeight = Number(lock.panelSplitHeight ?? panelCreationDefaults.panelSplitHeight);
   partner.panelSplits = clonePanelSplits(lock.panelSplits, lock.panelSplitHeight)
@@ -16973,9 +18619,14 @@ function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), optio
   partner.strandRotation = -Number(lock.strandRotation ?? 0);
   partner.twist = -Number(lock.twist || 0);
   partner.twistCurve = lock.twistCurve.map((point) => ({ ...point, value: -Number(point.value || 0) }));
-  partner.taperCurve = lock.taperCurve.map((point) => ({ ...point }));
+  const mirroredWidthCurves = mirroredAsymmetricTaperCurves(
+    lock.taperCurve,
+    lock.taperCurveSecondary,
+    lock.asymmetricWidthCurve
+  );
+  partner.taperCurve = mirroredWidthCurves.primary;
   partner.depthCurve = lock.depthCurve.map((point) => ({ ...point }));
-  partner.taperCurveSecondary = lock.taperCurveSecondary.map((point) => ({ ...point }));
+  partner.taperCurveSecondary = mirroredWidthCurves.secondary;
   partner.depthCurveSecondary = lock.depthCurveSecondary.map((point) => ({ ...point }));
   partner.asymmetricWidthCurve = Boolean(lock.asymmetricWidthCurve);
   partner.asymmetricDepthCurve = Boolean(lock.asymmetricDepthCurve);
@@ -17042,6 +18693,34 @@ function syncActiveMirror(lock, options = {}) {
   return result;
 }
 
+function normalizeLegacyMirroredAsymmetricWidthCurves() {
+  const visited = new Set();
+  locks.forEach((lock) => {
+    if (visited.has(lock.id) || !lock.asymmetricWidthCurve) return;
+    const partner = mirrorPartnerFor(lock);
+    if (!partner || visited.has(partner.id) || !partner.asymmetricWidthCurve) return;
+    visited.add(lock.id);
+    visited.add(partner.id);
+    const storedInSameOrientation = shapeValuesMatch(lock.taperCurve, partner.taperCurve)
+      && shapeValuesMatch(lock.taperCurveSecondary, partner.taperCurveSecondary);
+    const alreadyReversed = shapeValuesMatch(lock.taperCurve, partner.taperCurveSecondary)
+      && shapeValuesMatch(lock.taperCurveSecondary, partner.taperCurve);
+    if (!storedInSameOrientation || alreadyReversed) return;
+    const mirroredWidthCurves = mirroredAsymmetricTaperCurves(
+      lock.taperCurve,
+      lock.taperCurveSecondary,
+      true
+    );
+    partner.taperCurve = mirroredWidthCurves.primary;
+    partner.taperCurveSecondary = mirroredWidthCurves.secondary;
+    rebuildLockGeometry(partner, {
+      updateBranches: false,
+      updateBranchKnifeParent: false,
+      updateClump: false
+    });
+  });
+}
+
 function setMirrorXEditing(enabled) {
   mirrorXEditing = Boolean(enabled);
   mirrorXToggle.classList.toggle("active", mirrorXEditing);
@@ -17078,7 +18757,11 @@ function snapshotState() {
     lockIndex,
     referenceImageIndex,
     hairMaterialIndex,
-    hairMaterials: hairMaterialDefinitions.map((material) => ({ ...material })),
+    hairMaterials: hairMaterialDefinitions.map((material) => ({
+      ...material,
+      baseColorGradientStops: normalizeHairGradientStops(material.baseColorGradientStops)
+        .map((stop) => ({ ...stop }))
+    })),
     ...createProjectSelectionSnapshot({
       selectedId,
       selectedStrandIds,
@@ -17128,6 +18811,7 @@ function snapshotState() {
       name: lock.name,
       outlinerVisible: lock.outlinerVisible !== false,
       locked: Boolean(lock.locked),
+      objectTransform: normalizeStrandObjectTransform(lock.objectTransform),
       liveSurfaceGuide: Boolean(lock.liveSurfaceGuide),
       materialId: lock.materialId || DEFAULT_HAIR_MATERIAL_ID,
       x: lock.x,
@@ -17138,7 +18822,29 @@ function snapshotState() {
       width: lock.width,
       baseWidth: lock.baseWidth,
       geometryType: lock.geometryType || "strand",
-      polyFaces: lock.geometryType === "poly" ? lock.polyFaces.map((face) => [...face]) : null,
+      polyFaces: ["poly", "hair-shell"].includes(lock.geometryType)
+        ? lock.polyFaces.map((face) => [...face])
+        : null,
+      hairShellBasePoints: lock.geometryType === "hair-shell"
+        ? lock.hairShellBasePoints.map(vectorToData)
+        : null,
+      hairShellBaseFaces: lock.geometryType === "hair-shell"
+        ? lock.hairShellBaseFaces.map((face) => [...face])
+        : null,
+      hairShellExtrusions: lock.geometryType === "hair-shell"
+        ? lock.hairShellExtrusions.map((extrusion) => ({
+            faceIndex: extrusion.faceIndex,
+            loops: extrusion.loops,
+            curvePoints: extrusion.curvePoints.map(vectorToData)
+          }))
+        : null,
+      hairShellPrimitive: lock.geometryType === "hair-shell" ? lock.hairShellPrimitive : null,
+      arcHairSurfaceSettings: lock.hairShellPrimitive === "arc"
+        ? { ...lock.arcHairSurfaceSettings }
+        : null,
+      arcHairSurfaceOrigin: lock.hairShellPrimitive === "arc"
+        ? vectorToData(lock.arcHairSurfaceOrigin)
+        : null,
       surfaceColumns: lock.geometryType === "surface"
         ? normalizeSurfaceLatticeCount(lock.surfaceColumns, DEFAULT_SURFACE_LATTICE_COLUMNS)
         : null,
@@ -17155,6 +18861,9 @@ function snapshotState() {
         : null,
       compoundBridgeSmoothing: lock.geometryType === "curve-surface" && lock.curveSurfaceCompoundProfile
         ? THREE.MathUtils.clamp(Number(lock.compoundBridgeSmoothing) || 0, 0, 1)
+        : null,
+      compoundBridgeZippers: lock.geometryType === "curve-surface" && lock.curveSurfaceCompoundProfile
+        ? normalizeCompoundBridgeZippers(lock.compoundBridgeZippers, lock.curveSurfaceColumns - 1)
         : null,
       curveSurfaceCenterCurve: lock.geometryType === "curve-surface" ? lock.curveSurfaceCenterCurve : null,
       curveSurfaceStripWidth: lock.geometryType === "curve-surface" ? lock.curveSurfaceStripWidth : null,
@@ -17173,6 +18882,8 @@ function snapshotState() {
       panelCurvature: Number(lock.panelCurvature ?? panelCreationDefaults.panelCurvature),
       panelLeftEdgeTrim: Number(lock.panelLeftEdgeTrim ?? panelCreationDefaults.panelLeftEdgeTrim),
       panelRightEdgeTrim: Number(lock.panelRightEdgeTrim ?? panelCreationDefaults.panelRightEdgeTrim),
+      panelTipCurve: Number(lock.panelTipCurve ?? panelCreationDefaults.panelTipCurve),
+      panelTipLoops: Number(lock.panelTipLoops ?? panelCreationDefaults.panelTipLoops),
       profileTrimLeft: Number(lock.profileTrimLeft ?? 0),
       profileTrimRight: Number(lock.profileTrimRight ?? 0),
       profileTrimRoundness: Number(lock.profileTrimRoundness ?? 1),
@@ -17182,6 +18893,7 @@ function snapshotState() {
       strandSplitHeight: Number(lock.strandSplitHeight ?? 0.3),
       strandSplitGap: Number(lock.strandSplitGap ?? 0.12),
       panelSplitEnabled: lock.panelSplitEnabled !== false,
+      panelHardZipperEdges: Boolean(lock.panelHardZipperEdges),
       panelSplitSnapToLoops: lock.panelSplitSnapToLoops !== false,
       panelSplitHeight: Number(lock.panelSplitHeight ?? panelCreationDefaults.panelSplitHeight),
       panelSplits: clonePanelSplits(lock.panelSplits, lock.panelSplitHeight),
@@ -17257,9 +18969,7 @@ function snapshotState() {
       rootSurfacePoint: lock.rootSurfacePoint ? vectorToData(lock.rootSurfacePoint) : null,
       rootSurfaceNormal: lock.rootSurfaceNormal ? vectorToData(lock.rootSurfaceNormal) : null,
       rootAttachmentEnabled: lock.rootAttachmentEnabled !== false,
-      rootAttachment: lock.geometryType === "poly"
-        ? null
-        : rootAttachmentToData(syncRootAttachmentMetadata(lock)),
+      rootAttachment: historyRootAttachmentSnapshot(lock),
       strandRotation: Number(lock.strandRotation ?? 0),
       twist: lock.twist,
       twistCurve: lock.twistCurve.map((point) => ({ ...point })),
@@ -17279,57 +18989,7 @@ function snapshotState() {
       placementFrame: lock.placementFrame ? frameToData(lock.placementFrame) : null
     })),
     referenceImages: referenceImages.map(serializeReferenceImage),
-    guides: guides.map((guide) => guide.type === "capsule" ? {
-      id: guide.id,
-      type: guide.type,
-      name: guide.name,
-      color: normalizeCapsuleGuideColor(guide.color),
-      outlinerVisible: guide.outlinerVisible !== false,
-      start: vectorToData(guide.start),
-      end: vectorToData(guide.end),
-      radius: guide.radius,
-      radialLoops: guide.radialLoops,
-      lengthLoops: guide.lengthLoops,
-      subdivisionSteps: guide.subdivisionSteps,
-      opacity: guide.opacity,
-      fresnel: guide.fresnel,
-      centerVisibility: guide.centerVisibility,
-      controlPoints: guide.controlPoints?.map(vectorToData) || null,
-      controlFaces: guide.controlFaces?.map((face) => [...face]) || null
-    } : guide.type === "curve-lattice" ? {
-      id: guide.id,
-      type: guide.type,
-      standalone: Boolean(guide.standalone),
-      name: guide.name,
-      outlinerVisible: guide.outlinerVisible !== false,
-      columns: guide.columns,
-      rows: guide.rows,
-      opacity: guide.opacity,
-      scalpRegion: guide.scalpRegion || "bangs",
-      color: guide.color,
-      points: guide.points.map(vectorToData),
-      rootPoints: (guide.rootPoints || []).map(vectorToData),
-      deformRestPoints: (guide.deformRestPoints || guide.points).map(vectorToData),
-      deformRestRootPoints: (guide.deformRestRootPoints || guide.rootPoints || []).map(vectorToData)
-    } : ({
-      id: guide.id,
-      name: guide.name,
-      outlinerVisible: guide.outlinerVisible !== false,
-      x: guide.x,
-      y: guide.y,
-      z: guide.z,
-      width: guide.width,
-      height: guide.height,
-      depth: guide.depth,
-      bend: guide.bend,
-      verticalBend: guide.verticalBend,
-      topCurve: guide.topCurve,
-      bottomCurve: guide.bottomCurve,
-      density: guide.density,
-      opacity: guide.opacity,
-      objectQuaternion: guide.objectQuaternion || null,
-      objectScale: guide.objectScale || null
-    }))
+    guides: guides.map(serializeGuide)
   };
 }
 
@@ -17525,7 +19185,7 @@ function syncRootAttachmentLocalCurves(lock, attachment) {
 }
 
 function applyRootAttachmentLocalCurves(lock) {
-  if (lock?.geometryType === "poly") return false;
+  if (["poly", "hair-shell"].includes(lock?.geometryType)) return false;
   const attachment = lock?.rootAttachment;
   if (!attachment?.localCurves?.points?.length) return false;
   const resolved = resolveRootAttachment(attachment);
@@ -17651,6 +19311,16 @@ function rootAttachmentToData(attachment) {
   };
 }
 
+function historyRootAttachmentSnapshot(lock) {
+  if (["poly", "hair-shell"].includes(lock.geometryType)) return null;
+  const revision = Number(lock.historyGeometryRevision || 0);
+  const cached = historyRootAttachmentCache.get(lock);
+  if (cached?.revision === revision) return cached.data;
+  const data = rootAttachmentToData(syncRootAttachmentMetadata(lock));
+  historyRootAttachmentCache.set(lock, { revision, data });
+  return data;
+}
+
 function rootAttachmentFromData(data, lock, { resolveSurface = true } = {}) {
   if (!data) return createRootAttachment(lock);
   const normal = dataToVector(data.normal || vectorToData(lock.rootSurfaceNormal || new THREE.Vector3(0, 1, 0))).normalize();
@@ -17748,6 +19418,132 @@ function buildHairProjectFile(name, {
     headAssetOmitted: Boolean(importedHeadAsset && !includeHeadAsset),
     scalpGuideAsset: importedScalpGuideAsset
   });
+}
+
+function cancelRecoverySchedule() {
+  window.clearTimeout(recoveryQuietTimer);
+  window.clearTimeout(recoveryMaximumTimer);
+  recoveryQuietTimer = null;
+  recoveryMaximumTimer = null;
+  if (recoveryIdleHandle != null) {
+    if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(recoveryIdleHandle);
+    else window.clearTimeout(recoveryIdleHandle);
+    recoveryIdleHandle = null;
+  }
+}
+
+function recoveryWriteMustWait() {
+  return restoringHistory
+    || projectSaveInProgress
+    || !controls.enabled
+    || Boolean(document.querySelector("dialog[open]"));
+}
+
+function scheduleRecoveryAutosave() {
+  if (!autosaveEnabled || !recoveryDirty) return;
+  window.clearTimeout(recoveryQuietTimer);
+  recoveryQuietTimer = window.setTimeout(queueRecoveryAutosave, AUTOSAVE_QUIET_PERIOD_MS);
+  if (recoveryMaximumTimer == null) {
+    recoveryMaximumTimer = window.setTimeout(queueRecoveryAutosave, autosaveIntervalSeconds * 1000);
+  }
+}
+
+function markProjectChangedForRecovery() {
+  recoveryChangeVersion += 1;
+  recoveryDirty = true;
+  scheduleRecoveryAutosave();
+}
+
+function queueRecoveryAutosave() {
+  window.clearTimeout(recoveryQuietTimer);
+  window.clearTimeout(recoveryMaximumTimer);
+  recoveryQuietTimer = null;
+  recoveryMaximumTimer = null;
+  if (!autosaveEnabled || !recoveryDirty) return;
+  if (recoveryWriteMustWait()) {
+    recoveryQuietTimer = window.setTimeout(queueRecoveryAutosave, 1000);
+    return;
+  }
+  if (recoveryWriteInProgress) {
+    recoveryWriteQueued = true;
+    return;
+  }
+  const run = () => {
+    recoveryIdleHandle = null;
+    const writePromise = flushRecoveryAutosave();
+    recoveryWritePromise = writePromise;
+    writePromise.finally(() => {
+      if (recoveryWritePromise === writePromise) recoveryWritePromise = null;
+    });
+  };
+  recoveryIdleHandle = typeof window.requestIdleCallback === "function"
+    ? window.requestIdleCallback(run, { timeout: 2000 })
+    : window.setTimeout(run, 0);
+}
+
+async function flushRecoveryAutosave() {
+  if (!autosaveEnabled || !recoveryDirty) return;
+  if (recoveryWriteMustWait()) {
+    scheduleRecoveryAutosave();
+    return;
+  }
+  const savedVersion = recoveryChangeVersion;
+  recoveryWriteInProgress = true;
+  recoveryWriteQueued = false;
+  try {
+    const content = `${JSON.stringify(buildHairProjectFile(currentProjectName, {
+      includeHeadAsset: true,
+      includeReferences: true
+    }))}\n`;
+    await writeRecoverySnapshot(createRecoveryRecord({
+      name: currentProjectName,
+      content,
+      appVersion: APP_VERSION
+    }));
+    if (savedVersion === recoveryChangeVersion) recoveryDirty = false;
+  } catch (error) {
+    console.warn("Could not save project recovery data", error);
+  } finally {
+    recoveryWriteInProgress = false;
+    if (recoveryWriteQueued || recoveryDirty) scheduleRecoveryAutosave();
+  }
+}
+
+async function clearAcknowledgedRecovery(savedVersion = recoveryChangeVersion) {
+  if (savedVersion !== recoveryChangeVersion) return;
+  cancelRecoverySchedule();
+  if (recoveryWritePromise) await recoveryWritePromise;
+  if (savedVersion !== recoveryChangeVersion) {
+    scheduleRecoveryAutosave();
+    return;
+  }
+  recoveryDirty = false;
+  try {
+    await clearRecoverySnapshot();
+  } catch (error) {
+    console.warn("Could not clear project recovery data", error);
+  }
+}
+
+function setAutosaveEnabled(enabled, { persist = true } = {}) {
+  autosaveEnabled = Boolean(enabled);
+  autosavePreferenceInput.checked = autosaveEnabled;
+  autosaveIntervalPreferenceInput.disabled = !autosaveEnabled;
+  if (autosaveEnabled) scheduleRecoveryAutosave();
+  else cancelRecoverySchedule();
+  if (persist) saveBooleanPreference(AUTOSAVE_ENABLED_PREFERENCE_KEY, autosaveEnabled);
+}
+
+function setAutosaveInterval(value, { persist = true } = {}) {
+  autosaveIntervalSeconds = normalizeAutosaveInterval(value);
+  autosaveIntervalPreferenceInput.value = String(autosaveIntervalSeconds);
+  if (autosaveEnabled && recoveryDirty) {
+    cancelRecoverySchedule();
+    scheduleRecoveryAutosave();
+  }
+  if (persist) {
+    writeStoredPreference(window, AUTOSAVE_INTERVAL_PREFERENCE_KEY, autosaveIntervalSeconds);
+  }
 }
 
 async function importScalpGuideMeshFile(file) {
@@ -17875,19 +19671,33 @@ function downloadPreferencesAndPresets() {
       cameraSmoothingStrength,
       toolTips: toolTipsEnabled,
       compactToolButtons: compactToolButtonsEnabled,
+      sidePanelStyle,
+      glassPanelColor,
       viewportStatistics: viewportStatisticsEnabled,
       twistCurveAllStrandsPreview: twistCurveAllStrandsPreviewEnabled,
       layerColorShifts: layerColorShiftsEnabled,
       outlinerFolderColors: outlinerFolderColorsEnabled,
+      outlinerFolderColorOpacity,
       sideNamingPerspective,
       controlPointDisplaySize,
       viewportBackgroundColor,
       radialMenus: radialMenusEnabled,
+      multiCameraExperimental: multiCameraExperimentalEnabled,
+      floatingToolSettingsExperimental: floatingToolSettingsExperimentalEnabled,
+      hotkeyToolSettingsExperimental: hotkeyToolSettingsExperimentalEnabled,
+      hotkeyToolSettingsKeepMain,
+      showDevTestFeatures,
       proceduralDrawExperimental: proceduralDrawExperimentalEnabled,
+      compoundStrandExperimental: compoundStrandExperimentalEnabled,
+      hairShellExperimental: hairShellExperimentalEnabled,
+      arcHairSurfaceExperimental: arcHairSurfaceExperimentalEnabled,
+      autosaveEnabled,
+      autosaveIntervalSeconds,
       defaultShader: defaultHairShader
     },
     presets: customCreationPresets,
-    shapePresets: customShapePresets
+    shapePresets: customShapePresets,
+    materialPresets: customHairMaterialPresets
   });
   downloadProjectFile(
     `${JSON.stringify(backup, null, 2)}\n`,
@@ -17910,6 +19720,15 @@ async function loadPreferencesAndPresets(file) {
   }
   setToolTipsEnabled(importedBooleanPreference(preferences.toolTips, toolTipsEnabled));
   setCompactToolButtonsEnabled(importedBooleanPreference(preferences.compactToolButtons, compactToolButtonsEnabled));
+  setSidePanelStyle(
+    preferences.sidePanelStyle
+      ?? (typeof preferences.floatingSidePanels === "boolean"
+        ? (preferences.floatingSidePanels ? "transparent" : "default")
+        : sidePanelStyle)
+  );
+  if (preferences.glassPanelColor != null) {
+    setGlassPanelColor(preferences.glassPanelColor);
+  }
   setViewportStatisticsEnabled(importedBooleanPreference(preferences.viewportStatistics, viewportStatisticsEnabled));
   setTwistCurveAllStrandsPreviewEnabled(importedBooleanPreference(
     preferences.twistCurveAllStrandsPreview,
@@ -17917,6 +19736,9 @@ async function loadPreferencesAndPresets(file) {
   ));
   setLayerColorShiftsEnabled(importedBooleanPreference(preferences.layerColorShifts, layerColorShiftsEnabled));
   setOutlinerFolderColorsEnabled(importedBooleanPreference(preferences.outlinerFolderColors, outlinerFolderColorsEnabled));
+  if (preferences.outlinerFolderColorOpacity != null) {
+    setOutlinerFolderColorOpacity(preferences.outlinerFolderColorOpacity);
+  }
   if (preferences.sideNamingPerspective != null) {
     setSideNamingPerspective(preferences.sideNamingPerspective);
   }
@@ -17927,10 +19749,46 @@ async function loadPreferencesAndPresets(file) {
     setViewportBackgroundColor(preferences.viewportBackgroundColor);
   }
   setRadialMenusEnabled(importedBooleanPreference(preferences.radialMenus, radialMenusEnabled));
+  setMultiCameraExperimentalEnabled(importedBooleanPreference(
+    preferences.multiCameraExperimental,
+    multiCameraExperimentalEnabled
+  ));
+  setFloatingToolSettingsExperimentalEnabled(importedBooleanPreference(
+    preferences.floatingToolSettingsExperimental,
+    floatingToolSettingsExperimentalEnabled
+  ));
+  setHotkeyToolSettingsKeepMain(importedBooleanPreference(
+    preferences.hotkeyToolSettingsKeepMain,
+    hotkeyToolSettingsKeepMain
+  ));
+  setHotkeyToolSettingsExperimentalEnabled(importedBooleanPreference(
+    preferences.hotkeyToolSettingsExperimental,
+    hotkeyToolSettingsExperimentalEnabled
+  ));
+  setShowDevTestFeatures(importedBooleanPreference(
+    preferences.showDevTestFeatures,
+    showDevTestFeatures
+  ));
   setProceduralDrawExperimentalEnabled(importedBooleanPreference(
     preferences.proceduralDrawExperimental,
     proceduralDrawExperimentalEnabled
   ));
+  setCompoundStrandExperimentalEnabled(importedBooleanPreference(
+    preferences.compoundStrandExperimental,
+    compoundStrandExperimentalEnabled
+  ));
+  setHairShellExperimentalEnabled(importedBooleanPreference(
+    preferences.hairShellExperimental,
+    hairShellExperimentalEnabled
+  ));
+  setArcHairSurfaceExperimentalEnabled(importedBooleanPreference(
+    preferences.arcHairSurfaceExperimental,
+    arcHairSurfaceExperimentalEnabled
+  ));
+  setAutosaveEnabled(importedBooleanPreference(preferences.autosaveEnabled, autosaveEnabled));
+  if (preferences.autosaveIntervalSeconds != null) {
+    setAutosaveInterval(preferences.autosaveIntervalSeconds);
+  }
   if (typeof preferences.language === "string") {
     const language = documentLocalizer.setLanguage(normalizeLanguage(preferences.language));
     languageSelect.value = language;
@@ -17941,6 +19799,10 @@ async function loadPreferencesAndPresets(file) {
   saveCustomCreationPresets();
   customShapePresets = normalizeShapePresetLibrary(backup.shapePresets);
   saveCustomShapePresets();
+  customHairMaterialPresets = normalizeHairMaterialPresetLibrary(backup.materialPresets);
+  saveCustomHairMaterialPresets();
+  activeHairMaterialPresetId = "";
+  populateHairMaterialPresetSelect();
   populateShapePresetSelects();
   populateDrawBrushPresetSelect(drawStrandMode);
   populateCreationPresetSelect(
@@ -17950,17 +19812,30 @@ async function loadPreferencesAndPresets(file) {
   );
   preferencesOpenSnapshot = {
     radialMenusEnabled,
+    multiCameraExperimentalEnabled,
+    floatingToolSettingsExperimentalEnabled,
+    hotkeyToolSettingsExperimentalEnabled,
+    hotkeyToolSettingsKeepMain,
+    showDevTestFeatures,
     proceduralDrawExperimentalEnabled,
+    compoundStrandExperimentalEnabled,
+    hairShellExperimentalEnabled,
+    arcHairSurfaceExperimentalEnabled,
+    autosaveEnabled,
+    autosaveIntervalSeconds,
     navigationTipsEnabled,
     navigationStyle,
     cameraSmoothingEnabled,
     cameraSmoothingStrength,
     toolTipsEnabled,
     compactToolButtonsEnabled,
+    sidePanelStyle,
+    glassPanelColor,
     viewportStatisticsEnabled,
     twistCurveAllStrandsPreviewEnabled,
     layerColorShiftsEnabled,
     outlinerFolderColorsEnabled,
+    outlinerFolderColorOpacity,
     sideNamingPerspective,
     controlPointDisplaySize,
     viewportBackgroundColor,
@@ -18057,6 +19932,7 @@ function openFileActionDialog({ format, local }) {
 async function performFileAction(action, baseName, contents) {
   if (action.format === "project") {
     if (projectSaveInProgress) return;
+    const recoveryVersionAtSave = recoveryChangeVersion;
     projectSaveInProgress = true;
     setProjectSaveButtonsDisabled(true);
     const suggestedName = fileNameForAction(baseName, "project", "Untitled Hair Project");
@@ -18075,7 +19951,10 @@ async function performFileAction(action, baseName, contents) {
         downloadProjectFile(content, suggestedName);
         currentProjectName = baseName;
       }
-      if (saved) await safelyRememberRecentProject(savedName, content);
+      if (saved) {
+        await safelyRememberRecentProject(savedName, content);
+        await clearAcknowledgedRecovery(recoveryVersionAtSave);
+      }
     } catch (error) {
       if (error?.name !== "AbortError") {
         console.error(error);
@@ -18157,8 +20036,13 @@ async function saveHairProjectThroughLocalDialog() {
   openFileActionDialog({ format: "project", local: true });
 }
 
-async function openHairProjectFile(file) {
+async function openHairProjectFile(file, {
+  rememberRecent = true,
+  clearRecovery = true,
+  replaceHistory = false
+} = {}) {
   try {
+    await defaultGuideModelReady;
     const content = await file.text();
     const project = validateHairProject(JSON.parse(content));
     if (project.headAssetOmitted === true) {
@@ -18195,8 +20079,13 @@ async function openHairProjectFile(file) {
       importedScalpGuideAsset = null;
       setScalpGuideSource("default");
     }
-    pushUndoState();
+    if (!replaceHistory) pushUndoState();
     restoreState(project.state);
+    if (replaceHistory) {
+      undoHistory.clear();
+      redoHistory.clear();
+      updateHistoryButtons();
+    }
     realignFullBodyGuideToScalpTop();
     if (guideModel?.userData?.fullBodyReference) {
       frameViewportBounds(fullBodyScalpFocusBounds());
@@ -18204,13 +20093,90 @@ async function openHairProjectFile(file) {
     if (project.metadata?.name) currentProjectName = project.metadata.name;
     presetLibraryStatus.textContent = `${project.metadata?.name || "Project"} opened`;
     setPresetLibraryOpen(false);
-    await safelyRememberRecentProject(file.name || `${project.metadata?.name || "Untitled Hair Project"}.ahs`, content);
+    if (rememberRecent) {
+      await safelyRememberRecentProject(file.name || `${project.metadata?.name || "Untitled Hair Project"}.ahs`, content);
+    }
+    if (clearRecovery) await clearAcknowledgedRecovery(recoveryChangeVersion);
+    return true;
   } catch (error) {
     console.error(error);
     presetLibraryStatus.textContent = "Could not open project file";
+    return false;
   } finally {
     hairProjectFileInput.value = "";
   }
+}
+
+async function offerRecoverySnapshot() {
+  try {
+    await defaultGuideModelReady;
+    const record = await readRecoverySnapshot();
+    if (!record) return;
+    pendingRecoveryRecord = record;
+    recoveryProjectName.textContent = record.name;
+    recoveryProjectTime.textContent = `Last recovery: ${new Date(record.updatedAt).toLocaleString()}`;
+    recoveryStatus.textContent = "";
+    recoverProjectButton.disabled = false;
+    try {
+      validateHairProject(JSON.parse(record.content));
+    } catch (error) {
+      recoverProjectButton.disabled = true;
+      recoveryStatus.textContent = "This recovery snapshot cannot be opened, but you can still download or discard it.";
+    }
+    recoveryDialog.showModal();
+  } catch (error) {
+    console.warn("Could not check project recovery data", error);
+  }
+}
+
+async function recoverPendingProject() {
+  const record = pendingRecoveryRecord;
+  if (!record) return;
+  recoveryStatus.textContent = "Recovering project...";
+  [discardRecoveryButton, downloadRecoveryButton, recoverProjectButton].forEach((button) => {
+    button.disabled = true;
+  });
+  const recovered = await openHairProjectFile({
+    name: `${record.name}.ahs`,
+    text: async () => record.content
+  }, {
+    rememberRecent: false,
+    clearRecovery: false,
+    replaceHistory: true
+  });
+  if (recovered) {
+    cancelRecoverySchedule();
+    recoveryDirty = false;
+    pendingRecoveryRecord = null;
+    recoveryDialog.close();
+    return;
+  }
+  recoveryStatus.textContent = "The recovery snapshot could not be opened. You can download it or discard it.";
+  [discardRecoveryButton, downloadRecoveryButton].forEach((button) => {
+    button.disabled = false;
+  });
+}
+
+async function discardPendingRecovery() {
+  recoveryStatus.textContent = "Discarding recovery...";
+  try {
+    await clearRecoverySnapshot();
+    pendingRecoveryRecord = null;
+    recoveryDialog.close();
+  } catch (error) {
+    console.warn("Could not discard project recovery data", error);
+    recoveryStatus.textContent = "The recovery snapshot could not be discarded.";
+  }
+}
+
+function downloadPendingRecovery() {
+  const record = pendingRecoveryRecord;
+  if (!record) return;
+  downloadProjectFile(
+    record.content,
+    fileNameForAction(record.name, "project", "Recovered Hair Project")
+  );
+  recoveryStatus.textContent = "Recovery copy downloaded. You can still recover or discard the stored snapshot.";
 }
 
 function dragContainsApplicationFile(event) {
@@ -18312,18 +20278,27 @@ function pushUndoState() {
   undoHistory.push(snapshotState());
   redoHistory.clear();
   updateHistoryButtons();
+  markProjectChangedForRecovery();
 }
 
 function undoLastAction() {
   if (proceduralDuplicateDialog.open) closeProceduralDuplicateDialog();
   const state = undoHistory.pop();
   if (!state) return;
-  redoHistory.push(snapshotState());
+  const currentState = snapshotState();
+  redoHistory.push(currentState);
   try {
-    restoreState(state, { preserveMirrorMode: true });
+    restoreState(state, {
+      preserveMirrorMode: true,
+      preserveIsolation: true,
+      preserveLiveSurfaces: true,
+      currentHistoryState: currentState
+    });
   } finally {
     restoringHistory = false;
+    prioritizeActiveMultiCameraViewport(1);
     updateHistoryButtons();
+    markProjectChangedForRecovery();
   }
 }
 
@@ -18331,12 +20306,20 @@ function redoLastAction() {
   if (proceduralDuplicateDialog.open) closeProceduralDuplicateDialog();
   const state = redoHistory.pop();
   if (!state) return;
-  undoHistory.push(snapshotState());
+  const currentState = snapshotState();
+  undoHistory.push(currentState);
   try {
-    restoreState(state, { preserveMirrorMode: true });
+    restoreState(state, {
+      preserveMirrorMode: true,
+      preserveIsolation: true,
+      preserveLiveSurfaces: true,
+      currentHistoryState: currentState
+    });
   } finally {
     restoringHistory = false;
+    prioritizeActiveMultiCameraViewport(1);
     updateHistoryButtons();
+    markProjectChangedForRecovery();
   }
 }
 
@@ -18356,14 +20339,39 @@ function resetTransientInteractionsForStateRestore() {
   proceduralDuplicateModeActive = false;
   hideProceduralDuplicateArcPreview();
   hideStrandRadialMenu();
+  cancelToolShortcutPress();
+  finishHotkeyToolSettingsHold();
   hideToolRadialMenu();
   placeEdit = null;
   transformDragging = false;
   updateInteractionLocks();
 }
 
-function resetEditableSceneForStateRestore() {
-  disposeAllEditableObjects();
+function disposeLockRuntime(lock) {
+  hairGroup.remove(lock.mesh);
+  curveGroup.remove(lock.curveObjects.group);
+  lock.mesh.geometry.dispose();
+  removeUvCheckerFromLock(lock);
+  lock.mesh.material.dispose();
+  lock.selectionOutline?.material.dispose();
+  disposeBranchKnifeOverlay(lock.wireOverlay);
+  lock.wireOverlay?.geometry.dispose();
+  lock.wireOverlay?.material.dispose();
+  disposeCurveObjects(lock);
+}
+
+function resetEditableSceneForStateRestore(preservedLocks = new Map()) {
+  clearHairShellFaceSelection();
+  clearReferenceImages();
+  clearPolyFillPreview();
+  setHoveredStrandWidthEdge(null);
+  locks.forEach((lock) => {
+    if (!preservedLocks.has(lock.id)) disposeLockRuntime(lock);
+  });
+  guides.forEach((guide) => {
+    removeGuideObjects(guide);
+    disposeGuide(guide);
+  });
   locks.length = 0;
   selectionSets.length = 0;
   guides.length = 0;
@@ -18394,6 +20402,7 @@ function restoreSharedStateForStateRestore(state, restorePlan, { preserveMirrorM
   activeHairMaterialId = hairMaterialDefinitions.some((material) => material.id === activeHairMaterialId)
     ? activeHairMaterialId
     : hairMaterialDefinitions[0].id;
+  markHairMaterialPresetCustom();
   applyStrandSelectionState(restoreStrandSelection(restorePlan.strandSelection));
   clumpViewportSelection = restorePlan.selection.clumpViewport;
   selectedGuideId = restorePlan.selection.guideId;
@@ -18407,8 +20416,11 @@ function restoreSharedStateForStateRestore(state, restorePlan, { preserveMirrorM
   setMirrorXEditing(preserveMirrorMode ? mirrorXEditing : Boolean(state.mirrorXEditing));
 }
 
-function restoreAuthoredScalpForStateRestore(state, { preservePlacement = false } = {}) {
-  if (!preservePlacement) {
+function restoreAuthoredScalpForStateRestore(state, {
+  preservePlacement = false,
+  preserveScalpGeometry = false
+} = {}) {
+  if (!preservePlacement && !preserveScalpGeometry) {
     scalpBuilderEditedPoints = state.scalpBuilderEditedPoints?.map(dataToVector) || null;
     if (scalpBuilderCurveLattice && scalpBuilderEditedPoints?.length === scalpBuilderCurveLattice.points.length) {
       scalpBuilderEditedPoints.forEach((point, index) => {
@@ -18419,7 +20431,7 @@ function restoreAuthoredScalpForStateRestore(state, { preservePlacement = false 
       updateScalpBuilderHandleColors();
     }
   }
-  if (!preservePlacement) {
+  if (!preservePlacement && !preserveScalpGeometry) {
     Object.assign(headTransform, {
       positionX: 0,
       positionY: 0,
@@ -18462,7 +20474,7 @@ function restoreAuthoredScalpForStateRestore(state, { preservePlacement = false 
       });
     });
   }
-  if (!preservePlacement) {
+  if (!preservePlacement && !preserveScalpGeometry) {
     if (state.scalpLatticePoints?.length === scalpLatticePoints.length) {
       state.scalpLatticePoints.forEach((point, index) => scalpLatticePoints[index].copy(dataToVector(point)));
     }
@@ -18486,12 +20498,25 @@ function restoreAuthoredScalpForStateRestore(state, { preservePlacement = false 
 
 function restoreSceneCollectionsForStateRestore(restorePlan, {
   deferRootAttachments = false,
-  preservePlacement = false
+  preservePlacement = false,
+  preservedLocks = new Map()
 } = {}) {
-  restorePlan.scene.locks.forEach((snapshot) => restoreLock(snapshot, {
-    deferRootAttachment: deferRootAttachments,
-    remapRootAttachment: preservePlacement
-  }));
+  restorePlan.scene.locks.forEach((snapshot) => {
+    const preservedLock = preservedLocks.get(snapshot.id);
+    if (preservedLock) locks.push(preservedLock);
+    else restoreLock(snapshot, {
+      deferRootAttachment: deferRootAttachments,
+      remapRootAttachment: preservePlacement
+    });
+  });
+  normalizeLegacyMirroredAsymmetricWidthCurves();
+  locks.filter((lock) => branchChildrenFor(lock).length).forEach((parent) => {
+    if (preservedLocks.has(parent.id)) return;
+    rebuildLockGeometry(parent, {
+      updateBranches: false,
+      updateBranchKnifeParent: false
+    });
+  });
   selectionSets.push(...normalizeSelectionSets(
     restorePlan.scene.selectionSets,
     locks.map((lock) => lock.id)
@@ -18580,45 +20605,152 @@ function finalizeStateRestore(state) {
   restoreRefreshes.run({ state });
 }
 
+function captureLiveSurfaceHistoryState() {
+  return {
+    surface: activeStrokeSurfaceValue(),
+    dynamic: drawSurfaceDynamicEnabled(),
+    strandGuideStates: new Map(locks.map((lock) => [lock.id, Boolean(lock.liveSurfaceGuide)]))
+  };
+}
+
+function restoreLiveSurfaceHistoryState(historyState) {
+  if (!historyState) return;
+  locks.forEach((lock) => {
+    if (historyState.strandGuideStates.has(lock.id)) {
+      lock.liveSurfaceGuide = historyState.strandGuideStates.get(lock.id);
+    }
+  });
+  refreshLiveSurfaceOptions();
+  const input = activeStrokeSurfaceInput();
+  if ([...input.options].some((option) => option.value === historyState.surface)) {
+    input.value = historyState.surface;
+  }
+  setDrawSurfaceDynamicEnabled(historyState.dynamic);
+  handleLiveSurfaceChange();
+}
+
+function scalpHistoryStateSignature(state) {
+  return JSON.stringify({
+    headTransform: state?.headTransform,
+    scalpRoughScale: state?.scalpRoughScale,
+    scalpBuilderEditedPoints: state?.scalpBuilderEditedPoints,
+    editedScalpRegions: state?.editedScalpRegions,
+    scalpGuideSource: state?.scalpGuideSource,
+    customScalpRegions: state?.customScalpRegions,
+    scalpSurface: state?.scalpSurface,
+    scalpArtistShape: state?.scalpArtistShape,
+    scalpLatticePoints: state?.scalpLatticePoints,
+    scalpRegionAssignments: state?.scalpRegionAssignments,
+    scalpManualRegionQuads: state?.scalpManualRegionQuads
+  });
+}
+
+function historyStatesShareAuthoredScalp(currentState, restoredState) {
+  if (!currentState || !restoredState) return false;
+  return scalpHistoryStateSignature(currentState) === scalpHistoryStateSignature(restoredState);
+}
+
+function historyLockSnapshotsMatch(first, second) {
+  return JSON.stringify(first) === JSON.stringify(second);
+}
+
+function historyLocksToRebuild(currentState, restoredState) {
+  const currentSnapshots = currentState?.locks || [];
+  const restoredSnapshots = restoredState?.locks || [];
+  if (currentSnapshots.length !== restoredSnapshots.length) return null;
+  if (currentSnapshots.some((snapshot, index) => snapshot.id !== restoredSnapshots[index]?.id)) return null;
+  if (!historyLockSnapshotsMatch(currentState?.hairMaterials, restoredState?.hairMaterials)) return null;
+  if (!historyLockSnapshotsMatch(currentState?.guides, restoredState?.guides)) return null;
+  if (!historyStatesShareAuthoredScalp(currentState, restoredState)) return null;
+
+  const currentById = new Map(currentSnapshots.map((snapshot) => [snapshot.id, snapshot]));
+  const restoredById = new Map(restoredSnapshots.map((snapshot) => [snapshot.id, snapshot]));
+  const rebuildIds = new Set(restoredSnapshots
+    .filter((snapshot) => !historyLockSnapshotsMatch(currentById.get(snapshot.id), snapshot))
+    .map((snapshot) => snapshot.id));
+  const relationshipSnapshots = [...currentSnapshots, ...restoredSnapshots];
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    relationshipSnapshots.forEach((snapshot) => {
+      const linked = rebuildIds.has(snapshot.id)
+        || (snapshot.mirrorPartnerId && rebuildIds.has(snapshot.mirrorPartnerId))
+        || (snapshot.branchParentId && rebuildIds.has(snapshot.branchParentId))
+        || relationshipSnapshots.some((candidate) => (
+          rebuildIds.has(candidate.id) && candidate.branchParentId === snapshot.id
+        ))
+        || (snapshot.clumpId && relationshipSnapshots.some((candidate) => (
+          rebuildIds.has(candidate.id) && candidate.clumpId === snapshot.clumpId
+        )));
+      if (linked && !rebuildIds.has(snapshot.id)) {
+        rebuildIds.add(snapshot.id);
+        expanded = true;
+      }
+    });
+  }
+  return rebuildIds;
+}
+
+function preservedHistoryRuntimeLocks(currentState, restoredState) {
+  const rebuildIds = historyLocksToRebuild(currentState, restoredState);
+  if (!rebuildIds) return new Map();
+  return new Map(locks
+    .filter((lock) => !rebuildIds.has(lock.id))
+    .map((lock) => [lock.id, lock]));
+}
+
 function restoreState(state, {
   preservePlacement = false,
   deferRootAttachments = false,
-  preserveMirrorMode = false
+  preserveMirrorMode = false,
+  preserveIsolation = false,
+  preserveLiveSurfaces = false,
+  currentHistoryState = null
 } = {}) {
+  const isolationIdsToRestore = preserveIsolation && isolatedStrandIds
+    ? [...isolatedStrandIds]
+    : null;
+  const liveSurfaceStateToRestore = preserveLiveSurfaces
+    ? captureLiveSurfaceHistoryState()
+    : null;
   const restorePlan = createProjectRestorePlan(state, {
     regionIds: STRAND_GROUPS.map((group) => group.id),
     layerIds: HAIR_LAYERS.map((layer) => layer.id)
   });
+  const preserveScalpGeometry = historyStatesShareAuthoredScalp(currentHistoryState, state);
+  const preservedLocks = preservedHistoryRuntimeLocks(currentHistoryState, state);
   restoringHistory = true;
   try {
     resetTransientInteractionsForStateRestore();
-    resetEditableSceneForStateRestore();
+    resetEditableSceneForStateRestore(preservedLocks);
     restoreSharedStateForStateRestore(state, restorePlan, { preserveMirrorMode });
-    restoreAuthoredScalpForStateRestore(state, { preservePlacement });
-    restoreSceneCollectionsForStateRestore(restorePlan, { deferRootAttachments, preservePlacement });
+    restoreAuthoredScalpForStateRestore(state, { preservePlacement, preserveScalpGeometry });
+    restoreSceneCollectionsForStateRestore(restorePlan, {
+      deferRootAttachments,
+      preservePlacement,
+      preservedLocks
+    });
     validateSelectionAfterStateRestore();
+    if (preserveLiveSurfaces) restoreLiveSurfaceHistoryState(liveSurfaceStateToRestore);
     reapplySelectionAfterStateRestore(restorePlan);
+    if (preserveIsolation) {
+      const validIds = new Set(locks.map((lock) => lock.id));
+      const restoredIds = isolationIdsToRestore?.filter((id) => validIds.has(id)) || [];
+      isolatedStrandIds = restoredIds.length ? new Set(restoredIds) : null;
+    }
     finalizeStateRestore(state);
+    requestShadowMapRefresh();
   } finally {
     restoringHistory = false;
   }
 }
 
 function disposeAllEditableObjects() {
+  clearHairShellFaceSelection();
   clearReferenceImages();
   clearPolyFillPreview();
   setHoveredStrandWidthEdge(null);
-  locks.forEach((lock) => {
-    hairGroup.remove(lock.mesh);
-    curveGroup.remove(lock.curveObjects.group);
-    lock.mesh.geometry.dispose();
-    removeUvCheckerFromLock(lock);
-    lock.mesh.material.dispose();
-    lock.selectionOutline?.material.dispose();
-    lock.wireOverlay?.geometry.dispose();
-    lock.wireOverlay?.material.dispose();
-    disposeCurveObjects(lock);
-  });
+  locks.forEach(disposeLockRuntime);
   guides.forEach((guide) => {
     removeGuideObjects(guide);
     disposeGuide(guide);
@@ -18635,9 +20767,27 @@ function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachmen
     ...snapshot,
     materialId: snapshot.materialId || DEFAULT_HAIR_MATERIAL_ID,
     locked: Boolean(snapshot.locked),
+    objectTransform: normalizeStrandObjectTransform(snapshot.objectTransform),
     liveSurfaceGuide: Boolean(snapshot.liveSurfaceGuide),
     points: (snapshot.points || []).map(dataToVector),
     polyFaces: normalizePolyFaces(snapshot.points || [], snapshot.polyFaces),
+    hairShellBasePoints: (snapshot.hairShellBasePoints || []).map(dataToVector),
+    hairShellBaseFaces: (snapshot.hairShellBaseFaces || []).map((face) => [...face]),
+    hairShellExtrusions: (snapshot.hairShellExtrusions || []).map((extrusion) => ({
+      faceIndex: Number(extrusion.faceIndex),
+      loops: Number(extrusion.loops),
+      curvePoints: (extrusion.curvePoints || []).map(dataToVector)
+    })),
+    hairShellFaceSources: [],
+    hairShellPrimitive: snapshot.geometryType === "hair-shell" && snapshot.hairShellPrimitive === "arc"
+      ? "arc"
+      : null,
+    arcHairSurfaceSettings: snapshot.geometryType === "hair-shell" && snapshot.hairShellPrimitive === "arc"
+      ? normalizeArcHairSurfaceSettings(snapshot.arcHairSurfaceSettings)
+      : null,
+    arcHairSurfaceOrigin: snapshot.geometryType === "hair-shell" && snapshot.hairShellPrimitive === "arc"
+      ? dataToVector(snapshot.arcHairSurfaceOrigin || { x: 0, y: 0, z: 0 })
+      : null,
     pointWidths: [...(snapshot.pointWidths || (snapshot.points || []).map(() => 1))],
     pointScales: (snapshot.pointScales || (snapshot.points || []).map(() => ({ x: 1, z: 1 })))
       .map((scale) => ({ x: scale.x, z: scale.z })),
@@ -18666,7 +20816,7 @@ function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachmen
       ? "panel"
       : snapshot.geometryType === "curve-surface" && snapshot.points?.length !== curveSurfaceColumns * curveSurfaceRows
         ? "strand"
-        : ["braid", "panel", "surface", "curve-surface", "poly"].includes(snapshot.geometryType) ? snapshot.geometryType : "strand",
+        : ["braid", "panel", "surface", "curve-surface", "poly", "hair-shell"].includes(snapshot.geometryType) ? snapshot.geometryType : "strand",
     surfaceColumns: snapshot.geometryType === "surface" ? surfaceColumns : null,
     surfaceRows: snapshot.geometryType === "surface" ? surfaceRows : null,
     curveSurfaceColumns: snapshot.geometryType === "curve-surface" ? curveSurfaceColumns : null,
@@ -18679,6 +20829,9 @@ function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachmen
       : null,
     compoundBridgeSmoothing: snapshot.geometryType === "curve-surface" && snapshot.curveSurfaceCompoundProfile
       ? THREE.MathUtils.clamp(Number(snapshot.compoundBridgeSmoothing) || 0, 0, 1)
+      : null,
+    compoundBridgeZippers: snapshot.geometryType === "curve-surface" && snapshot.curveSurfaceCompoundProfile
+      ? normalizeCompoundBridgeZippers(snapshot.compoundBridgeZippers, curveSurfaceColumns - 1)
       : null,
     curveSurfaceCenterCurve: snapshot.geometryType === "curve-surface"
       ? THREE.MathUtils.clamp(Math.round(Number(snapshot.curveSurfaceCenterCurve) || 0), 0, curveSurfaceColumns - 1)
@@ -18706,7 +20859,14 @@ function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachmen
       : Number(snapshot.panelCurvature ?? panelCreationDefaults.panelCurvature),
     panelLeftEdgeTrim: Number(snapshot.panelLeftEdgeTrim ?? panelCreationDefaults.panelLeftEdgeTrim),
     panelRightEdgeTrim: Number(snapshot.panelRightEdgeTrim ?? panelCreationDefaults.panelRightEdgeTrim),
+    panelTipCurve: snapshot.geometryType === "surface"
+      ? 0
+      : THREE.MathUtils.clamp(Number(snapshot.panelTipCurve ?? panelCreationDefaults.panelTipCurve), -1, 1),
+    panelTipLoops: snapshot.geometryType === "surface"
+      ? 0
+      : THREE.MathUtils.clamp(Math.round(Number(snapshot.panelTipLoops ?? panelCreationDefaults.panelTipLoops)), 0, 16),
     panelSplitEnabled: snapshot.panelSplitEnabled !== false,
+    panelHardZipperEdges: Boolean(snapshot.panelHardZipperEdges),
     panelSplitSnapToLoops: snapshot.panelSplitSnapToLoops !== false,
     panelSplitHeight: Number(snapshot.panelSplitHeight ?? panelCreationDefaults.panelSplitHeight),
     panelSplits: clonePanelSplits(snapshot.panelSplits, snapshot.panelSplitHeight).map((split) => ({
@@ -18732,7 +20892,7 @@ function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachmen
       -TWIST_CURVE_VALUE_MAX,
       TWIST_CURVE_VALUE_MAX
     ),
-    rootAttachmentEnabled: snapshot.geometryType !== "poly" && snapshot.rootAttachmentEnabled !== false,
+    rootAttachmentEnabled: !["poly", "hair-shell"].includes(snapshot.geometryType) && snapshot.rootAttachmentEnabled !== false,
     hairLayer: normalizeHairLayer(snapshot.hairLayer),
     layerOffsetApplied: Number(snapshot.layerOffsetApplied ?? 0),
     layerOffsetRootFactorApplied: Number(snapshot.layerOffsetRootFactorApplied ?? 1),
@@ -18811,7 +20971,18 @@ function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachmen
   if (remapRootAttachment) applyRootAttachmentLocalCurves(lock);
   lock.radialSegments = lock.radialSegments || 10;
   lock.lengthSegments = lock.lengthSegments || 26;
-  if (legacyUniformLayerOffset && lock.geometryType !== "poly") applyLayerOffset(lock, lock.layerOffsetApplied);
+  if (lock.geometryType === "hair-shell" && lock.hairShellBasePoints.length && lock.hairShellBaseFaces.length) {
+    const topology = buildHairShellTopology(
+      lock.hairShellBasePoints,
+      lock.hairShellBaseFaces,
+      lock.hairShellExtrusions
+    );
+    lock.points = topology.points.map(dataToVector);
+    lock.polyFaces = topology.faces.map((face) => [...face]);
+    lock.hairShellFaceSources = [...topology.faceSources];
+    fitPointAttributes(lock, lock.points.length);
+  }
+  if (legacyUniformLayerOffset && !["poly", "hair-shell"].includes(lock.geometryType)) applyLayerOffset(lock, lock.layerOffsetApplied);
   lock.mesh = new THREE.Mesh(
     createHairGeometry(lock),
     createHairMaterial(lock)
@@ -19973,6 +22144,7 @@ function addBraidedBobPresetV2() {
       panelLeftEdgeTrim: leftEdgeTrim,
       panelRightEdgeTrim: rightEdgeTrim,
       panelSplitEnabled: splitEnabled,
+      panelHardZipperEdges: false,
       panelSplitSnapToLoops: true,
       panelSplitHeight: splits[0]?.height ?? 0.3,
       panelSplits: clonePanelSplits(splits, splits[0]?.height ?? 0.3, Math.max(widthLoops, splits.length + 1) - 1),
@@ -22183,6 +24355,8 @@ function updateDrawStrandPreview() {
     panelCurvature: extensionLock?.panelCurvature ?? drawStrandStroke.panelCurvature,
     panelLeftEdgeTrim: extensionLock?.panelLeftEdgeTrim ?? drawStrandStroke.panelLeftEdgeTrim,
     panelRightEdgeTrim: extensionLock?.panelRightEdgeTrim ?? drawStrandStroke.panelRightEdgeTrim,
+    panelTipCurve: extensionLock?.panelTipCurve ?? drawStrandStroke.panelTipCurve,
+    panelTipLoops: extensionLock?.panelTipLoops ?? drawStrandStroke.panelTipLoops,
     profileTrimLeft: extensionLock?.profileTrimLeft ?? drawStrandStroke.profileTrimLeft,
     profileTrimRight: extensionLock?.profileTrimRight ?? drawStrandStroke.profileTrimRight,
     profileTrimRoundness: extensionLock?.profileTrimRoundness ?? drawStrandStroke.profileTrimRoundness,
@@ -22192,6 +24366,7 @@ function updateDrawStrandPreview() {
     strandSplitHeight: extensionLock?.strandSplitHeight ?? drawStrandStroke.strandSplitHeight,
     strandSplitGap: extensionLock?.strandSplitGap ?? drawStrandStroke.strandSplitGap,
     panelSplitEnabled: extensionLock?.panelSplitEnabled ?? drawStrandStroke.panelSplitEnabled,
+    panelHardZipperEdges: extensionLock?.panelHardZipperEdges ?? drawStrandStroke.panelHardZipperEdges,
     panelSplitSnapToLoops: extensionLock?.panelSplitSnapToLoops ?? drawStrandStroke.panelSplitSnapToLoops,
     panelSplitHeight: extensionLock?.panelSplitHeight ?? drawStrandStroke.panelSplitHeight,
     panelSplits: clonePanelSplits(
@@ -22417,6 +24592,8 @@ function beginDrawStrandStroke(event, hit, extensionLock = null, branchStart = n
     panelCurvature: Number(panelCreationDefaults.panelCurvature),
     panelLeftEdgeTrim: Number(panelCreationDefaults.panelLeftEdgeTrim),
     panelRightEdgeTrim: Number(panelCreationDefaults.panelRightEdgeTrim),
+    panelTipCurve: Number(panelCreationDefaults.panelTipCurve),
+    panelTipLoops: Number(panelCreationDefaults.panelTipLoops),
     profileTrimLeft: Number(strandCreationDefaults.profileTrimLeft),
     profileTrimRight: Number(strandCreationDefaults.profileTrimRight),
     profileTrimRoundness: Number(strandCreationDefaults.profileTrimRoundness),
@@ -22426,6 +24603,7 @@ function beginDrawStrandStroke(event, hit, extensionLock = null, branchStart = n
     strandSplitHeight: Number(strandCreationDefaults.strandSplitHeight),
     strandSplitGap: Number(strandCreationDefaults.strandSplitGap),
     panelSplitEnabled: panelCreationDefaults.panelSplitEnabled !== false,
+    panelHardZipperEdges: Boolean(panelCreationDefaults.panelHardZipperEdges),
     panelSplitSnapToLoops: panelCreationDefaults.panelSplitSnapToLoops !== false,
     panelSplitHeight: Number(panelCreationDefaults.panelSplitHeight),
     panelSplits: clonePanelSplits(panelCreationDefaults.panelSplits, panelCreationDefaults.panelSplitHeight),
@@ -22456,6 +24634,10 @@ function beginDrawStrandStroke(event, hit, extensionLock = null, branchStart = n
     extensionLockId: extensionLock?.id || null,
     branchSourceLockId: branchStart?.lock.id || null,
     branchSourcePointIndex: branchStart?.pointIndex ?? null,
+    hairShellLockId: branchStart?.faceIndex != null && branchStart?.lock?.geometryType === "hair-shell"
+      ? branchStart.lock.id
+      : null,
+    hairShellBaseFaceIndex: branchStart?.faceIndex ?? null,
     samples: [sample],
     startX: event.clientX,
     startY: event.clientY,
@@ -22845,7 +25027,10 @@ function createDrawnPanel(stroke) {
     panelCurvature: stroke.panelCurvature,
     panelLeftEdgeTrim: stroke.panelLeftEdgeTrim,
     panelRightEdgeTrim: stroke.panelRightEdgeTrim,
+    panelTipCurve: stroke.panelTipCurve,
+    panelTipLoops: stroke.panelTipLoops,
     panelSplitEnabled: stroke.panelSplitEnabled,
+    panelHardZipperEdges: Boolean(stroke.panelHardZipperEdges),
     panelSplitSnapToLoops: stroke.panelSplitSnapToLoops !== false,
     panelSplitHeight: stroke.panelSplitHeight,
     panelSplits: clonePanelSplits(stroke.panelSplits, stroke.panelSplitHeight),
@@ -22930,7 +25115,10 @@ function createSurfaceLockFromLattice(points, options = {}) {
     panelCurvature: 0,
     panelLeftEdgeTrim: panelCreationDefaults.panelLeftEdgeTrim,
     panelRightEdgeTrim: panelCreationDefaults.panelRightEdgeTrim,
+    panelTipCurve: 0,
+    panelTipLoops: 0,
     panelSplitEnabled: false,
+    panelHardZipperEdges: false,
     panelSplitSnapToLoops: panelCreationDefaults.panelSplitSnapToLoops,
     panelSplitHeight: panelCreationDefaults.panelSplitHeight,
     panelSplits: [],
@@ -23847,7 +26035,8 @@ function finishDrawStrandStroke(event, options = {}) {
   const minimumStrokeLength = stroke.extensionLockId ? 0.04 : 0.12;
   if (!options.cancel && stroke.samples.length >= 2 && strokeLength(stroke.samples) >= minimumStrokeLength) {
     pushUndoState();
-    if (stroke.extensionLockId) extendDrawnStrand(stroke);
+    if (stroke.hairShellLockId) extrudeHairShellFromStroke(stroke);
+    else if (stroke.extensionLockId) extendDrawnStrand(stroke);
     else createDrawnStrand(stroke);
   }
   updateInteractionLocks();
@@ -24336,6 +26525,11 @@ function beginSelectionMarquee(event, surface = null, selectionMode = "replace")
 
 function beginAltOrbit(event) {
   if (navigationStyle !== "anime-hair-studio" || event.button !== 0 || !event.altKey) return;
+  if (multiCameraOrthographicViewActive()) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
   altOrbitDrag = { pointerId: event.pointerId };
   controls.enableRotate = true;
   if (selectionMarqueeDrag) {
@@ -24357,6 +26551,11 @@ function beginBlenderNavigation(event) {
       : event.ctrlKey
         ? "zoom"
         : "orbit";
+  if (multiCameraOrthographicViewActive() && (action === "orbit" || action === "snap")) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
   blenderNavigationDrag = { pointerId: event.pointerId, action };
   activeViewportPointer = {
     pointerId: event.pointerId,
@@ -24494,6 +26693,7 @@ function selectPointsInMarquee(drag) {
     selectedPoint = null;
     selectedCurveLatticePoint = null;
   }
+  if (proportionalEditing || proportionalPreviewLockId) refreshProportionalStrandColors();
   guides.filter((guide) => guide.type === "curve-lattice").forEach(updateCurveLatticeHandleColors);
   locks.forEach((lock) => updateCurveObjects(lock, { visible: lock.id === selectedId }));
   updateSelectedPointLabel();
@@ -24708,13 +26908,65 @@ function strandSplitControlPoint(lock, split, tOverride = null, curveOverride = 
   return point.add(offset).addScaledVector(frame.z, 0.012);
 }
 
+function createCompoundBridgeControlContext(lock, seamIndex) {
+  const controllerPoints = curveSurfaceControllerCurves(lock);
+  const seamCount = Math.max(0, controllerPoints.length - 1);
+  const seam = THREE.MathUtils.clamp(Math.round(Number(seamIndex) || 0), 0, Math.max(0, seamCount - 1));
+  if (!controllerPoints[seam] || !controllerPoints[seam + 1]) return null;
+  return {
+    seamCount,
+    seam,
+    leftCurve: new THREE.CatmullRomCurve3(controllerPoints[seam]),
+    rightCurve: new THREE.CatmullRomCurve3(controllerPoints[seam + 1]),
+    leftFrameLock: curveSurfaceControllerFrameLock(lock, seam),
+    rightFrameLock: curveSurfaceControllerFrameLock(lock, seam + 1)
+  };
+}
+
+function compoundBridgeControlPoint(
+  lock,
+  seamIndex,
+  parameterOverride = null,
+  offsetOverride = null,
+  contextOverride = null
+) {
+  const context = contextOverride || createCompoundBridgeControlContext(lock, seamIndex);
+  if (!context) return new THREE.Vector3();
+  const { seamCount, seam, leftCurve, rightCurve, leftFrameLock, rightFrameLock } = context;
+  const zippers = normalizeCompoundBridgeZippers(lock.compoundBridgeZippers, seamCount);
+  const zipper = zippers[seam] || { parameter: 0.35, offset: 0 };
+  const parameter = THREE.MathUtils.clamp(
+    Number(parameterOverride ?? zipper.parameter),
+    0.05,
+    0.9
+  );
+  const offset = THREE.MathUtils.clamp(Number(offsetOverride ?? zipper.offset), -0.35, 0.35);
+  const leftPoint = leftCurve.getPoint(parameter);
+  const rightPoint = rightCurve.getPoint(parameter);
+  const point = leftPoint.clone().lerp(rightPoint, 0.5 + offset);
+  const leftFrame = transportedStrandFrameAt(
+    leftFrameLock,
+    leftCurve,
+    parameter
+  );
+  const rightFrame = transportedStrandFrameAt(
+    rightFrameLock,
+    rightCurve,
+    parameter
+  );
+  const normal = leftFrame.z.clone().add(rightFrame.z);
+  if (normal.lengthSq() > 0.0001) point.addScaledVector(normal.normalize(), 0.018);
+  return point;
+}
+
 function panelSplitControlPoint(lock, split, tOverride = null, curveOverride = null) {
   const t = THREE.MathUtils.clamp(tOverride ?? (1 - Number(split.height || 0)), 0, 1);
   const u = THREE.MathUtils.clamp(Number(split.position || 0), -1, 1);
   const leftEdgeTrim = THREE.MathUtils.clamp(Number(lock.panelLeftEdgeTrim ?? 0), 0, 0.75);
   const rightEdgeTrim = THREE.MathUtils.clamp(Number(lock.panelRightEdgeTrim ?? 0), 0, 0.75);
   const edgeTrim = THREE.MathUtils.lerp(leftEdgeTrim, rightEdgeTrim, (u + 1) * 0.5);
-  const sampleT = t * (1 - edgeTrim);
+  const tipCurve = lock.geometryType === "surface" ? 0 : Number(lock.panelTipCurve ?? 0);
+  const sampleT = panelTipCurveParameter(t, u, tipCurve, edgeTrim);
   if (lock.geometryType === "surface") return surfacePanelPoint(lock, sampleT, u, 1);
   const curve = curveOverride || strandGeometryCurve(lock);
   const point = curve.getPoint(sampleT);
@@ -24824,7 +27076,37 @@ function strandControlPointHitFromEvent(event, lock = getSelectedLock()) {
   return nearest;
 }
 
+function createHairShellCurveObjects(lock) {
+  const group = new THREE.Group();
+  group.userData.lockId = lock.id;
+  group.visible = false;
+  const line = new THREE.LineSegments(
+    new THREE.BufferGeometry(),
+    new THREE.LineBasicMaterial({ color: 0x58f6ff, transparent: true, opacity: 0, depthTest: false })
+  );
+  group.add(line);
+  return {
+    group,
+    line,
+    handles: [],
+    arrows: [],
+    panelSplitHandles: [],
+    panelSplitLines: [],
+    compoundBridgeHandles: [],
+    compoundBridgeLines: [],
+    strandSplitHandle: null,
+    strandSplitLine: null,
+    surfaceObjectAnchor: null,
+    surfaceObjectAnchorHandle: null,
+    surfaceObjectAnchorStem: null,
+    widthEdgeLines: [],
+    depthEdgeLines: [],
+    uniformEdgeLines: []
+  };
+}
+
 function createCurveObjects(lock) {
+  if (lock.geometryType === "hair-shell") return createHairShellCurveObjects(lock);
   if (lock.geometryType === "poly") return createPolyEditObjects(lock);
   const group = new THREE.Group();
   group.userData.lockId = lock.id;
@@ -24853,6 +27135,29 @@ function createCurveObjects(lock) {
     group.add(edge);
     return edge;
   });
+
+  const createDimensionEdgeLines = (dimension) => [-1, 1].map((side) => {
+    const edge = new THREE.Line(
+      new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({
+        color: 0xe7a95d,
+        transparent: true,
+        opacity: 0.22,
+        depthTest: false,
+        depthWrite: false
+      })
+    );
+    edge.renderOrder = 6;
+    edge.userData.lockId = lock.id;
+    edge.userData.strandWidthEdge = true;
+    edge.userData.dimension = dimension;
+    edge.userData.side = side;
+    group.add(edge);
+    return edge;
+  });
+  widthEdgeLines.forEach((edge) => { edge.userData.dimension = "width"; });
+  const depthEdgeLines = createDimensionEdgeLines("depth");
+  const uniformEdgeLines = createDimensionEdgeLines("uniform");
 
   let surfaceObjectAnchor = null;
   let surfaceObjectAnchorHandle = null;
@@ -24943,6 +27248,28 @@ function createCurveObjects(lock) {
       panelSplitHandles.push(handle);
     });
   }
+  const compoundBridgeHandles = [];
+  const compoundBridgeLines = [];
+  if (lock.geometryType === "curve-surface" && lock.curveSurfaceCompoundProfile) {
+    lock.compoundBridgeZippers = normalizeCompoundBridgeZippers(
+      lock.compoundBridgeZippers,
+      Math.max(0, lock.curveSurfaceColumns - 1)
+    );
+    lock.compoundBridgeZippers.forEach((zipper, index) => {
+      const line = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({ color: 0xff42cf, transparent: true, opacity: 0.9, depthTest: false })
+      );
+      line.renderOrder = 6;
+      group.add(line);
+      compoundBridgeLines.push(line);
+      const handle = createSplitControlHandle();
+      handle.userData.lockId = lock.id;
+      handle.userData.compoundBridgeIndex = index;
+      group.add(handle);
+      compoundBridgeHandles.push(handle);
+    });
+  }
   let strandSplitHandle = null;
   let strandSplitLine = null;
   if (lock.geometryType === "strand") {
@@ -24965,12 +27292,16 @@ function createCurveObjects(lock) {
     arrows,
     panelSplitHandles,
     panelSplitLines,
+    compoundBridgeHandles,
+    compoundBridgeLines,
     strandSplitHandle,
     strandSplitLine,
     surfaceObjectAnchor,
     surfaceObjectAnchorHandle,
     surfaceObjectAnchorStem,
-    widthEdgeLines
+    widthEdgeLines,
+    depthEdgeLines,
+    uniformEdgeLines
   };
 }
 
@@ -25042,8 +27373,12 @@ function populatePolyEditObjects(lock, target) {
     edgePickers,
     arrows: [],
     widthEdgeLines: [],
+    depthEdgeLines: [],
+    uniformEdgeLines: [],
     panelSplitHandles: [],
     panelSplitLines: [],
+    compoundBridgeHandles: [],
+    compoundBridgeLines: [],
     strandSplitHandle: null,
     strandSplitLine: null,
     surfaceObjectAnchor: null,
@@ -25090,37 +27425,41 @@ function transportedStrandWidthEdgeFrame(lock, curve, t) {
   return frame;
 }
 
-function strandWidthEdgeSample(lock, t, side, frameOverride = null, curveOverride = null) {
+function strandWidthEdgeSample(lock, t, side, frameOverride = null, curveOverride = null, dimension = "width") {
   if (!lock?.points?.length) return null;
-  if (isPanelGeometry(lock)) {
+  if (isPanelGeometry(lock) && dimension === "width") {
     const center = panelSplitControlPoint(lock, { position: 0, height: 1 - t }, t);
     const edge = panelSplitControlPoint(lock, { position: side, height: 1 - t }, t);
     return { center, edge };
   }
+  if (isPanelGeometry(lock)) return null;
   const curve = curveOverride || strandGeometryCurve(lock);
   const frame = frameOverride || transportedStrandWidthEdgeFrame(lock, curve, t);
-  const curveValue = sampleAsymmetricTaperCurve(
-    lock.taperCurve,
-    lock.taperCurveSecondary,
-    lock.asymmetricWidthCurve,
-    side,
-    t
+  const widthValue = sampleAsymmetricTaperCurve(
+    lock.taperCurve, lock.taperCurveSecondary, lock.asymmetricWidthCurve, side, t
   );
-  const extent = taperMeshPointExtentPerValue(lock, t, side, "x") * curveValue;
+  const depthValue = sampleAsymmetricTaperCurve(
+    lock.depthCurve, lock.depthCurveSecondary, lock.asymmetricDepthCurve, side, t
+  );
+  const widthExtent = taperMeshPointExtentPerValue(lock, t, side, "x") * widthValue;
+  const depthExtent = taperMeshPointExtentPerValue(lock, t, side, "z") * depthValue;
+  const offset = new THREE.Vector3();
+  if (dimension !== "depth") offset.addScaledVector(frame.x, side * widthExtent);
+  if (dimension !== "width") offset.addScaledVector(frame.z, side * depthExtent);
   return {
     center: frame.point.clone(),
-    edge: frame.point.clone().addScaledVector(frame.x, side * extent)
+    edge: frame.point.clone().add(offset)
   };
 }
 
-function strandWidthEdgePoints(lock, side) {
+function strandWidthEdgePoints(lock, side, dimension = "width") {
   const points = [];
   const curve = isPanelGeometry(lock) ? null : strandGeometryCurve(lock);
   let previousFrame = curve ? strandWidthEdgeFrameAt(lock, curve, 0) : null;
   for (let index = 0; index <= 36; index += 1) {
     const t = THREE.MathUtils.lerp(0.04, 0.96, index / 36);
     const frame = curve ? strandWidthEdgeFrameAt(lock, curve, t, previousFrame) : null;
-    const sample = strandWidthEdgeSample(lock, t, side, frame, curve);
+    const sample = strandWidthEdgeSample(lock, t, side, frame, curve, dimension);
     if (sample) points.push(sample.edge);
     if (frame) previousFrame = frame;
   }
@@ -25177,6 +27516,11 @@ function updateSculptBrushDebugCurve(lock) {
 
 function updateCurveObjects(lock, options = {}) {
   if (!lock.curveObjects) return;
+  if (lock.geometryType === "hair-shell") {
+    lock.curveObjects.group.visible = false;
+    if (lock.wireOverlay) syncLockedStrandWireVisual(lock);
+    return;
+  }
   if (lock.geometryType === "poly") {
     rebuildPolyEditObjects(lock, options);
     if (lock.wireOverlay) syncLockedStrandWireVisual(lock);
@@ -25231,13 +27575,20 @@ function updateCurveObjects(lock, options = {}) {
       selectedSurfaceObjectAnchorId === lock.id ? 0xff4fd8 : 0xf6b75d
     );
   }
-  lock.curveObjects.widthEdgeLines?.forEach((edge) => {
+  const grabHandleEdges = [
+    ...(lock.curveObjects.widthEdgeLines || []),
+    ...(lock.curveObjects.depthEdgeLines || []),
+    ...(lock.curveObjects.uniformEdgeLines || [])
+  ];
+  grabHandleEdges.forEach((edge) => {
+    const dimension = edge.userData.dimension || "width";
     edge.geometry.dispose();
     edge.geometry = new THREE.BufferGeometry().setFromPoints(
-      strandWidthEdgePoints(lock, edge.userData.side)
+      strandWidthEdgePoints(lock, edge.userData.side, dimension)
     );
     const active = strandWidthEdgeDrag?.lockId === lock.id
-      && strandWidthEdgeDrag.side === edge.userData.side;
+      && strandWidthEdgeDrag.side === edge.userData.side
+      && strandWidthEdgeDrag.dimension === dimension;
     const hovered = hoveredStrandWidthEdge === edge;
     edge.material.color.set(active || hovered ? 0xff42cf : 0xe7a95d);
     edge.material.opacity = active ? 0.95 : hovered ? 0.82 : 0.22;
@@ -25247,7 +27598,11 @@ function updateCurveObjects(lock, options = {}) {
       && lock.geometryType === "strand"
       && viewportEditMode === "strand"
       && componentEditModeActive()
-      && !(taperMeshPointsVisible && twistCurveEditing())
+      && moveGrabHandleVisible(dimension)
+      && !(
+        (taperMeshPointsVisible && twistCurveEditing())
+        || (moveCurveControlsApplicable(lock) && moveCurveControlVisibility.twistCurve)
+      )
       && ["select", "move"].includes(activeTool);
   });
   const deEmphasizeControlPoints = ["draw", "procedural-draw", "braid", "panel"].includes(activeTool);
@@ -25256,6 +27611,11 @@ function updateCurveObjects(lock, options = {}) {
       ? STRAND_CONTROL_POINT_DRAW_TOOL_SCALE
       : brushDebugVisible ? 0.65 : 1
   );
+  [
+    ...(lock.curveObjects.compoundBridgeHandles || []),
+    ...(lock.curveObjects.panelSplitHandles || []),
+    lock.curveObjects.strandSplitHandle
+  ].filter(Boolean).forEach((handle) => handle.scale.setScalar(controlPointDisplayScale));
   lock.curveObjects.handles.forEach((handle, index) => {
     if (!lock.points[index]) {
       handle.visible = false;
@@ -25336,6 +27696,43 @@ function updateCurveObjects(lock, options = {}) {
       && controllerVisible
       && lock.id === selectedId
       && ["rotate", "relax"].includes(activeTool);
+  });
+  const compoundZippers = lock.curveSurfaceCompoundProfile
+    ? normalizeCompoundBridgeZippers(lock.compoundBridgeZippers, Math.max(0, lock.curveSurfaceColumns - 1))
+    : [];
+  lock.curveObjects.compoundBridgeHandles?.forEach((handle, index) => {
+    const zipper = compoundZippers[index];
+    const line = lock.curveObjects.compoundBridgeLines?.[index];
+    const visible = !sculptBrushHelpersSuppressed
+      && !brushDebugVisible
+      && componentEditModeActive()
+      && lock.geometryType === "curve-surface"
+      && lock.curveSurfaceCompoundProfile
+      && Boolean(zipper);
+    handle.visible = visible;
+    if (!visible) {
+      if (line) line.visible = false;
+      return;
+    }
+    handle.position.copy(compoundBridgeControlPoint(lock, index));
+    handle.material.opacity = panelSplitDrag?.lockId === lock.id
+      && panelSplitDrag.kind === "compound"
+      && panelSplitDrag.splitIndex === index
+      ? 0.9
+      : 0.68;
+    if (!line) return;
+    line.visible = true;
+    line.geometry.dispose();
+    const points = [];
+    for (let step = 0; step <= 12; step += 1) {
+      points.push(compoundBridgeControlPoint(
+        lock,
+        index,
+        THREE.MathUtils.lerp(zipper.parameter, 0.96, step / 12),
+        zipper.offset
+      ));
+    }
+    line.geometry = new THREE.BufferGeometry().setFromPoints(points);
   });
   const splits = clonePanelSplits(lock.panelSplits, lock.panelSplitHeight);
   lock.curveObjects.panelSplitHandles?.forEach((handle, index) => {
@@ -25669,6 +28066,7 @@ function rebuildLockGeometry(lock, options = {}) {
     lock.wireOverlay.geometry.dispose();
     lock.wireOverlay.geometry = createHairTopologyGeometry(lock.mesh.geometry);
   }
+  syncBranchKnifeOverlay(lock.wireOverlay, lock.mesh.geometry);
   setStrandSelectionVisual(lock);
   lock.mesh.material.side = strandUsesDoubleSidedMaterial(lock)
     ? THREE.DoubleSide
@@ -25676,13 +28074,20 @@ function rebuildLockGeometry(lock, options = {}) {
   lock.mesh.material.needsUpdate = true;
   syncProceduralParentVisibility(lock);
   if (options.updateCurveObjects !== false) updateCurveObjects(lock);
-  if (
-    taperMeshPointsVisible
-    && taperCurveEdit?.type === "strand"
-    && taperCurveEdit.id === lock.id
-  ) updateTaperMeshPoints();
+  if (taperMeshPointsGroup.visible && lock.id === selectedId) updateTaperMeshPoints();
   if (options.updateClump !== false && !clumpUpdateInProgress && lock.clumpGuide) updateClumpMembers(lock);
   if (options.updateBranches !== false && !branchUpdateInProgress) updateBranchChildren(lock);
+  if (options.updateBranchKnifeParent !== false && !branchUpdateInProgress && lock.branchParentId) {
+    const branchParent = locks.find((item) => item.id === lock.branchParentId);
+    if (branchParent?.mesh) {
+      rebuildLockGeometry(branchParent, {
+        updateBranches: false,
+        updateBranchKnifeParent: false
+      });
+    }
+  }
+  lock.historyGeometryRevision = Number(lock.historyGeometryRevision || 0) + 1;
+  requestShadowMapRefresh();
   invalidateUvInspector();
 }
 
@@ -26008,6 +28413,7 @@ function setUvCheckerEnabled(enabled) {
 }
 
 function strandViewportBaseColor(lock) {
+  if (hairMaterialGradientActive(lock)) return strandGradientTintColor(lock);
   if (lock.locked) {
     const mutedColor = new THREE.Color(strandDisplayColor(lock));
     mutedColor.lerp(new THREE.Color(0x747780), 0.18);
@@ -26084,6 +28490,7 @@ function setStrandSelectionVisual(lock) {
     material.color.set(0xffffff);
   } else {
     setAnimeHairBaseColor(material, strandViewportBaseColor(lock));
+    applyHairBaseGradient(material, lock);
     if (lock.locked) applyLockedStrandPalette(material);
   }
   material.emissive?.set(0x000000);
@@ -26168,6 +28575,7 @@ function refreshStrandSelectionConsumers({
     transformControls.detach();
     selectedPoint = null;
   }
+  if (proportionalEditing || proportionalPreviewLockId) refreshProportionalStrandColors();
   if (updateGeometry) locks.forEach((item) => updateLockGeometry(item));
   renderLockList();
   updateAttributeEditorMode();
@@ -26180,6 +28588,7 @@ function refreshStrandSelectionConsumers({
   }
   if (syncActiveInputs && lock) syncInputs(lock);
   if (!componentEditModeActive() && viewportEditMode === "strand") attachStrandObjectTransform();
+  syncStrandObjectTransformPanel();
   return lock;
 }
 
@@ -26495,6 +28904,59 @@ function syncViewportDrawSettings() {
   viewportDrawSettings.setAttribute("aria-hidden", String(!drawSettingsVisible));
   drawSurfaceDynamicButton.disabled = activeStrokeSurfaceValue() === "contextual-plane";
   viewportDrawLayerInput.value = normalizeHairLayer(strandCreationDefaults.hairLayer);
+  syncViewportTopControlRows();
+}
+
+function syncViewportTopControlRows() {
+  if (!viewportTopControls || !viewportEditModeControl || !viewportPanel) return;
+  const groups = [viewportDisplayActions, viewportDrawSettings, viewportModes]
+    .filter((group) => group && !group.classList.contains("hidden"));
+  const workspaceBounds = viewportEditModeControl.getBoundingClientRect();
+  viewportTopControls.style.setProperty("--viewport-top-controls-overlap-shift", "0px");
+  viewportTopControls.classList.remove("two-row");
+  const oneRowLeft = Math.min(...groups.map((group) => group.getBoundingClientRect().left));
+  const useTwoRows = oneRowLeft - workspaceBounds.right <= 4;
+  viewportTopControls.classList.toggle("two-row", useTwoRows);
+  const liveSurfaceLeft = viewportDrawSettings.classList.contains("hidden")
+    ? Infinity
+    : viewportDrawSettings.getBoundingClientRect().left;
+  const overlapShift = useTwoRows
+    ? Math.max(0, workspaceBounds.right + 4 - liveSurfaceLeft)
+    : 0;
+  viewportTopControls.style.setProperty("--viewport-top-controls-overlap-shift", `${overlapShift}px`);
+  syncResponsiveSidebarDock();
+}
+
+let compactSidebarDockActivationWidth = null;
+
+function syncResponsiveSidebarDock() {
+  const viewportWidth = document.documentElement.clientWidth;
+  const docked = document.body.classList.contains("compact-sidebar-docked");
+  if (viewportWidth <= 860) {
+    document.body.classList.remove("compact-sidebar-docked");
+    compactSidebarDockActivationWidth = null;
+    return;
+  }
+  if (docked) {
+    if (compactSidebarDockActivationWidth !== null && viewportWidth > compactSidebarDockActivationWidth) {
+      document.body.classList.remove("compact-sidebar-docked");
+      window.requestAnimationFrame(syncViewportTopControlRows);
+    }
+    return;
+  }
+  const layerControl = viewportDrawLayerInput.closest("label");
+  if (!layerControl || viewportDrawSettings.classList.contains("hidden")) return;
+  const viewportBounds = viewportPanel.getBoundingClientRect();
+  const workspaceBounds = viewportEditModeControl.getBoundingClientRect();
+  const layerBounds = layerControl.getBoundingClientRect();
+  const floatingPanels = document.body.classList.contains("floating-side-panels");
+  const effectiveViewportLeft = viewportBounds.left + (floatingPanels ? outlinerPanel.getBoundingClientRect().width : 0);
+  const effectiveViewportRight = viewportBounds.right - (floatingPanels ? toolPanel.getBoundingClientRect().width : 0);
+  const workspaceLeftMargin = workspaceBounds.left - effectiveViewportLeft;
+  const layerRightMargin = effectiveViewportRight - layerBounds.right;
+  if (layerRightMargin > workspaceLeftMargin) return;
+  compactSidebarDockActivationWidth = viewportWidth + Math.max(0, workspaceLeftMargin - layerRightMargin);
+  document.body.classList.add("compact-sidebar-docked");
 }
 
 function syncPanelShapeInputs(target = activeStrandShapeTarget()) {
@@ -26514,10 +28976,11 @@ function syncPanelShapeInputs(target = activeStrandShapeTarget()) {
   });
   Object.entries(panelShapeValues).forEach(([key, output]) => {
     const value = Number(target[key] ?? panelCreationDefaults[key]);
-    output.textContent = ["panelLengthLoops", "panelWidthLoops"].includes(key)
+    output.textContent = ["panelLengthLoops", "panelWidthLoops", "panelTipLoops"].includes(key)
       ? String(Math.round(value))
       : value.toFixed(2);
   });
+  panelShapeInputs.panelHardZipperEdges.disabled = target.panelSplitEnabled === false;
   if (panelSplitCountValue) panelSplitCountValue.textContent = String(splits.length);
   if (removePanelSplitButton) removePanelSplitButton.disabled = splits.length === 0;
   if (addPanelSplitButton) addPanelSplitButton.disabled = splits.length >= Math.min(23, target.panelWidthLoops - 1);
@@ -26595,6 +29058,7 @@ function updateAttributeEditorMode() {
   const editingSelection = editingGroup || editingStrand;
   const editingCreationShape = creationToolActive() && !editingStrand;
   const selectedPoly = getSelectedLock()?.geometryType === "poly" ? getSelectedLock() : null;
+  const selectedArcHairSurface = getSelectedLock()?.hairShellPrimitive === "arc" ? getSelectedLock() : null;
   const selectedBraid = getSelectedLock()?.geometryType === "braid" ? getSelectedLock() : null;
   const selectedPanel = isPanelGeometry(getSelectedLock()) ? getSelectedLock() : null;
   const selectedSurface = getSelectedLock()?.geometryType === "surface" ? getSelectedLock() : null;
@@ -26616,7 +29080,7 @@ function updateAttributeEditorMode() {
   selectedStrandPanel.classList.toggle("hidden", !editingStrand || Boolean(selectedPoly));
   if (!editingStrand) clumpGuidePanel.classList.add("hidden");
   hairMaterialPanel.classList.remove("hidden");
-  strandTopologyPanel.classList.toggle("hidden", !editingStrand || Boolean(selectedPanel) || Boolean(selectedPoly));
+  strandTopologyPanel.classList.toggle("hidden", !editingStrand || Boolean(selectedPanel) || Boolean(selectedPoly) || Boolean(selectedArcHairSurface));
   transformToolPanel.classList.toggle("hidden", !transformToolActive);
   relaxToolPanel.classList.toggle("hidden", activeTool !== "relax");
   const drawToolSettingsVisible = ["draw", "procedural-draw"].includes(activeTool);
@@ -26647,8 +29111,10 @@ function updateAttributeEditorMode() {
   );
   surfaceLatticeControls.classList.toggle("hidden", !selectedSurface);
   panelCurvatureControl.classList.toggle("hidden", Boolean(selectedSurface));
+  panelTipCurveControl.classList.toggle("hidden", Boolean(selectedSurface));
   surfaceLatticeControls.hidden = !selectedSurface;
   panelCurvatureControl.hidden = Boolean(selectedSurface);
+  panelTipCurveControl.hidden = Boolean(selectedSurface);
   compoundBridgeLoopsControl.classList.toggle("hidden", !selectedCompound);
   compoundBridgeSmoothingControl.classList.toggle("hidden", !selectedCompound);
   if (selectedSurface) {
@@ -26701,6 +29167,8 @@ function updateAttributeEditorMode() {
   scaleSensitivitySetting.classList.toggle("hidden", activeTool !== "scale");
   viewPlaneMoveSetting.classList.toggle("hidden", activeTool !== "move");
   viewPlaneMoveSnappedSetting.classList.toggle("hidden", activeTool !== "move");
+  syncMoveCurveControls();
+  updateTaperMeshPoints();
   placeStrandToolPanel.classList.toggle("hidden", activeTool !== "place");
   proportionalPanel.classList.toggle(
     "hidden",
@@ -26716,18 +29184,20 @@ function updateAttributeEditorMode() {
   );
   hierarchyPanel.classList.toggle("hidden", !editingStrand || !hierarchyToolActive || !hierarchyEditing);
   strandLayerControl.classList.toggle("hidden", editingCreationShape && activeTool === "draw");
-  strandShapePanel.classList.toggle("hidden", Boolean(selectedPoly) || (!editingStrand && !editingCreationShape));
+  strandShapePanel.classList.toggle("hidden", Boolean(selectedPoly) || Boolean(selectedArcHairSurface) || (!editingStrand && !editingCreationShape));
   strandShapeTitle.textContent = editingCreationShape
     ? (activeTool === "braid" ? "Braid Shape" : activeTool === "panel" ? "Panel Shape" : "Strand Shape")
     : (selectedBraid ? "Braid Shape" : selectedSurface ? "Surface Shape" : selectedPanel ? "Panel Shape" : "Strand Shape");
   if (editingCreationShape) syncCreationShapeInputs();
   else syncHairCardControls(getSelectedLock());
+  syncArcHairSurfaceControls(selectedArcHairSurface);
   syncViewportDrawSettings();
   pinActiveToolSettingsPanel();
+  syncFloatingToolSettingsPanel();
 }
 
 function pinActiveToolSettingsPanel() {
-  document.querySelectorAll(".tool-panel > .active-tool-settings").forEach((item) => {
+  document.querySelectorAll(".active-tool-settings").forEach((item) => {
     item.classList.remove("active-tool-settings");
   });
   let panel = null;
@@ -26894,6 +29364,7 @@ function selectStrandGroup(region) {
   selectedCurveSurfaceController = null;
   clumpViewportSelection = false;
   selectedPoint = null;
+  if (proportionalEditing || proportionalPreviewLockId) refreshProportionalStrandColors();
   transformControls.detach();
   locks.forEach((lock) => {
     setStrandSelectionVisual(lock);
@@ -26914,8 +29385,8 @@ function selectCurvePoint(lockId, pointIndex, preserveMulti = false) {
   selectedCurveLatticePoint = null;
   if (!preserveMulti) selectedControlPoints = [{ type: "strand", lockId, pointIndex }];
   updateSelectedPointLabel();
+  if (proportionalEditing) refreshProportionalStrandColors();
   locks.forEach((lock) => {
-    if (proportionalEditing) updateLockGeometry(lock);
     updateCurveObjects(lock, { visible: lock.id === selectedId });
   });
   updateViewPlaneGrid();
@@ -27160,6 +29631,72 @@ function setMixedControl(control, output, values, formatter = String) {
   return mixed;
 }
 
+function syncMoveCurveControls(primary = getSelectedLock()) {
+  const grabHandlesApplicable = moveGrabHandlesApplicable(primary);
+  moveGrabHandlesSetting.classList.toggle("hidden", !grabHandlesApplicable);
+  moveWidthGrabHandlesInput.checked = moveGrabHandleVisibility.width;
+  moveDepthGrabHandlesInput.checked = moveGrabHandleVisibility.depth;
+  moveUniformGrabHandlesInput.checked = moveGrabHandleVisibility.uniform;
+  moveWidthGrabHandlesInput.disabled = moveGrabHandleVisibility.uniform;
+  moveDepthGrabHandlesInput.disabled = moveGrabHandleVisibility.uniform;
+  const applicable = moveCurveControlsApplicable(primary);
+  moveCurveControlsSetting.classList.toggle("hidden", !applicable);
+  moveWidthCurveControlsInput.checked = moveCurveControlVisibility.taperCurve;
+  moveDepthCurveControlsInput.checked = moveCurveControlVisibility.depthCurve;
+  moveTwistCurveControlsInput.checked = moveCurveControlVisibility.twistCurve;
+  if (!applicable) return;
+  const selection = compatibleSelectedLocks(primary);
+  const syncAuthoredCheckbox = (control, read, stateLabel = null) => {
+    const values = selection.map(read);
+    control.checked = Boolean(values[0]);
+    control.disabled = false;
+    const mixed = setMixedControl(control, null, values, Boolean);
+    if (stateLabel) stateLabel.textContent = mixed ? "Mixed" : control.checked ? "Asym" : "Sym";
+  };
+  syncAuthoredCheckbox(
+    moveAsymmetricWidthInput,
+    (lock) => lock.asymmetricWidthCurve,
+    moveAsymmetricWidthLabel
+  );
+  syncAuthoredCheckbox(
+    moveAsymmetricDepthInput,
+    (lock) => lock.asymmetricDepthCurve,
+    moveAsymmetricDepthLabel
+  );
+  syncAuthoredCheckbox(moveCenterAsymmetricProfileInput, (lock) => lock.centerAsymmetricProfile);
+}
+
+function setMoveGrabHandleVisibility(dimension, visible) {
+  if (!(dimension in moveGrabHandleVisibility)) return;
+  moveGrabHandleVisibility[dimension] = Boolean(visible);
+  syncMoveCurveControls();
+  const lock = getSelectedLock();
+  if (lock) updateCurveObjects(lock, { visible: true });
+}
+
+function setMoveCurveControlVisibility(curveKey, visible) {
+  if (!(curveKey in moveCurveControlVisibility)) return;
+  moveCurveControlVisibility[curveKey] = Boolean(visible);
+  syncMoveCurveControls();
+  updateTaperMeshPoints();
+  const lock = getSelectedLock();
+  if (lock) updateCurveObjects(lock, { visible: true });
+}
+
+function setSelectedMoveCurveShapeFlag(key, enabled, curveKey = null) {
+  const primary = getSelectedLock();
+  if (!moveCurveControlsApplicable(primary)) return;
+  pushUndoState();
+  editSelectedLocks((lock) => {
+    if (curveKey && enabled) ensureSecondaryTaperCurve(lock, curveKey);
+    lock[key] = Boolean(enabled);
+  }, { renderList: false });
+  syncMoveCurveControls(primary);
+  renderTaperPreview(taperPreviewPaths.strand, primary, "taperCurve");
+  renderTaperPreview(taperPreviewPaths.strandDepth, primary, "depthCurve");
+  updateTaperMeshPoints();
+}
+
 function syncMultiStrandInputs(primary = getSelectedLock()) {
   const selection = compatibleSelectedLocks(primary);
   const selectedCount = selectedLocksInOrder().length;
@@ -27209,6 +29746,7 @@ function syncMultiStrandInputs(primary = getSelectedLock()) {
   setMixedControl(strandDynamicDensityInput, null, values((lock) => Boolean(lock.dynamicDensity)));
   setMixedControl(inputs.densityAggression, topologyValues.strandDensityAggression, values((lock) => Number(lock.densityAggression ?? 0.5)), (value) => Number(value).toFixed(2));
   setMixedControl(inputs.twistDensity, topologyValues.strandTwistDensity, values((lock) => Number(lock.twistDensity ?? 0)), (value) => Number(value).toFixed(2));
+  syncMoveCurveControls(primary);
   if (strandEditFamily(primary) === "strand") {
     setMixedControl(
       drawStrandBrushSizeInput,
@@ -27259,20 +29797,310 @@ function syncMultiStrandInputs(primary = getSelectedLock()) {
 function selectedRebuildableCurves() {
   return selectedLocksInOrder().filter((lock) => (
     lock.points?.length >= 2
-    && !["poly", "surface", "curve-surface"].includes(lock.geometryType)
+    && !["poly", "hair-shell", "surface", "curve-surface"].includes(lock.geometryType)
   ));
 }
 
+function rebuildHairShell(lock) {
+  if (lock?.geometryType !== "hair-shell") return false;
+  const topology = buildHairShellTopology(
+    lock.hairShellBasePoints,
+    lock.hairShellBaseFaces,
+    lock.hairShellExtrusions
+  );
+  lock.points = topology.points.map(dataToVector);
+  lock.polyFaces = topology.faces.map((face) => [...face]);
+  lock.hairShellFaceSources = [...topology.faceSources];
+  fitPointAttributes(lock, lock.points.length);
+  updateLockGeometry(lock, { immediate: true });
+  updateTopologyStats();
+  return true;
+}
+
+function ensureHairShellFaceSelectionGroup() {
+  if (hairShellFaceSelectionGroup) return hairShellFaceSelectionGroup;
+  const group = new THREE.Group();
+  const fill = new THREE.Mesh(
+    new THREE.BufferGeometry(),
+    new THREE.MeshBasicMaterial({
+      color: 0xffd45e,
+      transparent: true,
+      opacity: 0.28,
+      side: THREE.DoubleSide,
+      depthTest: false,
+      depthWrite: false
+    })
+  );
+  const outline = new THREE.LineLoop(
+    new THREE.BufferGeometry(),
+    new THREE.LineBasicMaterial({
+      color: 0xffd45e,
+      transparent: true,
+      opacity: 0.96,
+      depthTest: false,
+      depthWrite: false
+    })
+  );
+  fill.renderOrder = 28;
+  outline.renderOrder = 29;
+  fill.raycast = () => {};
+  outline.raycast = () => {};
+  group.add(fill, outline);
+  group.userData.fill = fill;
+  group.userData.outline = outline;
+  hairShellFaceSelectionGroup = group;
+  return group;
+}
+
+function clearHairShellFaceSelection() {
+  selectedHairShellFace = null;
+  if (!hairShellFaceSelectionGroup) return;
+  hairShellFaceSelectionGroup.removeFromParent();
+  hairShellFaceSelectionGroup.visible = false;
+}
+
+function showHairShellFaceSelection(lock, faceIndex) {
+  const face = lock?.hairShellBaseFaces?.[faceIndex];
+  if (!face?.every((index) => lock.hairShellBasePoints[index])) {
+    clearHairShellFaceSelection();
+    return false;
+  }
+  const group = ensureHairShellFaceSelectionGroup();
+  const normal = dataToVector(hairShellFaceNormal(lock.hairShellBasePoints, face));
+  const points = face.map((index) => lock.hairShellBasePoints[index].clone().addScaledVector(normal, 0.008));
+  const positions = points.flatMap((point) => point.toArray());
+  group.userData.fill.geometry.dispose();
+  group.userData.fill.geometry = new THREE.BufferGeometry();
+  group.userData.fill.geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  group.userData.fill.geometry.setIndex([0, 1, 2, 0, 2, 3]);
+  group.userData.outline.geometry.dispose();
+  group.userData.outline.geometry = new THREE.BufferGeometry().setFromPoints(points);
+  group.removeFromParent();
+  lock.mesh.add(group);
+  group.visible = true;
+  selectedHairShellFace = { lockId: lock.id, faceIndex };
+  return true;
+}
+
+function selectHairShellFaceAtEvent(event) {
+  const lock = getSelectedLock();
+  if (
+    activeTool !== "select"
+    || viewportSelectionMode !== "component"
+    || event.button !== 0
+    || event.shiftKey
+    || event.ctrlKey
+    || event.altKey
+    || event.metaKey
+    || lock?.geometryType !== "hair-shell"
+    || lock.locked
+    || !lock.mesh.visible
+  ) return false;
+  rayFromViewportEvent(event);
+  const hit = raycaster.intersectObject(lock.mesh, false)[0];
+  if (!hit) {
+    clearHairShellFaceSelection();
+    return false;
+  }
+  const quadIndex = lock.mesh.geometry.userData.triangleQuadIds?.[hit.faceIndex];
+  const faceIndex = lock.hairShellFaceSources?.[quadIndex];
+  if (!Number.isInteger(faceIndex) || !canExtrudeHairShellFace(
+    lock.hairShellBaseFaces,
+    lock.hairShellExtrusions,
+    faceIndex
+  )) {
+    clearHairShellFaceSelection();
+    return true;
+  }
+  showHairShellFaceSelection(lock, faceIndex);
+  renderer.domElement.style.cursor = "crosshair";
+  return true;
+}
+
+async function createHairShell() {
+  if (!showDevTestFeatures || !hairShellExperimentalEnabled) return null;
+  await ensureEditedScalpSurface();
+  const template = await loadScalpBuilderCurveLatticeTemplate();
+  const authoredPoints = scalpBuilderEditedPoints?.length === template.vertices.length
+    ? scalpBuilderEditedPoints.map((point) => point.clone())
+    : scalpBuilderCurveLatticeWorldPoints(template);
+  const subdivided = subdivideScalpBuilderCage(authoredPoints, template.faces, 1);
+  scalpBuilderGroup.updateMatrixWorld(true);
+  hairGroup.updateMatrixWorld(true);
+  const toHairLocal = hairGroup.matrixWorld.clone().invert();
+  const points = subdivided.points.map((point) => point.clone()
+    .applyMatrix4(scalpBuilderGroup.matrixWorld)
+    .applyMatrix4(toHairLocal));
+  const center = new THREE.Box3().setFromPoints(points).getCenter(new THREE.Vector3());
+  points.forEach((point) => point.sub(center).multiplyScalar(1.08).add(center));
+  const faces = subdivided.faces.map((face) => {
+    const indices = [...face.indices];
+    const faceCenter = dataToVector(hairShellFaceCenter(points, indices));
+    const normal = dataToVector(hairShellFaceNormal(points, indices));
+    return normal.dot(faceCenter.sub(center)) < 0 ? indices.reverse() : indices;
+  });
+  pushUndoState();
+  const lock = addLock("front", {
+    geometryType: "hair-shell",
+    scalpRegion: "unassigned",
+    rootAttachmentEnabled: false,
+    points,
+    polyFaces: faces,
+    hairShellBasePoints: points,
+    hairShellBaseFaces: faces,
+    hairShellExtrusions: [],
+    hairShellFaceSources: faces.map((_, index) => index)
+  }, { deferUi: true });
+  lock.name = `Hair Shell ${lockIndex}`;
+  selectLock(lock.id, { individualClumpMember: true });
+  setActiveTool("select");
+  renderLockList();
+  updateCount();
+  updatePlacementStatus();
+  return lock;
+}
+
+function arcHairSurfacePlacement(settings) {
+  if (!guideModel) return new THREE.Vector3(0, 0.5, 0);
+  guideModel.updateMatrixWorld(true);
+  hairGroup.updateMatrixWorld(true);
+  const bounds = guideHeadBounds(guideModel);
+  if (bounds.isEmpty()) return new THREE.Vector3(0, 0.5, 0);
+  const center = bounds.getCenter(new THREE.Vector3());
+  center.y = bounds.max.y + 0.04 - settings.arcHeight;
+  return center.applyMatrix4(hairGroup.matrixWorld.clone().invert());
+}
+
+function rebuildArcHairSurface(lock) {
+  if (lock?.hairShellPrimitive !== "arc") return false;
+  const grid = createArcHairSurfaceGrid(lock.arcHairSurfaceSettings);
+  lock.arcHairSurfaceSettings = grid.settings;
+  const origin = lock.arcHairSurfaceOrigin || new THREE.Vector3();
+  lock.hairShellBasePoints = grid.points.map((point) => dataToVector(point).add(origin));
+  lock.hairShellBaseFaces = grid.faces.map((face) => [...face]);
+  if (lock.hairShellExtrusions.length) rebuildHairShell(lock);
+  else {
+    lock.points = lock.hairShellBasePoints.map((point) => point.clone());
+    lock.polyFaces = lock.hairShellBaseFaces.map((face) => [...face]);
+    lock.hairShellFaceSources = lock.polyFaces.map((_, index) => index);
+    fitPointAttributes(lock, lock.points.length);
+    updateLockGeometry(lock, { immediate: true });
+    updateTopologyStats();
+  }
+  return true;
+}
+
+function syncArcHairSurfaceControls(lock = getSelectedLock()) {
+  const visible = showDevTestFeatures
+    && arcHairSurfaceExperimentalEnabled
+    && lock?.hairShellPrimitive === "arc";
+  arcHairSurfacePanel.classList.toggle("hidden", !visible);
+  arcHairSurfacePanel.hidden = !visible;
+  arcHairSurfacePanel.setAttribute("aria-hidden", String(!visible));
+  if (!visible) return;
+  const settings = normalizeArcHairSurfaceSettings(lock.arcHairSurfaceSettings);
+  lock.arcHairSurfaceSettings = settings;
+  Object.entries(arcHairSurfaceInputs).forEach(([key, input]) => {
+    input.value = String(settings[key]);
+    const integer = key.endsWith("Segments");
+    arcHairSurfaceValues[key].textContent = integer
+      ? String(settings[key])
+      : Number(settings[key]).toFixed(2);
+    input.disabled = integer && Boolean(lock.hairShellExtrusions.length);
+    input.title = input.disabled
+      ? "Topology density is locked after faces have been extruded from this surface."
+      : "";
+  });
+}
+
+function createArcHairSurface() {
+  if (!showDevTestFeatures || !arcHairSurfaceExperimentalEnabled) return null;
+  const grid = createArcHairSurfaceGrid();
+  const origin = arcHairSurfacePlacement(grid.settings);
+  const points = grid.points.map((point) => dataToVector(point).add(origin));
+  pushUndoState();
+  const lock = addLock("front", {
+    geometryType: "hair-shell",
+    hairShellPrimitive: "arc",
+    arcHairSurfaceSettings: grid.settings,
+    arcHairSurfaceOrigin: origin,
+    scalpRegion: "unassigned",
+    rootAttachmentEnabled: false,
+    points,
+    polyFaces: grid.faces,
+    hairShellBasePoints: points,
+    hairShellBaseFaces: grid.faces,
+    hairShellExtrusions: [],
+    hairShellFaceSources: grid.faces.map((_, index) => index)
+  }, { deferUi: true });
+  lock.name = `Arc Hair Surface ${lockIndex}`;
+  selectLock(lock.id, { individualClumpMember: true });
+  setActiveTool("select");
+  renderLockList();
+  updateCount();
+  updatePlacementStatus();
+  return lock;
+}
+
+function selectedHairShellFaceStart(event) {
+  const lock = getSelectedLock();
+  if (
+    activeTool !== "draw"
+    || lock?.geometryType !== "hair-shell"
+    || lock.locked
+    || !lock.mesh.visible
+    || selectedHairShellFace?.lockId !== lock.id
+  ) return null;
+  const faceIndex = selectedHairShellFace.faceIndex;
+  if (!canExtrudeHairShellFace(lock.hairShellBaseFaces, lock.hairShellExtrusions, faceIndex)) return null;
+  rayFromViewportEvent(event);
+  const hit = raycaster.intersectObject(lock.mesh, false)[0];
+  if (!hit) return null;
+  const quadIndex = lock.mesh.geometry.userData.triangleQuadIds?.[hit.faceIndex];
+  if (lock.hairShellFaceSources?.[quadIndex] !== faceIndex) return null;
+  const face = lock.hairShellBaseFaces[faceIndex];
+  const point = dataToVector(hairShellFaceCenter(lock.hairShellBasePoints, face)).applyMatrix4(lock.mesh.matrixWorld);
+  const normal = dataToVector(hairShellFaceNormal(lock.hairShellBasePoints, face))
+    .applyMatrix3(new THREE.Matrix3().getNormalMatrix(lock.mesh.matrixWorld))
+    .normalize();
+  return { lock, point, normal, faceIndex };
+}
+
+function extrudeHairShellFromStroke(stroke) {
+  const lock = locks.find((item) => item.id === stroke.hairShellLockId);
+  if (!lock || lock.geometryType !== "hair-shell") return null;
+  const processed = processedDrawStroke(stroke.samples, stroke.smoothing, stroke.curveStep);
+  if (processed.length < 3 || strokeLength(processed) < 0.12) return null;
+  const inverse = lock.mesh.matrixWorld.clone().invert();
+  const curvePoints = processed.map((sample) => sample.point.clone().applyMatrix4(inverse));
+  const length = strokeLength(processed);
+  lock.hairShellExtrusions.push({
+    faceIndex: stroke.hairShellBaseFaceIndex,
+    loops: THREE.MathUtils.clamp(Math.round(length / 0.16), 4, 32),
+    curvePoints
+  });
+  clearHairShellFaceSelection();
+  rebuildHairShell(lock);
+  selectLock(lock.id, { individualClumpMember: true });
+  renderLockList();
+  return lock;
+}
+
 function createCompoundStrand() {
+  if (!showDevTestFeatures || !compoundStrandExperimentalEnabled) return null;
   const rows = 7;
   const side = new THREE.Vector3(1, 0, 0);
-  const uniformWidthCurve = [
-    { position: 0, value: 1, interpolation: "linear" },
-    { position: 1, value: 1, interpolation: "linear" }
+  const compoundWidthCurve = [
+    { position: 0, value: 0.95, interpolation: "smooth" },
+    { position: 0.43, value: 0.95, interpolation: "smooth" },
+    { position: 0.68, value: 0.8, interpolation: "smooth" },
+    { position: 0.89, value: 0.4, interpolation: "smooth" },
+    { position: 1, value: 0, interpolation: "smooth" }
   ];
-  const uniformDepthCurve = [
-    { position: 0, value: 0.55, interpolation: "linear" },
-    { position: 1, value: 0.55, interpolation: "linear" }
+  const compoundDepthCurve = [
+    { position: 0, value: 0.64, interpolation: "smooth" },
+    { position: 0.25, value: 0.66, interpolation: "smooth" },
+    { position: 1, value: 0, interpolation: "smooth" }
   ];
   const centerCurve = Array.from({ length: rows }, (_, row) => (
     new THREE.Vector3(0, 1.55 - row * 0.5, 1.45)
@@ -27292,6 +30120,10 @@ function createCompoundStrand() {
     curveSurfaceCompoundProfile: true,
     compoundBridgeLoops: 0,
     compoundBridgeSmoothing: 0.5,
+    compoundBridgeZippers: [
+      { parameter: 0.35, offset: 0 },
+      { parameter: 0.35, offset: 0 }
+    ],
     curveSurfaceStripWidth: DEFAULT_CURVE_SURFACE_STRIP_WIDTH,
     curveSurfaceSide: side,
     curveSurfaceSymmetric: false,
@@ -27299,10 +30131,10 @@ function createCompoundStrand() {
     pointSurfaceNormals: controllerPoints.map(() => null),
     points: controllerPoints,
     ...strandCreationDefaults,
-    taperCurve: uniformWidthCurve,
-    taperCurveSecondary: uniformWidthCurve,
-    depthCurve: uniformDepthCurve,
-    depthCurveSecondary: uniformDepthCurve,
+    taperCurve: compoundWidthCurve,
+    taperCurveSecondary: compoundWidthCurve,
+    depthCurve: compoundDepthCurve,
+    depthCurveSecondary: compoundDepthCurve,
     surfaceNormalInfluence: 0
   }, { deferUi: true });
   compound.name = `Compound Strand ${lockIndex}`;
@@ -27456,6 +30288,44 @@ function editSelectionSetFromSelection(selectionSetId, mode) {
   return true;
 }
 
+function closeSelectionSetMembershipDialog() {
+  selectionSetMembershipMode = null;
+  selectionSetMembershipList.replaceChildren();
+  if (selectionSetMembershipDialog.open) selectionSetMembershipDialog.close();
+}
+
+function openSelectionSetMembershipDialog(mode) {
+  const normalizedMode = mode === "remove" ? "remove" : "add";
+  const viableSets = selectionSets.filter((selectionSet) => (
+    selectionSetCanEditFromSelection(selectionSet, normalizedMode)
+  ));
+  if (!viableSets.length) return false;
+  selectionSetMembershipMode = normalizedMode;
+  selectionSetMembershipDialogTitle.textContent = normalizedMode === "remove"
+    ? "Remove from Selection Set"
+    : "Add to Selection Set";
+  selectionSetMembershipDialogDescription.textContent = normalizedMode === "remove"
+    ? "Choose the selection set to remove the selected strands from."
+    : "Choose the selection set to add the selected strands to.";
+  selectionSetMembershipList.replaceChildren();
+  viableSets.forEach((selectionSet, index) => {
+    const label = document.createElement("label");
+    label.className = "selection-set-membership-option";
+    const input = document.createElement("input");
+    input.type = "radio";
+    input.name = "selectionSetMembershipTarget";
+    input.value = selectionSet.id;
+    input.checked = index === 0;
+    const name = document.createElement("span");
+    name.textContent = selectionSet.name;
+    label.append(input, name);
+    selectionSetMembershipList.append(label);
+  });
+  confirmSelectionSetMembershipButton.disabled = false;
+  selectionSetMembershipDialog.showModal();
+  return true;
+}
+
 function deleteSelectionSet(selectionSetId) {
   const selectionSet = selectionSetById(selectionSetId);
   if (!selectionSet) return false;
@@ -27521,6 +30391,51 @@ function deleteSelectedReferenceImage() {
   if (selectedReferenceImageId) selectReferenceImage(selectedReferenceImageId);
   else renderReferenceImagePanel();
   return true;
+}
+
+function nextDuplicateName(sourceName, items) {
+  const baseName = normalizeOutlinerName(sourceName, "Untitled");
+  const usedNames = new Set(items.map((item) => item.name));
+  const firstCopy = `${baseName} Copy`;
+  if (!usedNames.has(firstCopy)) return firstCopy;
+  let copyIndex = 2;
+  while (usedNames.has(`${firstCopy} ${copyIndex}`)) copyIndex += 1;
+  return `${firstCopy} ${copyIndex}`;
+}
+
+function duplicateSelectedGuide() {
+  const source = getSelectedGuide();
+  if (!source) return null;
+  pushUndoState();
+  const snapshot = serializeGuide(source);
+  snapshot.id = crypto.randomUUID();
+  snapshot.name = nextDuplicateName(
+    source.name || guideOutlinerLabel(source, guides.indexOf(source)),
+    guides
+  );
+  restoreGuide(snapshot);
+  const duplicate = guides.find((guide) => guide.id === snapshot.id) || null;
+  if (!duplicate) return null;
+  selectGuide(duplicate.id);
+  refreshLiveSurfaceOptions();
+  updateCount();
+  return duplicate;
+}
+
+function duplicateSelectedReferenceImage() {
+  const source = selectedReferenceImage();
+  if (!source) return null;
+  pushUndoState();
+  const snapshot = serializeReferenceImage(source);
+  delete snapshot.id;
+  snapshot.name = nextDuplicateName(source.name, referenceImages);
+  return addReferenceImage(snapshot, { select: true });
+}
+
+function duplicateCurrentSelection() {
+  if (selectedReferenceImage()) return duplicateSelectedReferenceImage();
+  if (getSelectedGuide()) return duplicateSelectedGuide();
+  return beginDuplicatePlacement(selectedLocksInOrder());
 }
 
 function hasDeletableSelection() {
@@ -27656,6 +30571,8 @@ function hideStrandRadialMenu() {
   strandRadialGesture = null;
   strandRadialMenu.classList.add("hidden");
   strandRadialActions.forEach((button) => button.classList.remove("selected"));
+  strandRadialSubmenuActions.forEach((button) => button.remove());
+  strandRadialSubmenuActions = [];
   strandRadialActionList.replaceChildren();
   strandRadialActionList.classList.add("hidden");
   strandRadialLine.style.width = "0px";
@@ -27695,6 +30612,7 @@ function radialMenuDimensionsForKind(kind, optionCount) {
 
 const MAX_RADIAL_OPTIONS = 8;
 const MAX_RADIAL_SUBMENU_OPTIONS = 5;
+const RADIAL_SUBMENU_SLOT_COUNT = 12;
 const STANDARD_RADIAL_FRAME_DIMENSIONS = radialMenuDimensions(MAX_RADIAL_OPTIONS, {
   buttonWidth: 138,
   buttonHeight: 42,
@@ -27707,17 +30625,37 @@ function applyRadialMenuDimensions(menu, optionCount, fixedDimensions = null) {
   menu.style.setProperty("--radial-radius", `${fixedDimensions?.radius || dimensions.radius}px`);
 }
 
-function strandRadialSubmenuEntryDistance(option) {
-  const radius = Number.parseFloat(
-    strandRadialMenu.style.getPropertyValue("--radial-radius")
-  ) || 82;
-  const buttonDimensions = radialButtonDimensions(strandRadialMenu.dataset.radialKind, option);
-  return radialButtonEntryDistance(option.angle, {
-    radius,
-    radiusOffset: option.radiusOffset || 0,
-    buttonWidth: buttonDimensions.width,
-    buttonHeight: buttonDimensions.height
-  });
+function applyRadialSectorVariables(button, option, options, menu, geometry = null) {
+  const sectorAngles = geometry?.sectorAngles || options.map(({ angle }) => angle);
+  const sectorIndex = Number.isInteger(geometry?.sectorIndex)
+    ? geometry.sectorIndex
+    : options.indexOf(option);
+  const sector = radialOptionSector(
+    sectorAngles,
+    sectorIndex,
+    { gap: 0 }
+  );
+  const radius = geometry?.radius
+    || Number.parseFloat(menu.style.getPropertyValue("--radial-radius"))
+    || 82;
+  const size = geometry?.size
+    || Number.parseFloat(menu.style.getPropertyValue("--radial-size"))
+    || 220;
+  const optionRadius = radius + (option.radiusOffset || 0);
+  const labelRadius = geometry?.labelRadius || (option.action === "back-to-main"
+    ? optionRadius
+    : Math.min(optionRadius, size * 0.5 - 82));
+  button.style.setProperty("--radial-button-radius", `${labelRadius}px`);
+  button.style.setProperty("--radial-sector-size", `${size}px`);
+  if (geometry?.innerRadius) button.style.setProperty("--radial-sector-inner-radius", `${geometry.innerRadius}px`);
+  else button.style.removeProperty("--radial-sector-inner-radius");
+  if (geometry?.outerRadius) button.style.setProperty("--radial-sector-outer-radius", `${geometry.outerRadius}px`);
+  else button.style.removeProperty("--radial-sector-outer-radius");
+  button.style.setProperty("--radial-sector-start", `${(sector?.start || 0) + Math.PI * 0.5}rad`);
+  button.style.setProperty("--radial-sector-divider-start", `${(sector?.boundaryStart || 0) + Math.PI * 0.5}rad`);
+  button.style.setProperty("--radial-sector-span", `${sector?.span || Math.PI * 2}rad`);
+  button.style.setProperty("--radial-sector-center-x", `${-Math.cos(option.angle) * labelRadius}px`);
+  button.style.setProperty("--radial-sector-center-y", `${-Math.sin(option.angle) * labelRadius}px`);
 }
 
 function configureRadialSubmenuIndicator(button, option, kind) {
@@ -27731,10 +30669,22 @@ function configureRadialSubmenuIndicator(button, option, kind) {
     return;
   }
   const buttonDimensions = radialButtonDimensions(kind, option);
-  const arrowDistance = radialButtonRayExtent(option.angle, {
+  const buttonRayExtent = radialButtonRayExtent(option.angle, {
     buttonWidth: buttonDimensions.width,
     buttonHeight: buttonDimensions.height
-  }) + 10;
+  });
+  const arrowDistance = Math.min(buttonRayExtent + 10, 58);
+  if (option.action !== "back-to-main") {
+    const label = document.createElement("span");
+    label.className = "radial-submenu-label";
+    label.textContent = button.textContent;
+    button.replaceChildren(label);
+    button.style.setProperty("--submenu-label-x", "0px");
+    button.style.setProperty("--submenu-label-y", "0px");
+  } else {
+    button.style.setProperty("--submenu-label-x", "0px");
+    button.style.setProperty("--submenu-label-y", "0px");
+  }
   button.setAttribute("aria-haspopup", "menu");
   button.style.setProperty("--submenu-arrow-x", `${Math.cos(option.angle) * arrowDistance}px`);
   button.style.setProperty("--submenu-arrow-y", `${Math.sin(option.angle) * arrowDistance}px`);
@@ -27744,15 +30694,13 @@ function configureRadialSubmenuIndicator(button, option, kind) {
 function selectionSetMembershipRadialOptions() {
   return [
     {
-      action: "open-add-selection-set-submenu",
-      label: "Add to Selection Set",
-      submenu: "selection-set-add-submenu",
+      action: "open-add-selection-set-dialog",
+      label: "Add to Set",
       enabled: selectionSets.some((selectionSet) => selectionSetCanEditFromSelection(selectionSet, "add"))
     },
     {
-      action: "open-remove-selection-set-submenu",
-      label: "Remove from Selection Set",
-      submenu: "selection-set-remove-submenu",
+      action: "open-remove-selection-set-dialog",
+      label: "Remove from Set",
       enabled: selectionSets.some((selectionSet) => selectionSetCanEditFromSelection(selectionSet, "remove"))
     }
   ];
@@ -27795,7 +30743,7 @@ function strandVisibilityRadialOptions({
 } = {}) {
   const options = [];
   if (includeHideSelected && selectedLocksInOrder().some((lock) => lock.outlinerVisible !== false)) {
-    options.push({ action: "hide-selected-strands", label: "Hide Selected" });
+    options.push({ action: "hide-selected-strands", label: "Hide" });
   }
   if (hiddenStrandsExist()) {
     options.push({
@@ -27821,7 +30769,7 @@ function contextualRadialOptions(kind) {
       { action: "open-live-surface-submenu", label: "Live Surface", submenu: "live-surface-submenu" },
       { action: "open-edit-mode-submenu", label: "Edit Mode", submenu: "edit-mode-submenu" }
     ];
-    if (lockedStrandsExist()) options.push({ action: "unlock-all-strands", label: "Unlock All Strands", list: true });
+    if (lockedStrandsExist()) options.push({ action: "unlock-all-strands", label: "Unlock All", list: true });
     options.push(...strandVisibilityRadialOptions({
       includeHideSelected: false,
       unhideAsList: false
@@ -27864,23 +30812,12 @@ function contextualRadialOptions(kind) {
       { action: "edit-mode-object", label: "Object" }
     ];
   }
-  if (kind === "selection-set-add-submenu" || kind === "selection-set-remove-submenu") {
-    const mode = kind === "selection-set-remove-submenu" ? "remove" : "add";
-    return [
-      { action: "back-to-main", label: "Back", submenu: "selection" },
-      ...selectionSets.map((selectionSet) => ({
-        action: `${mode}-selection-to-set:${selectionSet.id}`,
-        label: selectionSet.name,
-        enabled: selectionSetCanEditFromSelection(selectionSet, mode)
-      }))
-    ];
-  }
   if (kind === "selection-set-actions-submenu") {
     return [
       { action: "back-to-main", label: "Back", submenu: "selection" },
       {
         action: "create-selection-set",
-        label: "Create Selection Set",
+        label: "Create Set",
         enabled: selectedLocksInOrder().length >= 2
       },
       ...selectionSetMembershipRadialOptions()
@@ -27891,12 +30828,12 @@ function contextualRadialOptions(kind) {
       { action: "back-to-main", label: "Back", submenu: "selection" },
       {
         action: "lock-selected-strands",
-        label: "Lock Selected Strands",
+        label: "Lock Strands",
         enabled: selectedLocksInOrder().some((lock) => !lock.locked)
       },
       {
         action: "unlock-all-strands",
-        label: "Unlock All Strands",
+        label: "Unlock All",
         enabled: lockedStrandsExist()
       }
     ];
@@ -27908,10 +30845,15 @@ function contextualRadialOptions(kind) {
       { action: "create-clump-preset", label: "Create Brush Preset", list: true },
       selectionSetRadialMenuOption(),
       { action: "open-locking-submenu", label: "Locking", submenu: "locking-submenu" },
-      { action: "toggle-isolate-selection", label: strandIsolationActive() ? "Exit Isolate" : "Isolate Selected" },
+      { action: "toggle-isolate-selection", label: strandIsolationActive() ? "Exit Isolate" : "Isolate" },
       ...strandVisibilityRadialOptions(),
       { action: "dissolve-clump", label: "Dissolve clump", list: true },
-      { action: "delete-clump", label: "Delete clump", list: true }
+      { action: "delete-clump", label: "Delete clump", list: true },
+      {
+        action: "open-rebuild-curve",
+        label: "Rebuild Curve",
+        enabled: selectedRebuildableCurves().length > 0
+      }
     ];
   }
   if (kind === "selection") {
@@ -27919,17 +30861,34 @@ function contextualRadialOptions(kind) {
       ...selectedMirrorRadialOptions(),
       {
         action: "create-clump",
-        label: "Create Clump from Selection",
+        label: "Create clump",
         enabled: selectionCanBecomeClump()
       },
       selectionSetRadialMenuOption(),
       { action: "open-locking-submenu", label: "Locking", submenu: "locking-submenu" },
       ...(selectedLocksInOrder().length === 2 && selectedProceduralDuplicateSources().length === 2
-        ? [{ action: "duplicate-procedural", label: "Duplicate Procedural" }]
+        ? [{ action: "duplicate-procedural", label: "Duplicate\nProcedural" }]
         : []),
-      { action: "toggle-isolate-selection", label: strandIsolationActive() ? "Exit Isolate" : "Isolate Selected" },
+      { action: "toggle-isolate-selection", label: strandIsolationActive() ? "Exit Isolate" : "Isolate" },
       ...strandVisibilityRadialOptions(),
-      { action: "delete-selection", label: "Delete Strands", enabled: true }
+      { action: "delete-selection", label: "Delete Strands", enabled: true },
+      {
+        action: "open-rebuild-curve",
+        label: "Rebuild Curve",
+        enabled: selectedRebuildableCurves().length > 0
+      }
+    ];
+  }
+  if (kind === "guide") {
+    return [
+      { action: "duplicate-current-selection", label: "Duplicate Guide" },
+      { action: "delete-current-selection", label: "Delete Guide" }
+    ];
+  }
+  if (kind === "reference") {
+    return [
+      { action: "duplicate-current-selection", label: "Duplicate Reference" },
+      { action: "delete-current-selection", label: "Delete Reference" }
     ];
   }
   return [
@@ -27937,9 +30896,14 @@ function contextualRadialOptions(kind) {
     { action: "duplicate", label: "Duplicate strand" },
     selectionSetRadialMenuOption(),
     { action: "open-locking-submenu", label: "Locking", submenu: "locking-submenu" },
-    { action: "toggle-isolate-selection", label: strandIsolationActive() ? "Exit Isolate" : "Isolate Selected" },
+    { action: "toggle-isolate-selection", label: strandIsolationActive() ? "Exit Isolate" : "Isolate" },
     ...strandVisibilityRadialOptions(),
-    { action: "delete", label: "Delete strand" }
+    { action: "delete", label: "Delete strand" },
+    {
+      action: "open-rebuild-curve",
+      label: "Rebuild Curve",
+      enabled: selectedRebuildableCurves().length > 0
+    }
   ];
 }
 
@@ -27962,7 +30926,7 @@ function layoutContextualRadialOptions(kind, {
       anchorAction: "back-to-main",
       anchorAngle: backAngle
     } : {}),
-    reserveBottomForList: true
+    reserveBottomForList: partitioned.listOptions.length > 0
   });
   if (Number.isFinite(backRadiusOffset)) {
     const backOption = laidOutOptions.find(({ action }) => action === "back-to-main");
@@ -27983,7 +30947,10 @@ function renderRadialActionList(container, options = []) {
     button.disabled = option.enabled === false;
     button.classList.toggle(
       "danger",
-      option.action === "delete" || option.action === "delete-selection" || option.action === "delete-clump"
+      option.action === "delete"
+        || option.action === "delete-selection"
+        || option.action === "delete-current-selection"
+        || option.action === "delete-clump"
     );
     container.appendChild(button);
   });
@@ -28024,11 +30991,11 @@ function configureContextualRadialMenu(kind, options, listOptions = []) {
     : kind === "live-surface-submenu" ? "Live Surface"
     : kind === "edit-mode-submenu" ? "Edit Mode"
     : kind === "selection-set-actions-submenu" ? "Selection Sets"
-    : kind === "selection-set-add-submenu" ? "Add to Selection Set"
-    : kind === "selection-set-remove-submenu" ? "Remove from Selection Set"
     : kind === "locking-submenu" ? "Strand Locking"
     : kind === "clump" ? "Clump actions"
     : kind === "selection" ? "Selection actions"
+    : kind === "guide" ? "Guide actions"
+    : kind === "reference" ? "Reference actions"
     : "Strand actions";
   strandRadialMenu.dataset.radialKind = kind;
   strandRadialMenu.setAttribute("aria-label", menuLabel);
@@ -28038,11 +31005,11 @@ function configureContextualRadialMenu(kind, options, listOptions = []) {
     : kind === "live-surface-submenu" ? "Live Surface"
     : kind === "edit-mode-submenu" ? "Edit Mode"
     : kind === "selection-set-actions-submenu" ? "Sets"
-    : kind === "selection-set-add-submenu" ? "Add to Set"
-    : kind === "selection-set-remove-submenu" ? "Remove from Set"
     : kind === "locking-submenu" ? "Locking"
     : kind === "clump" ? "Clump"
     : kind === "selection" ? "Selection"
+    : kind === "guide" ? "Guide"
+    : kind === "reference" ? "Reference"
     : "Strand";
   strandRadialActions = ensureRadialButtonCapacity(
     strandRadialMenu,
@@ -28069,10 +31036,14 @@ function configureContextualRadialMenu(kind, options, listOptions = []) {
     button.style.setProperty("--radial-angle", `${option.angle}rad`);
     button.style.setProperty("--radial-counter-angle", `${-option.angle}rad`);
     button.style.setProperty("--radial-radius-offset", `${option.radiusOffset || 0}px`);
+    applyRadialSectorVariables(button, option, options, strandRadialMenu);
     configureRadialSubmenuIndicator(button, option, kind);
     button.classList.toggle(
       "danger",
-      option.action === "delete" || option.action === "delete-selection" || option.action === "delete-clump"
+      option.action === "delete"
+        || option.action === "delete-selection"
+        || option.action === "delete-current-selection"
+        || option.action === "delete-clump"
     );
   });
 }
@@ -28080,13 +31051,16 @@ function configureContextualRadialMenu(kind, options, listOptions = []) {
 function beginStrandRadialGesture() {
   if (!radialMenusEnabled || strandRadialGesture || duplicatePlacement) return false;
   const lock = getSelectedLock();
-  const hasOtherSelection = Boolean(selectedStrandGroup || getSelectedGuide() || selectedReferenceImage());
-  if (!lock && hasOtherSelection) return false;
+  const guide = getSelectedGuide();
+  const reference = selectedReferenceImage();
+  if (!lock && selectedStrandGroup) return false;
   const selectedClumpGuide = clumpViewportSelection ? clumpGuideForLock(lock) : null;
   const kind = selectedClumpGuide
     ? "clump"
     : selectedLocksInOrder().length > 1 ? "selection"
     : lock ? "strand"
+    : guide ? "guide"
+    : reference ? "reference"
     : "root";
   const { radialOptions: options, listOptions } = layoutContextualRadialOptions(kind);
   hideOutlinerContextMenu();
@@ -28098,6 +31072,7 @@ function beginStrandRadialGesture() {
     kind,
     options,
     listOptions,
+    submenu: null,
     frameDimensions: sharedRadialFrameDimensions()
   };
   configureContextualRadialMenu(kind, options, listOptions);
@@ -28111,49 +31086,81 @@ function beginStrandRadialGesture() {
   return true;
 }
 
-function enterStrandRadialSubmenu(option, pointer) {
+function closeStrandRadialSubmenu({ suppressSource = false } = {}) {
   const gesture = strandRadialGesture;
-  if (!gesture || !option?.submenu) return false;
-  const returningToParent = option.action === "back-to-main";
-  let nextMenuOptions;
-  if (returningToParent) {
-    gesture.centerX = Number.isFinite(pointer?.x) ? pointer.x : gesture.centerX;
-    gesture.centerY = Number.isFinite(pointer?.y) ? pointer.y : gesture.centerY;
-    nextMenuOptions = layoutContextualRadialOptions(option.submenu);
-  } else {
-    const previousCenterX = gesture.centerX;
-    const previousCenterY = gesture.centerY;
-    const currentRadius = Number.parseFloat(
-      strandRadialMenu.style.getPropertyValue("--radial-radius")
-    ) || 82;
-    const optionRadius = currentRadius + (option.radiusOffset || 0);
-    gesture.centerX += Math.cos(option.angle) * optionRadius;
-    gesture.centerY += Math.sin(option.angle) * optionRadius;
-    const backDeltaX = previousCenterX - gesture.centerX;
-    const backDeltaY = previousCenterY - gesture.centerY;
-    const backDistance = Math.hypot(backDeltaX, backDeltaY);
-    const parentKind = gesture.kind;
-    const rawOptions = contextualRadialOptions(option.submenu);
-    const backOption = rawOptions.find(({ action }) => action === "back-to-main");
-    if (backOption) backOption.submenu = parentKind;
-    const submenuRadius = gesture.frameDimensions?.radius
-      || radialMenuDimensionsForKind(option.submenu, rawOptions.length).radius;
-    nextMenuOptions = layoutContextualRadialOptions(option.submenu, {
-      options: rawOptions,
-      backAngle: Math.atan2(backDeltaY, backDeltaX),
-      backRadiusOffset: backDistance - submenuRadius
-    });
-  }
-  gesture.kind = option.submenu;
-  gesture.options = nextMenuOptions.radialOptions;
-  gesture.listOptions = nextMenuOptions.listOptions;
+  if (!gesture?.submenu) return false;
+  const sourceAction = gesture.submenu.sourceAction;
+  strandRadialSubmenuActions.forEach((button) => button.remove());
+  strandRadialSubmenuActions = [];
+  gesture.submenu = null;
+  gesture.submenuSuppressedAction = suppressSource ? sourceAction : null;
   gesture.action = null;
-  configureContextualRadialMenu(option.submenu, gesture.options, gesture.listOptions);
-  strandRadialMenu.style.left = `${gesture.centerX}px`;
-  strandRadialMenu.style.top = `${gesture.centerY}px`;
-  strandRadialActions.forEach((button) => button.classList.remove("selected"));
-  strandRadialLine.style.width = "0px";
-  strandRadialLine.style.opacity = "0";
+  strandRadialMenu.style.removeProperty("--radial-action-list-offset");
+  renderRadialActionList(strandRadialActionList, gesture.listOptions);
+  return true;
+}
+
+function openStrandRadialSubmenu(option) {
+  const gesture = strandRadialGesture;
+  if (!gesture || !option?.submenu || gesture.submenu?.sourceAction === option.action) return false;
+  closeStrandRadialSubmenu();
+  const rawOptions = contextualRadialOptions(option.submenu)
+    .filter(({ action }) => action !== "back-to-main");
+  const partitioned = partitionRadialOptions(rawOptions, MAX_RADIAL_OPTIONS, 0);
+  const submenuLayout = layoutRadialSubmenuSlots(
+    partitioned.radialOptions,
+    option.angle,
+    { slotCount: RADIAL_SUBMENU_SLOT_COUNT }
+  );
+  const { options, hitOptions, slotAngles } = submenuLayout;
+  if (!options.length && !partitioned.listOptions.length) return false;
+  const parentOuterRadius = (Number.parseFloat(
+    strandRadialMenu.style.getPropertyValue("--radial-size")
+  ) || 220) * 0.5;
+  const outerRadius = parentOuterRadius + 82;
+  const outerSize = outerRadius * 2;
+  const labelRadius = parentOuterRadius + 43;
+  if (partitioned.listOptions.length) {
+    strandRadialMenu.style.setProperty(
+      "--radial-action-list-offset",
+      `${outerRadius - parentOuterRadius + 8}px`
+    );
+  }
+  strandRadialSubmenuActions = ensureRadialButtonCapacity(
+    strandRadialMenu,
+    [],
+    options.length,
+    "strandRadialSubmenuAction",
+    strandRadialActionList
+  );
+  options.forEach((submenuOption, index) => {
+    const button = strandRadialSubmenuActions[index];
+    button.className = "radial-submenu-option";
+    button.textContent = submenuOption.label;
+    button.dataset.strandRadialSubmenuAction = submenuOption.action;
+    button.disabled = submenuOption.enabled === false;
+    button.style.setProperty("--radial-angle", `${submenuOption.angle}rad`);
+    button.style.setProperty("--radial-counter-angle", `${-submenuOption.angle}rad`);
+    button.style.setProperty("--radial-radius-offset", "0px");
+    applyRadialSectorVariables(button, submenuOption, options, strandRadialMenu, {
+      radius: labelRadius,
+      labelRadius,
+      size: outerSize,
+      innerRadius: parentOuterRadius + 5,
+      outerRadius,
+      sectorAngles: slotAngles,
+      sectorIndex: submenuOption.radialSlotIndex
+    });
+  });
+  gesture.submenu = {
+    sourceAction: option.action,
+    kind: option.submenu,
+    options: hitOptions,
+    listOptions: partitioned.listOptions,
+    parentOuterRadius,
+    outerRadius
+  };
+  renderRadialActionList(strandRadialActionList, partitioned.listOptions);
   return true;
 }
 
@@ -28164,13 +31171,20 @@ function updateStrandRadialGesture(event) {
   const dy = event.clientY - gesture.centerY;
   const distance = Math.hypot(dx, dy);
   const angle = Math.atan2(dy, dx);
-  const listOption = radialListOptionAtPointer(strandRadialActionList, gesture.listOptions, event);
+  const activeListOptions = gesture.submenu?.listOptions || gesture.listOptions;
+  const listOption = radialListOptionAtPointer(strandRadialActionList, activeListOptions, event);
+  const innerRingOuterRadius = gesture.submenu?.parentOuterRadius
+    || (Number.parseFloat(strandRadialMenu.style.getPropertyValue("--radial-size")) || 220) * 0.5;
   const listCorridorReserved = !listOption
-    && gesture.listOptions.length > 0
+    && activeListOptions.length > 0
+    && distance > innerRingOuterRadius
     && radialListCorridorContains(dx, dy);
-  const closestOption = listOption || distance <= 34 || listCorridorReserved
+  const optionsAtPointer = gesture.submenu && distance > gesture.submenu.parentOuterRadius
+    ? gesture.submenu.options
+    : gesture.options;
+  const closestCandidate = listOption || distance <= 34 || listCorridorReserved
     ? null
-    : gesture.options.filter((option) => option.enabled !== false).reduce((closest, option) => {
+    : optionsAtPointer.reduce((closest, option) => {
       const difference = Math.abs(Math.atan2(
         Math.sin(angle - option.angle),
         Math.cos(angle - option.angle)
@@ -28179,19 +31193,36 @@ function updateStrandRadialGesture(event) {
         ? { ...option, difference }
         : closest;
     }, null);
+  const closestOption = closestCandidate?.enabled === false ? null : closestCandidate;
+  if (!gesture.submenu && closestOption?.action !== gesture.submenuSuppressedAction) {
+    gesture.submenuSuppressedAction = null;
+  }
   gesture.action = listOption?.action || closestOption?.action || null;
   strandRadialActions.forEach((button) => {
     button.classList.toggle("selected", button.dataset.strandRadialAction === gesture.action);
+  });
+  strandRadialSubmenuActions.forEach((button) => {
+    button.classList.toggle("selected", button.dataset.strandRadialSubmenuAction === gesture.action);
   });
   syncRadialListHighlight(strandRadialActionList, gesture.action);
   strandRadialLine.style.width = `${Math.min(distance, 96)}px`;
   strandRadialLine.style.transform = `translateY(-50%) rotate(${angle}rad)`;
   strandRadialLine.style.opacity = !listOption && !listCorridorReserved && distance > 4 ? "1" : "0";
-  if (
-    closestOption?.submenu
-    && distance >= strandRadialSubmenuEntryDistance(closestOption)
+  if (gesture.submenu && distance <= 34) {
+    closeStrandRadialSubmenu();
+  } else if (
+    gesture.submenu
+    && distance <= gesture.submenu.parentOuterRadius
+    && closestOption?.submenu
+    && closestOption.action !== gesture.submenu.sourceAction
   ) {
-    enterStrandRadialSubmenu(closestOption, { x: event.clientX, y: event.clientY });
+    openStrandRadialSubmenu(closestOption);
+  } else if (
+    !gesture.submenu
+    && closestOption?.submenu
+    && closestOption.action !== gesture.submenuSuppressedAction
+  ) {
+    openStrandRadialSubmenu(closestOption);
   }
   event.preventDefault();
 }
@@ -28219,15 +31250,14 @@ function performStrandRadialAction(action, lockId) {
   if (action === "hide-selected-strands") return hideSelectedStrands();
   if (action === "unhide-hidden-strands") return unhideHiddenStrands();
   if (action === "create-selection-set") return Boolean(createSelectionSetFromSelection());
-  if (action?.startsWith("add-selection-to-set:")) {
-    return editSelectionSetFromSelection(action.slice("add-selection-to-set:".length), "add");
-  }
-  if (action?.startsWith("remove-selection-to-set:")) {
-    return editSelectionSetFromSelection(action.slice("remove-selection-to-set:".length), "remove");
-  }
+  if (action === "open-add-selection-set-dialog") return openSelectionSetMembershipDialog("add");
+  if (action === "open-remove-selection-set-dialog") return openSelectionSetMembershipDialog("remove");
   if (action === "duplicate-procedural") return openProceduralDuplicateDialog();
+  if (action === "open-rebuild-curve") return openRebuildCurveDialog();
   if (action === "toggle-isolate-selection") return toggleSelectedStrandIsolation();
   if (action === "delete-selection") return deleteSelectedStrands();
+  if (action === "duplicate-current-selection") return Boolean(duplicateCurrentSelection());
+  if (action === "delete-current-selection") return deleteCurrentSelection();
   if (action === "mirror-selected-strands") {
     const originalIds = [...selectedStrandIds];
     const { mirrorable } = mirrorSelectionTargets(selectedLocksInOrder(), mirrorPartnerFor);
@@ -28343,7 +31373,10 @@ function toolRadialOptions(tool = activeTool) {
       { action: "world-space", label: "World Space" },
       { action: "object-space", label: "Object Space" },
       { action: "contextual-2d", label: viewPlaneMoveEnabled ? "Disable 2D Translation" : "2D Translation" },
-      { action: "pull-strand", label: pullMoveEnabled ? "Disable Pull Strand" : "Pull Strand" }
+      { action: "pull-strand", label: pullMoveEnabled ? "Disable Pull Strand" : "Pull Strand" },
+      ...(proportionalEditing
+        ? [{ action: "toggle-proportional-lock-root", label: proportionalRootLocked ? "Unlock Root" : "Lock Root" }]
+        : [])
     ];
   }
   if (["rotate", "scale"].includes(tool)) {
@@ -28390,6 +31423,7 @@ function beginToolRadialGesture() {
     button.style.setProperty("--radial-angle", `${option.angle}rad`);
     button.style.setProperty("--radial-counter-angle", `${-option.angle}rad`);
     button.style.setProperty("--radial-radius-offset", `${option.radiusOffset || 0}px`);
+    applyRadialSectorVariables(button, option, options, toolRadialMenu);
     button.classList.remove("hidden", "selected");
   });
   toolRadialActions.slice(options.length).forEach((button) => button.classList.add("hidden"));
@@ -28408,17 +31442,40 @@ function beginToolRadialGesture() {
   return true;
 }
 
+function beginHotkeyToolSettingsHold() {
+  if (!hotkeyToolSettingsExperimentalEnabled || hotkeyToolSettingsHoldActive || duplicatePlacement) return false;
+  hotkeyToolSettingsHoldActive = true;
+  syncFloatingToolSettingsPanel();
+  if (floatingToolSettingsPanel.classList.contains("hidden")) {
+    hotkeyToolSettingsHoldActive = false;
+    syncFloatingToolSettingsPanel();
+    return false;
+  }
+  return true;
+}
+
+function finishHotkeyToolSettingsHold() {
+  if (!hotkeyToolSettingsHoldActive) return false;
+  hotkeyToolSettingsHoldActive = false;
+  syncFloatingToolSettingsPanel();
+  return true;
+}
+
 function beginToolShortcutPress(key, tool) {
   if (toolShortcutPress || toolRadialGesture || strandRadialGesture || duplicatePlacement) return;
   setActiveTool(tool);
-  if (!radialMenusEnabled) return;
+  if (!radialMenusEnabled && !hotkeyToolSettingsExperimentalEnabled) return;
   toolShortcutPress = {
     key,
     tool,
-    opened: false,
+    openedMode: null,
     holdTimer: window.setTimeout(() => {
       if (!toolShortcutPress || toolShortcutPress.key !== key) return;
-      toolShortcutPress.opened = beginToolRadialGesture();
+      if (hotkeyToolSettingsExperimentalEnabled) {
+        toolShortcutPress.openedMode = beginHotkeyToolSettingsHold() ? "settings" : null;
+      } else {
+        toolShortcutPress.openedMode = beginToolRadialGesture() ? "radial" : null;
+      }
     }, 180)
   };
 }
@@ -28428,7 +31485,8 @@ function finishToolShortcutPress(key) {
   const press = toolShortcutPress;
   toolShortcutPress = null;
   window.clearTimeout(press.holdTimer);
-  if (press.opened) finishToolRadialGesture();
+  if (press.openedMode === "settings") finishHotkeyToolSettingsHold();
+  else if (press.openedMode === "radial") finishToolRadialGesture();
   return true;
 }
 
@@ -28436,6 +31494,7 @@ function cancelToolShortcutPress() {
   if (!toolShortcutPress) return false;
   window.clearTimeout(toolShortcutPress.holdTimer);
   toolShortcutPress = null;
+  finishHotkeyToolSettingsHold();
   cancelToolRadialGesture();
   return true;
 }
@@ -28453,19 +31512,193 @@ function setRadialMenusEnabled(enabled, { persist = true } = {}) {
   updateInteractionLocks();
 }
 
+function setMultiCameraExperimentalEnabled(enabled, { persist = true } = {}) {
+  multiCameraExperimentalEnabled = Boolean(enabled);
+  multiCameraExperimentalPreferenceInput.checked = multiCameraExperimentalEnabled;
+  multiCameraViewToggle.hidden = !multiCameraExperimentalEnabled;
+  multiCameraViewToggle.setAttribute("aria-hidden", String(!multiCameraExperimentalEnabled));
+  multiCameraViewToggle.tabIndex = multiCameraExperimentalEnabled ? 0 : -1;
+  if (!multiCameraExperimentalEnabled && multiCameraEnabled) setMultiCameraEnabled(false);
+  if (persist) {
+    saveBooleanPreference(MULTI_CAMERA_EXPERIMENTAL_PREFERENCE_KEY, multiCameraExperimentalEnabled);
+  }
+  syncViewportTopControlRows();
+}
+
+function positionFloatingToolSettingsPanel() {
+  if (!floatingToolSettingsPanel || !viewportToolRail || !viewportPanel) return;
+  const viewportBounds = viewportPanel.getBoundingClientRect();
+  if (hotkeyToolSettingsExperimentalEnabled && hotkeyToolSettingsHoldActive) {
+    const edgeMargin = 8;
+    const pointerOffset = 12;
+    floatingToolSettingsPanel.style.maxWidth = `${Math.max(180, Math.floor(viewportBounds.width - edgeMargin * 2))}px`;
+    floatingToolSettingsPanel.style.maxHeight = `${Math.max(140, Math.floor(viewportBounds.height - edgeMargin * 2))}px`;
+    const panelBounds = floatingToolSettingsPanel.getBoundingClientRect();
+    const pointerLeft = lastPointer.x - viewportBounds.left + pointerOffset;
+    const pointerTop = lastPointer.y - viewportBounds.top + pointerOffset;
+    const left = THREE.MathUtils.clamp(
+      pointerLeft,
+      edgeMargin,
+      Math.max(edgeMargin, viewportBounds.width - panelBounds.width - edgeMargin)
+    );
+    const top = THREE.MathUtils.clamp(
+      pointerTop,
+      edgeMargin,
+      Math.max(edgeMargin, viewportBounds.height - panelBounds.height - edgeMargin)
+    );
+    floatingToolSettingsPanel.style.left = `${Math.round(left)}px`;
+    floatingToolSettingsPanel.style.top = `${Math.round(top)}px`;
+    return;
+  }
+  const toolBounds = viewportToolRail.getBoundingClientRect();
+  const left = Math.max(8, toolBounds.right - viewportBounds.left + 12);
+  const top = Math.max(8, toolBounds.top - viewportBounds.top);
+  floatingToolSettingsPanel.style.left = `${Math.round(left)}px`;
+  floatingToolSettingsPanel.style.top = `${Math.round(top)}px`;
+  floatingToolSettingsPanel.style.maxWidth = `${Math.max(180, Math.floor(viewportBounds.width - left - 12))}px`;
+  floatingToolSettingsPanel.style.maxHeight = `${Math.max(140, Math.floor(viewportBounds.height - top - 12))}px`;
+}
+
+function restoreFloatingToolSettingPanel(panel) {
+  const anchor = floatingToolSettingAnchors.get(panel);
+  if (anchor?.parentNode && panel.parentElement === floatingToolSettingsPanel) {
+    anchor.after(panel);
+  }
+}
+
+function syncFloatingToolSettingsPanel() {
+  if (!floatingToolSettingsPanel) return;
+  const hotkeyFloatActive = hotkeyToolSettingsExperimentalEnabled && hotkeyToolSettingsHoldActive;
+  const removeHotkeySettingsFromMain = hotkeyToolSettingsExperimentalEnabled && !hotkeyToolSettingsKeepMain;
+  let visiblePanelCount = 0;
+  floatingToolSettingPanels.forEach((panel) => {
+    const panelVisible = !panel.classList.contains("hidden");
+    const shouldFloat = panelVisible && (floatingToolSettingsExperimentalEnabled || hotkeyFloatActive);
+    const shouldPark = panelVisible && removeHotkeySettingsFromMain && !hotkeyFloatActive;
+    if (shouldFloat) {
+      visiblePanelCount += 1;
+      if (panel.parentElement !== floatingToolSettingsPanel) floatingToolSettingsPanel.append(panel);
+    } else if (shouldPark) {
+      if (panel.parentElement !== floatingToolSettingsPanel) floatingToolSettingsPanel.append(panel);
+    } else {
+      restoreFloatingToolSettingPanel(panel);
+    }
+  });
+  const visible = (floatingToolSettingsExperimentalEnabled || hotkeyFloatActive) && visiblePanelCount > 0;
+  floatingToolSettingsPanel.classList.toggle("hidden", !visible);
+  floatingToolSettingsPanel.setAttribute("aria-hidden", String(!visible));
+  if (visible) window.requestAnimationFrame(positionFloatingToolSettingsPanel);
+}
+
+function setFloatingToolSettingsExperimentalEnabled(enabled, { persist = true } = {}) {
+  floatingToolSettingsExperimentalEnabled = Boolean(enabled);
+  floatingToolSettingsExperimentalPreferenceInput.checked = floatingToolSettingsExperimentalEnabled;
+  syncFloatingToolSettingsPanel();
+  if (persist) {
+    saveBooleanPreference(
+      FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
+      floatingToolSettingsExperimentalEnabled
+    );
+  }
+}
+
+function setHotkeyToolSettingsExperimentalEnabled(enabled, { persist = true } = {}) {
+  hotkeyToolSettingsExperimentalEnabled = Boolean(enabled);
+  hotkeyToolSettingsExperimentalPreferenceInput.checked = hotkeyToolSettingsExperimentalEnabled;
+  hotkeyToolSettingsKeepMainPreferenceInput.disabled = !hotkeyToolSettingsExperimentalEnabled;
+  hotkeyToolSettingsKeepMainPreferenceRow.classList.toggle("disabled", !hotkeyToolSettingsExperimentalEnabled);
+  if (!hotkeyToolSettingsExperimentalEnabled) hotkeyToolSettingsHoldActive = false;
+  syncFloatingToolSettingsPanel();
+  if (persist) {
+    saveBooleanPreference(
+      HOTKEY_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
+      hotkeyToolSettingsExperimentalEnabled
+    );
+  }
+}
+
+function setHotkeyToolSettingsKeepMain(enabled, { persist = true } = {}) {
+  hotkeyToolSettingsKeepMain = Boolean(enabled);
+  hotkeyToolSettingsKeepMainPreferenceInput.checked = hotkeyToolSettingsKeepMain;
+  syncFloatingToolSettingsPanel();
+  if (persist) {
+    saveBooleanPreference(HOTKEY_TOOL_SETTINGS_KEEP_MAIN_PREFERENCE_KEY, hotkeyToolSettingsKeepMain);
+  }
+}
+
 function setProceduralDrawExperimentalEnabled(enabled, { persist = true } = {}) {
   proceduralDrawExperimentalEnabled = Boolean(enabled);
   proceduralDrawExperimentalPreferenceInput.checked = proceduralDrawExperimentalEnabled;
-  proceduralDrawToolButton.classList.toggle("experimental-tool-hidden", !proceduralDrawExperimentalEnabled);
-  proceduralDrawToolButton.hidden = !proceduralDrawExperimentalEnabled;
-  proceduralDrawToolButton.setAttribute("aria-hidden", String(!proceduralDrawExperimentalEnabled));
-  proceduralDrawToolButton.tabIndex = proceduralDrawExperimentalEnabled ? 0 : -1;
-  if (!proceduralDrawExperimentalEnabled && activeTool === "procedural-draw") {
+  const visible = showDevTestFeatures && proceduralDrawExperimentalEnabled;
+  proceduralDrawToolButton.classList.toggle("experimental-tool-hidden", !visible);
+  proceduralDrawToolButton.hidden = !visible;
+  proceduralDrawToolButton.setAttribute("aria-hidden", String(!visible));
+  proceduralDrawToolButton.tabIndex = visible ? 0 : -1;
+  if (!visible && activeTool === "procedural-draw") {
     setActiveTool("draw");
   }
   if (persist) {
     saveBooleanPreference(PROCEDURAL_DRAW_EXPERIMENTAL_PREFERENCE_KEY, proceduralDrawExperimentalEnabled);
   }
+}
+
+function setExperimentalCreationCommandEnabled({
+  enabled,
+  input,
+  button,
+  preferenceKey,
+  persist
+}) {
+  const selected = Boolean(enabled);
+  const visible = showDevTestFeatures && selected;
+  input.checked = selected;
+  button.hidden = !visible;
+  button.setAttribute("aria-hidden", String(!visible));
+  button.tabIndex = visible ? 0 : -1;
+  if (persist) saveBooleanPreference(preferenceKey, selected);
+  return selected;
+}
+
+function setShowDevTestFeatures(enabled, { persist = true } = {}) {
+  showDevTestFeatures = Boolean(enabled);
+  showDevTestFeaturesPreferenceInput.checked = showDevTestFeatures;
+  devTestFeaturePreferenceRows.forEach((row) => row.classList.toggle("hidden", !showDevTestFeatures));
+  setProceduralDrawExperimentalEnabled(proceduralDrawExperimentalEnabled, { persist: false });
+  setCompoundStrandExperimentalEnabled(compoundStrandExperimentalEnabled, { persist: false });
+  setHairShellExperimentalEnabled(hairShellExperimentalEnabled, { persist: false });
+  setArcHairSurfaceExperimentalEnabled(arcHairSurfaceExperimentalEnabled, { persist: false });
+  if (persist) saveBooleanPreference(SHOW_DEV_TEST_FEATURES_PREFERENCE_KEY, showDevTestFeatures);
+}
+
+function setCompoundStrandExperimentalEnabled(enabled, { persist = true } = {}) {
+  compoundStrandExperimentalEnabled = setExperimentalCreationCommandEnabled({
+    enabled,
+    input: compoundStrandExperimentalPreferenceInput,
+    button: createCompoundStrandButton,
+    preferenceKey: COMPOUND_STRAND_EXPERIMENTAL_PREFERENCE_KEY,
+    persist
+  });
+}
+
+function setHairShellExperimentalEnabled(enabled, { persist = true } = {}) {
+  hairShellExperimentalEnabled = setExperimentalCreationCommandEnabled({
+    enabled,
+    input: hairShellExperimentalPreferenceInput,
+    button: createHairShellButton,
+    preferenceKey: HAIR_SHELL_EXPERIMENTAL_PREFERENCE_KEY,
+    persist
+  });
+}
+
+function setArcHairSurfaceExperimentalEnabled(enabled, { persist = true } = {}) {
+  arcHairSurfaceExperimentalEnabled = setExperimentalCreationCommandEnabled({
+    enabled,
+    input: arcHairSurfaceExperimentalPreferenceInput,
+    button: createArcHairSurfaceButton,
+    preferenceKey: ARC_HAIR_SURFACE_EXPERIMENTAL_PREFERENCE_KEY,
+    persist
+  });
+  syncArcHairSurfaceControls();
 }
 
 function setNavigationTipsEnabled(enabled, { persist = true } = {}) {
@@ -28558,6 +31791,38 @@ function setCompactToolButtonsEnabled(enabled, { persist = true } = {}) {
   if (persist) {
     saveBooleanPreference(COMPACT_TOOL_BUTTONS_PREFERENCE_KEY, compactToolButtonsEnabled);
   }
+  if (!floatingToolSettingsPanel.classList.contains("hidden")) {
+    window.requestAnimationFrame(positionFloatingToolSettingsPanel);
+  }
+}
+
+function setSidePanelStyle(value, { persist = true } = {}) {
+  sidePanelStyle = normalizeSidePanelStyle(value);
+  sidePanelStylePreferenceInput.value = sidePanelStyle;
+  const expanded = sidePanelStyle !== "default";
+  document.body.classList.toggle("floating-side-panels", expanded);
+  document.body.classList.toggle("glass-side-panels", sidePanelStyle === "glass");
+  if (expanded) {
+    document.body.classList.remove("compact-sidebar-docked");
+    compactSidebarDockActivationWidth = null;
+  }
+  window.requestAnimationFrame(() => {
+    syncViewportTopControlRows();
+    resize();
+  });
+  if (persist) {
+    writeStoredPreference(window, SIDE_PANEL_STYLE_PREFERENCE_KEY, sidePanelStyle);
+  }
+}
+
+function setGlassPanelColor(value, { persist = true } = {}) {
+  glassPanelColor = normalizeGlassPanelColor(value);
+  glassPanelColorPreferenceInput.value = glassPanelColor;
+  glassPanelColorPreferenceValue.textContent = glassPanelColor.toUpperCase();
+  document.body.style.setProperty("--glass-panel-color", glassPanelColor);
+  if (persist) {
+    writeStoredPreference(window, GLASS_PANEL_COLOR_PREFERENCE_KEY, glassPanelColor);
+  }
 }
 
 function setViewportStatisticsEnabled(enabled, { persist = true } = {}) {
@@ -28595,9 +31860,29 @@ function setLayerColorShiftsEnabled(enabled, { persist = true } = {}) {
 function setOutlinerFolderColorsEnabled(enabled, { persist = true } = {}) {
   outlinerFolderColorsEnabled = Boolean(enabled);
   outlinerFolderColorsPreferenceInput.checked = outlinerFolderColorsEnabled;
+  outlinerFolderColorOpacityPreferenceInput.disabled = !outlinerFolderColorsEnabled;
+  if (outlinerFolderColorOpacityPreferenceNumberInput) {
+    outlinerFolderColorOpacityPreferenceNumberInput.disabled = !outlinerFolderColorsEnabled;
+  }
   document.body.classList.toggle("outliner-folder-colors-disabled", !outlinerFolderColorsEnabled);
   if (persist) {
     saveBooleanPreference(OUTLINER_FOLDER_COLORS_PREFERENCE_KEY, outlinerFolderColorsEnabled);
+  }
+}
+
+function setOutlinerFolderColorOpacity(value, { persist = true } = {}) {
+  outlinerFolderColorOpacity = normalizeOutlinerFolderColorOpacity(value);
+  outlinerFolderColorOpacityPreferenceInput.value = String(outlinerFolderColorOpacity);
+  if (outlinerFolderColorOpacityPreferenceNumberInput) {
+    outlinerFolderColorOpacityPreferenceNumberInput.value = String(outlinerFolderColorOpacity);
+  }
+  const factor = outlinerFolderColorOpacity / 100;
+  document.documentElement.style.setProperty("--outliner-folder-border-mix", `${58 * factor}%`);
+  document.documentElement.style.setProperty("--outliner-folder-background-mix", `${11 * factor}%`);
+  document.documentElement.style.setProperty("--outliner-folder-group-line-mix", `${24 * factor}%`);
+  document.documentElement.style.setProperty("--outliner-folder-layer-line-mix", `${18 * factor}%`);
+  if (persist) {
+    writeStoredPreference(window, OUTLINER_FOLDER_COLOR_OPACITY_PREFERENCE_KEY, outlinerFolderColorOpacity);
   }
 }
 
@@ -28752,17 +32037,30 @@ function setPreferenceCategory(category) {
 function openPreferencesDialog() {
   preferencesOpenSnapshot = {
     radialMenusEnabled,
+    multiCameraExperimentalEnabled,
+    floatingToolSettingsExperimentalEnabled,
+    hotkeyToolSettingsExperimentalEnabled,
+    hotkeyToolSettingsKeepMain,
+    showDevTestFeatures,
     proceduralDrawExperimentalEnabled,
+    compoundStrandExperimentalEnabled,
+    hairShellExperimentalEnabled,
+    arcHairSurfaceExperimentalEnabled,
+    autosaveEnabled,
+    autosaveIntervalSeconds,
     navigationTipsEnabled,
     navigationStyle,
     cameraSmoothingEnabled,
     cameraSmoothingStrength,
     toolTipsEnabled,
     compactToolButtonsEnabled,
+    sidePanelStyle,
+    glassPanelColor,
     viewportStatisticsEnabled,
     twistCurveAllStrandsPreviewEnabled,
     layerColorShiftsEnabled,
     outlinerFolderColorsEnabled,
+    outlinerFolderColorOpacity,
     sideNamingPerspective,
     controlPointDisplaySize,
     viewportBackgroundColor,
@@ -28772,6 +32070,7 @@ function openPreferencesDialog() {
   applyCameraSmoothingPreference();
   setControlPointDisplaySize(controlPointDisplaySize, { persist: false });
   setViewportBackgroundColor(viewportBackgroundColor, { persist: false });
+  setGlassPanelColor(glassPanelColor, { persist: false });
   preferencesBackupStatus.textContent = "";
   setPreferenceCategory("viewport");
   preferencesDialog.showModal();
@@ -28779,13 +32078,31 @@ function openPreferencesDialog() {
 
 function savePreferencesDialog() {
   saveBooleanPreference(RADIAL_MENUS_PREFERENCE_KEY, radialMenusEnabled);
+  saveBooleanPreference(MULTI_CAMERA_EXPERIMENTAL_PREFERENCE_KEY, multiCameraExperimentalEnabled);
+  saveBooleanPreference(
+    FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
+    floatingToolSettingsExperimentalEnabled
+  );
+  saveBooleanPreference(
+    HOTKEY_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
+    hotkeyToolSettingsExperimentalEnabled
+  );
+  saveBooleanPreference(HOTKEY_TOOL_SETTINGS_KEEP_MAIN_PREFERENCE_KEY, hotkeyToolSettingsKeepMain);
+  saveBooleanPreference(SHOW_DEV_TEST_FEATURES_PREFERENCE_KEY, showDevTestFeatures);
   saveBooleanPreference(PROCEDURAL_DRAW_EXPERIMENTAL_PREFERENCE_KEY, proceduralDrawExperimentalEnabled);
+  saveBooleanPreference(COMPOUND_STRAND_EXPERIMENTAL_PREFERENCE_KEY, compoundStrandExperimentalEnabled);
+  saveBooleanPreference(HAIR_SHELL_EXPERIMENTAL_PREFERENCE_KEY, hairShellExperimentalEnabled);
+  saveBooleanPreference(ARC_HAIR_SURFACE_EXPERIMENTAL_PREFERENCE_KEY, arcHairSurfaceExperimentalEnabled);
+  saveBooleanPreference(AUTOSAVE_ENABLED_PREFERENCE_KEY, autosaveEnabled);
+  writeStoredPreference(window, AUTOSAVE_INTERVAL_PREFERENCE_KEY, autosaveIntervalSeconds);
   saveBooleanPreference(NAVIGATION_TIPS_PREFERENCE_KEY, navigationTipsEnabled);
   writeStoredPreference(window, NAVIGATION_STYLE_PREFERENCE_KEY, navigationStyle);
   saveBooleanPreference(CAMERA_SMOOTHING_ENABLED_PREFERENCE_KEY, cameraSmoothingEnabled);
   writeStoredPreference(window, CAMERA_SMOOTHING_STRENGTH_PREFERENCE_KEY, cameraSmoothingStrength);
   saveBooleanPreference(TOOL_TIPS_PREFERENCE_KEY, toolTipsEnabled);
   saveBooleanPreference(COMPACT_TOOL_BUTTONS_PREFERENCE_KEY, compactToolButtonsEnabled);
+  writeStoredPreference(window, SIDE_PANEL_STYLE_PREFERENCE_KEY, sidePanelStyle);
+  writeStoredPreference(window, GLASS_PANEL_COLOR_PREFERENCE_KEY, glassPanelColor);
   saveBooleanPreference(VIEWPORT_STATISTICS_PREFERENCE_KEY, viewportStatisticsEnabled);
   saveBooleanPreference(
     TWIST_CURVE_ALL_STRANDS_PREVIEW_PREFERENCE_KEY,
@@ -28793,6 +32110,7 @@ function savePreferencesDialog() {
   );
   saveBooleanPreference(LAYER_COLOR_SHIFTS_PREFERENCE_KEY, layerColorShiftsEnabled);
   saveBooleanPreference(OUTLINER_FOLDER_COLORS_PREFERENCE_KEY, outlinerFolderColorsEnabled);
+  writeStoredPreference(window, OUTLINER_FOLDER_COLOR_OPACITY_PREFERENCE_KEY, outlinerFolderColorOpacity);
   writeStoredPreference(window, SIDE_NAMING_PERSPECTIVE_PREFERENCE_KEY, sideNamingPerspective);
   writeStoredPreference(window, CONTROL_POINT_DISPLAY_SIZE_PREFERENCE_KEY, controlPointDisplaySize);
   writeStoredPreference(window, VIEWPORT_BACKGROUND_COLOR_PREFERENCE_KEY, viewportBackgroundColor);
@@ -28804,16 +32122,49 @@ function savePreferencesDialog() {
 function cancelPreferencesDialog() {
   if (preferencesOpenSnapshot) {
     setRadialMenusEnabled(preferencesOpenSnapshot.radialMenusEnabled, { persist: false });
+    setMultiCameraExperimentalEnabled(
+      preferencesOpenSnapshot.multiCameraExperimentalEnabled,
+      { persist: false }
+    );
+    setFloatingToolSettingsExperimentalEnabled(
+      preferencesOpenSnapshot.floatingToolSettingsExperimentalEnabled,
+      { persist: false }
+    );
+    setHotkeyToolSettingsKeepMain(
+      preferencesOpenSnapshot.hotkeyToolSettingsKeepMain,
+      { persist: false }
+    );
+    setHotkeyToolSettingsExperimentalEnabled(
+      preferencesOpenSnapshot.hotkeyToolSettingsExperimentalEnabled,
+      { persist: false }
+    );
+    setShowDevTestFeatures(preferencesOpenSnapshot.showDevTestFeatures, { persist: false });
     setProceduralDrawExperimentalEnabled(
       preferencesOpenSnapshot.proceduralDrawExperimentalEnabled,
       { persist: false }
     );
+    setCompoundStrandExperimentalEnabled(
+      preferencesOpenSnapshot.compoundStrandExperimentalEnabled,
+      { persist: false }
+    );
+    setHairShellExperimentalEnabled(
+      preferencesOpenSnapshot.hairShellExperimentalEnabled,
+      { persist: false }
+    );
+    setArcHairSurfaceExperimentalEnabled(
+      preferencesOpenSnapshot.arcHairSurfaceExperimentalEnabled,
+      { persist: false }
+    );
+    setAutosaveEnabled(preferencesOpenSnapshot.autosaveEnabled, { persist: false });
+    setAutosaveInterval(preferencesOpenSnapshot.autosaveIntervalSeconds, { persist: false });
     setNavigationTipsEnabled(preferencesOpenSnapshot.navigationTipsEnabled, { persist: false });
     setNavigationStyle(preferencesOpenSnapshot.navigationStyle, { persist: false });
     setCameraSmoothingEnabled(preferencesOpenSnapshot.cameraSmoothingEnabled, { persist: false });
     setCameraSmoothingStrength(preferencesOpenSnapshot.cameraSmoothingStrength, { persist: false });
     setToolTipsEnabled(preferencesOpenSnapshot.toolTipsEnabled, { persist: false });
     setCompactToolButtonsEnabled(preferencesOpenSnapshot.compactToolButtonsEnabled, { persist: false });
+    setSidePanelStyle(preferencesOpenSnapshot.sidePanelStyle, { persist: false });
+    setGlassPanelColor(preferencesOpenSnapshot.glassPanelColor, { persist: false });
     setViewportStatisticsEnabled(preferencesOpenSnapshot.viewportStatisticsEnabled, { persist: false });
     setTwistCurveAllStrandsPreviewEnabled(
       preferencesOpenSnapshot.twistCurveAllStrandsPreviewEnabled,
@@ -28821,6 +32172,7 @@ function cancelPreferencesDialog() {
     );
     setLayerColorShiftsEnabled(preferencesOpenSnapshot.layerColorShiftsEnabled, { persist: false });
     setOutlinerFolderColorsEnabled(preferencesOpenSnapshot.outlinerFolderColorsEnabled, { persist: false });
+    setOutlinerFolderColorOpacity(preferencesOpenSnapshot.outlinerFolderColorOpacity, { persist: false });
     setSideNamingPerspective(preferencesOpenSnapshot.sideNamingPerspective, { persist: false });
     setControlPointDisplaySize(preferencesOpenSnapshot.controlPointDisplaySize, { persist: false });
     setViewportBackgroundColor(preferencesOpenSnapshot.viewportBackgroundColor, { persist: false });
@@ -28867,6 +32219,7 @@ function performToolRadialAction(action) {
   else if (action === "object-space") setObjectSpaceEditing(true);
   else if (action === "contextual-2d") setViewPlaneMove(!viewPlaneMoveEnabled);
   else if (action === "pull-strand") setPullMoveEnabled(!pullMoveEnabled);
+  else if (action === "toggle-proportional-lock-root") setProportionalRootLocked(!proportionalRootLocked);
 }
 
 function finishToolRadialGesture() {
@@ -29371,6 +32724,7 @@ function confirmProceduralDuplicatePreview() {
   undoHistory.push(preview.undoState);
   redoHistory.clear();
   updateHistoryButtons();
+  markProjectChangedForRecovery();
   proceduralDuplicatePreview = null;
   closeProceduralDuplicateDialog({ commit: true });
   selectLock(createdLocks[0].id, {
@@ -29567,6 +32921,7 @@ function confirmDuplicatePlacement(event) {
   undoHistory.push(undoState);
   redoHistory.clear();
   updateHistoryButtons();
+  markProjectChangedForRecovery();
   updateInteractionLocks();
   selectLock(lockId, {
     individualClumpMember: true,
@@ -29617,10 +32972,56 @@ function outlinerClumpLocks(guide) {
   return guide?.clumpGuide ? [guide, ...clumpMembersForGuide(guide)] : [];
 }
 
+const OUTLINER_STRAND_DRAG_TYPE = "application/x-anime-hair-strand-id";
+
+function outlinerDraggedStrandId(event) {
+  return event.dataTransfer?.getData(OUTLINER_STRAND_DRAG_TYPE)
+    || event.dataTransfer?.getData("text/plain")
+    || "";
+}
+
+function outlinerDragContainsStrand(event) {
+  return Array.from(event.dataTransfer?.types || []).some((type) => (
+    type === OUTLINER_STRAND_DRAG_TYPE || type === "text/plain"
+  ));
+}
+
+function clearOutlinerRegionDropTargets() {
+  document.querySelectorAll(".outliner-group-head.region-drop-target").forEach((element) => {
+    element.classList.remove("region-drop-target");
+  });
+}
+
+function handleOutlinerRegionDrop(event, regionId) {
+  event.preventDefault();
+  event.stopPropagation();
+  clearOutlinerRegionDropTargets();
+  const sourceId = outlinerDraggedStrandId(event);
+  const source = locks.find((lock) => lock.id === sourceId);
+  const targetRegion = STRAND_GROUPS.find((group) => group.id === regionId);
+  if (!source || source.clumpGuide || !targetRegion) return false;
+  if ((source.scalpRegion || "unassigned") === regionId) return false;
+
+  pushUndoState();
+  if (source.clumpId) detachLockFromClump(source);
+  source.scalpRegion = regionId;
+  source.name = nextStrandName(regionId, source.id);
+  syncRootAttachmentMetadata(source);
+  applyMaterialDefinitionToLock(source);
+  updateCurveObjects(source, { visible: source.id === selectedId });
+  strandGroupOpen.set(regionId, true);
+  strandLayerOpen.set(`${regionId}:${normalizeHairLayer(source.hairLayer)}`, true);
+  if (source.id === selectedId) inputs.name.value = source.name;
+  refreshLiveSurfaceOptions();
+  renderLockList();
+  updatePlacementStatus();
+  return true;
+}
+
 function handleOutlinerClumpDrop(event, targetLock) {
   event.preventDefault();
   event.stopPropagation();
-  const sourceId = event.dataTransfer?.getData("text/plain");
+  const sourceId = outlinerDraggedStrandId(event);
   const source = locks.find((lock) => lock.id === sourceId);
   const targetGuide = clumpGuideForLock(targetLock);
   if (!source || !targetLock || source.id === targetLock.id) return;
@@ -29706,13 +33107,17 @@ function createOutlinerStrandButton(lock, options = {}) {
     lockId: lock.id
   }));
   button.addEventListener("dragstart", (event) => {
+    event.dataTransfer.setData(OUTLINER_STRAND_DRAG_TYPE, lock.id);
     event.dataTransfer.setData("text/plain", lock.id);
     event.dataTransfer.effectAllowed = "move";
     button.classList.add("dragging");
   });
-  button.addEventListener("dragend", () => button.classList.remove("dragging"));
+  button.addEventListener("dragend", () => {
+    button.classList.remove("dragging");
+    clearOutlinerRegionDropTargets();
+  });
   button.addEventListener("dragover", (event) => {
-    if (!event.dataTransfer.types.includes("text/plain")) return;
+    if (!outlinerDragContainsStrand(event)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     button.classList.add("drop-target");
@@ -29958,6 +33363,23 @@ function createSelectionSetsOutlinerFolder() {
     items.appendChild(empty);
   } else {
     selectionSets.forEach((selectionSet) => {
+      const memberIds = new Set(selectionSet.strandIds);
+      const memberLocks = locks.filter((lock) => (
+        memberIds.has(lock.id) && !lock.proceduralDuplicatePreview
+      ));
+      const visibleMemberCount = memberLocks.filter(strandVisibleForDisplay).length;
+      const shell = document.createElement("div");
+      shell.className = "selection-set-item-shell";
+      const visibility = createOutlinerVisibilityToggle({
+        visible: memberLocks.length > 0 && visibleMemberCount === memberLocks.length,
+        partial: visibleMemberCount > 0 && visibleMemberCount < memberLocks.length,
+        label: selectionSet.name,
+        onToggle: () => {
+          if (!memberLocks.length) return;
+          pushUndoState();
+          setLocksOutlinerVisibility(memberLocks, visibleMemberCount !== memberLocks.length);
+        }
+      });
       const item = document.createElement("button");
       item.className = `selection-set-item${selectionSetMatchesCurrentSelection(selectionSet) ? " active" : ""}`;
       item.type = "button";
@@ -29983,7 +33405,8 @@ function createSelectionSetsOutlinerFolder() {
         type: "selection-set",
         selectionSetId: selectionSet.id
       }));
-      items.appendChild(item);
+      shell.append(visibility, item);
+      items.appendChild(shell);
     });
   }
   group.append(header, items);
@@ -30054,6 +33477,20 @@ function renderLockList() {
     count.textContent = groupLocks.length;
     selectGroup.append(groupSwatch, label, count);
     header.append(disclosure, groupVisibility, selectGroup);
+    header.addEventListener("dragover", (event) => {
+      if (!outlinerDragContainsStrand(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "move";
+      header.classList.add("region-drop-target");
+    });
+    header.addEventListener("dragleave", (event) => {
+      if (event.relatedTarget && header.contains(event.relatedTarget)) return;
+      header.classList.remove("region-drop-target");
+    });
+    header.addEventListener("drop", (event) => {
+      header.classList.remove("region-drop-target");
+      handleOutlinerRegionDrop(event, group.id);
+    });
     header.addEventListener("contextmenu", (event) => showOutlinerContextMenu(event, {
       type: "strand-region",
       regionId: group.id
@@ -30227,7 +33664,7 @@ function bindLockInput(key, parser = Number) {
       }
     };
     const dimensionTargets = relativeDimension
-      ? selectedLocksInOrder().filter((item) => item.geometryType !== "poly")
+      ? selectedLocksInOrder().filter((item) => !["poly", "hair-shell"].includes(item.geometryType))
       : null;
     if (lock) editSelectedLocks(applyValue, {
       rootOffset: key === "rootScalpOffset",
@@ -30383,6 +33820,20 @@ addSelectedToSelectionSetAction.addEventListener("click", () => {
   if (selectionSetId) editSelectionSetFromSelection(selectionSetId, "add");
 });
 
+cancelSelectionSetMembershipButton.addEventListener("click", closeSelectionSetMembershipDialog);
+selectionSetMembershipDialog.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeSelectionSetMembershipDialog();
+});
+selectionSetMembershipForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const selectionSetId = new FormData(selectionSetMembershipForm).get("selectionSetMembershipTarget");
+  if (!selectionSetId || !selectionSetMembershipMode) return;
+  if (editSelectionSetFromSelection(String(selectionSetId), selectionSetMembershipMode)) {
+    closeSelectionSetMembershipDialog();
+  }
+});
+
 removeSelectedFromSelectionSetAction.addEventListener("click", () => {
   const selectionSetId = outlinerContextTarget?.type === "selection-set"
     ? outlinerContextTarget.selectionSetId
@@ -30403,12 +33854,12 @@ promoteLiveSurfaceGuideAction.addEventListener("click", () => {
   const target = outlinerContextTarget;
   const lock = target?.type === "strand" ? locks.find((item) => item.id === target.lockId) : null;
   if (!lock) return;
-  pushUndoState();
   lock.liveSurfaceGuide = !lock.liveSurfaceGuide;
   const promoted = lock.liveSurfaceGuide;
   hideOutlinerContextMenu();
   renderLockList();
   if (promoted) setActiveStrokeSurfaceValue(`strand:${lock.id}`);
+  markProjectChangedForRecovery();
   updatePlacementStatus();
 });
 
@@ -30656,36 +34107,137 @@ hairMaterialOutliner.addEventListener("click", (event) => {
   const item = event.target.closest("[data-hair-material-id]");
   if (!item) return;
   activeHairMaterialId = item.dataset.hairMaterialId;
+  markHairMaterialPresetCustom();
   syncHairMaterialEditor();
 });
+hairMaterialPresetInput.addEventListener("change", () => applyHairMaterialPreset(hairMaterialPresetInput.value));
+saveHairMaterialPresetButton.addEventListener("click", openSaveHairMaterialPreset);
+removeHairMaterialPresetButton.addEventListener("click", openRemoveHairMaterialPreset);
 
 [
   hairMaterialNameInput,
   hairMaterialShaderInput,
   hairMaterialColorInput,
+  hairMaterialGradientEnabledInput,
+  hairMaterialGradientStopColorInput,
+  hairMaterialGradientStopPositionInput,
   hairMaterialRoughnessInput,
   ...Object.values(hairMaterialAnimeColorInputs),
   ...Object.values(hairMaterialAnimeNumericControls).map((control) => control.input)
 ].forEach(bindUndoCapture);
 hairMaterialNameInput.addEventListener("input", () => {
+  markHairMaterialPresetCustom();
   const material = activeHairMaterialDefinition();
   material.name = hairMaterialNameInput.value || "Untitled Material";
   renderHairMaterialOptions(getSelectedLock()?.materialId || DEFAULT_HAIR_MATERIAL_ID);
   renderHairMaterialOutliner();
 });
 hairMaterialShaderInput.addEventListener("change", () => {
+  markHairMaterialPresetCustom();
   const material = activeHairMaterialDefinition();
   material.shader = normalizeHairShader(hairMaterialShaderInput.value);
   refreshMaterialUsers(material.id);
   syncHairMaterialEditor();
 });
 hairMaterialColorInput.addEventListener("input", () => {
+  markHairMaterialPresetCustom();
   const material = activeHairMaterialDefinition();
   material.color = hairMaterialColorInput.value;
   refreshMaterialUsers(material.id);
   renderHairMaterialOutliner();
 });
+hairMaterialGradientEnabledInput.addEventListener("change", () => {
+  markHairMaterialPresetCustom();
+  const material = activeHairMaterialDefinition();
+  material.baseColorGradientEnabled = hairMaterialGradientEnabledInput.checked;
+  refreshMaterialUsers(material.id);
+  syncHairMaterialEditor();
+});
+editHairMaterialGradientButton.addEventListener("click", openHairMaterialGradientEditor);
+[closeHairMaterialGradientDialogButton, doneHairMaterialGradientButton].forEach((button) => {
+  button.addEventListener("click", () => hairMaterialGradientDialog.close());
+});
+hairMaterialGradientDialog.addEventListener("click", (event) => {
+  if (event.target === hairMaterialGradientDialog) hairMaterialGradientDialog.close();
+});
+hairMaterialGradientTrack.addEventListener("pointerdown", (event) => {
+  const marker = event.target.closest("[data-gradient-stop-index]");
+  if (!marker) return;
+  markHairMaterialPresetCustom();
+  activeHairGradientStopIndex = Number(marker.dataset.gradientStopIndex);
+  pushUndoState();
+  hairGradientStopDrag = { pointerId: event.pointerId };
+  hairMaterialGradientTrack.setPointerCapture(event.pointerId);
+  setActiveHairGradientStopPosition(
+    (event.clientX - hairMaterialGradientTrack.getBoundingClientRect().left)
+      / Math.max(1, hairMaterialGradientTrack.clientWidth),
+    { interactive: true }
+  );
+  event.preventDefault();
+});
+hairMaterialGradientTrack.addEventListener("pointermove", (event) => {
+  if (!hairGradientStopDrag || event.pointerId !== hairGradientStopDrag.pointerId) return;
+  const bounds = hairMaterialGradientTrack.getBoundingClientRect();
+  setActiveHairGradientStopPosition((event.clientX - bounds.left) / Math.max(1, bounds.width), {
+    interactive: true
+  });
+});
+function finishHairGradientStopDrag(event) {
+  if (!hairGradientStopDrag || event.pointerId !== hairGradientStopDrag.pointerId) return;
+  hairGradientStopDrag = null;
+  if (hairMaterialGradientTrack.hasPointerCapture(event.pointerId)) {
+    hairMaterialGradientTrack.releasePointerCapture(event.pointerId);
+  }
+  renderHairMaterialOutliner();
+}
+hairMaterialGradientTrack.addEventListener("pointerup", finishHairGradientStopDrag);
+hairMaterialGradientTrack.addEventListener("pointercancel", finishHairGradientStopDrag);
+hairMaterialGradientStopColorInput.addEventListener("input", () => {
+  markHairMaterialPresetCustom();
+  const material = activeHairMaterialDefinition();
+  const stop = material.baseColorGradientStops[activeHairGradientStopIndex];
+  if (!stop) return;
+  stop.color = hairMaterialGradientStopColorInput.value;
+  updateHairMaterialGradientDefinition({ interactive: true });
+});
+hairMaterialGradientStopColorInput.addEventListener("change", renderHairMaterialOutliner);
+hairMaterialGradientStopPositionInput.addEventListener("input", () => {
+  markHairMaterialPresetCustom();
+  setActiveHairGradientStopPosition(hairMaterialGradientStopPositionInput.value, { interactive: true });
+});
+hairMaterialGradientStopPositionInput.addEventListener("change", renderHairMaterialOutliner);
+addHairMaterialGradientStopButton.addEventListener("click", () => {
+  const material = activeHairMaterialDefinition();
+  if (material.baseColorGradientStops.length >= MAX_HAIR_GRADIENT_STOPS) return;
+  markHairMaterialPresetCustom();
+  pushUndoState();
+  const position = 0.5;
+  const color = `#${sampleHairGradientColor(material.baseColorGradientStops, position).getHexString()}`;
+  material.baseColorGradientStops.push({ position, color });
+  material.baseColorGradientStops.sort((first, second) => first.position - second.position);
+  activeHairGradientStopIndex = material.baseColorGradientStops.findIndex((stop) => stop.position === position && stop.color === color);
+  updateHairMaterialGradientDefinition();
+});
+deleteHairMaterialGradientStopButton.addEventListener("click", () => {
+  const material = activeHairMaterialDefinition();
+  if (material.baseColorGradientStops.length <= 2) return;
+  markHairMaterialPresetCustom();
+  pushUndoState();
+  material.baseColorGradientStops.splice(activeHairGradientStopIndex, 1);
+  activeHairGradientStopIndex = Math.min(activeHairGradientStopIndex, material.baseColorGradientStops.length - 1);
+  updateHairMaterialGradientDefinition();
+});
+resetHairMaterialGradientButton.addEventListener("click", () => {
+  markHairMaterialPresetCustom();
+  const material = activeHairMaterialDefinition();
+  const color = material.shader === ANIME_ANISOTROPIC_SHADER ? material.animeBaseColor : material.color;
+  pushUndoState();
+  material.baseColorGradientStops = [{ position: 0, color }, { position: 1, color }];
+  activeHairGradientStopIndex = 0;
+  updateHairMaterialGradientDefinition();
+});
 hairMaterialRoughnessInput.addEventListener("input", () => {
+  markHairMaterialPresetCustom();
   const material = activeHairMaterialDefinition();
   material.roughness = Number(hairMaterialRoughnessInput.value);
   hairMaterialRoughnessValue.textContent = material.roughness.toFixed(2);
@@ -30693,6 +34245,7 @@ hairMaterialRoughnessInput.addEventListener("input", () => {
 });
 Object.entries(hairMaterialAnimeColorInputs).forEach(([key, input]) => {
   input.addEventListener("input", () => {
+    markHairMaterialPresetCustom();
     const material = activeHairMaterialDefinition();
     material[key] = input.value;
     refreshMaterialUsers(material.id);
@@ -30701,6 +34254,7 @@ Object.entries(hairMaterialAnimeColorInputs).forEach(([key, input]) => {
 });
 Object.entries(hairMaterialAnimeNumericControls).forEach(([key, control]) => {
   control.input.addEventListener("input", () => {
+    markHairMaterialPresetCustom();
     const material = activeHairMaterialDefinition();
     const field = ANIME_ANISOTROPIC_NUMERIC_FIELDS[key];
     material[key] = THREE.MathUtils.clamp(Number(control.input.value), field.min, field.max);
@@ -30991,7 +34545,6 @@ taperCurveCanvas.addEventListener("pointercancel", finishTaperCurveDrag);
 function beginTaperMeshPointDrag(event) {
   if (
     event.button !== 0
-    || !taperMeshPointsVisible
     || !taperMeshPointsGroup.visible
     || taperMeshPointDrag
     || event.shiftKey
@@ -31004,11 +34557,21 @@ function beginTaperMeshPointDrag(event) {
   if (!hit?.object?.userData.taperMeshPoint) return;
   releaseTaperCurveEditorFieldFocus();
   const lock = locks.find((item) => item.id === hit.object.userData.lockId);
-  taperCurveEdit.side = hit.object.userData.curveSide === "secondary" ? "secondary" : "primary";
+  const curveKey = hit.object.userData.curveKey;
+  if (!lock || !["taperCurve", "depthCurve", "twistCurve"].includes(curveKey)) return;
+  taperCurveEdit = {
+    type: "strand",
+    id: lock.id,
+    curveKey,
+    side: hit.object.userData.curveSide === "secondary" ? "secondary" : "primary",
+    selectedIndex: hit.object.userData.pointIndex,
+    dragPointerId: null,
+    dragDisplayRange: null
+  };
   const curvePoints = activeTaperCurve();
   const pointIndex = hit.object.userData.pointIndex;
   const curvePoint = curvePoints?.[pointIndex];
-  if (!lock || !curvePoint) return;
+  if (!curvePoint) return;
 
   const curve = strandGeometryCurve(lock);
   const editingTwist = twistCurveEditing();
@@ -31582,6 +35145,33 @@ transformSpaceButtons.forEach((button) => {
 });
 viewPlaneMoveInput.addEventListener("change", () => setViewPlaneMove(viewPlaneMoveInput.checked));
 viewPlaneMoveSnappedOnlyInput.addEventListener("change", () => setViewPlaneMoveSnappedOnly(viewPlaneMoveSnappedOnlyInput.checked));
+moveWidthGrabHandlesInput.addEventListener("change", () => {
+  setMoveGrabHandleVisibility("width", moveWidthGrabHandlesInput.checked);
+});
+moveDepthGrabHandlesInput.addEventListener("change", () => {
+  setMoveGrabHandleVisibility("depth", moveDepthGrabHandlesInput.checked);
+});
+moveUniformGrabHandlesInput.addEventListener("change", () => {
+  setMoveGrabHandleVisibility("uniform", moveUniformGrabHandlesInput.checked);
+});
+moveWidthCurveControlsInput.addEventListener("change", () => {
+  setMoveCurveControlVisibility("taperCurve", moveWidthCurveControlsInput.checked);
+});
+moveDepthCurveControlsInput.addEventListener("change", () => {
+  setMoveCurveControlVisibility("depthCurve", moveDepthCurveControlsInput.checked);
+});
+moveTwistCurveControlsInput.addEventListener("change", () => {
+  setMoveCurveControlVisibility("twistCurve", moveTwistCurveControlsInput.checked);
+});
+moveAsymmetricWidthInput.addEventListener("change", () => {
+  setSelectedMoveCurveShapeFlag("asymmetricWidthCurve", moveAsymmetricWidthInput.checked, "taperCurve");
+});
+moveAsymmetricDepthInput.addEventListener("change", () => {
+  setSelectedMoveCurveShapeFlag("asymmetricDepthCurve", moveAsymmetricDepthInput.checked, "depthCurve");
+});
+moveCenterAsymmetricProfileInput.addEventListener("change", () => {
+  setSelectedMoveCurveShapeFlag("centerAsymmetricProfile", moveCenterAsymmetricProfileInput.checked);
+});
 pullMoveInput.addEventListener("change", () => {
   setPullMoveEnabled(pullMoveInput.checked);
 });
@@ -31959,7 +35549,7 @@ Object.entries(panelShapeInputs).forEach(([key, input]) => {
     }
     const value = input.type === "checkbox"
       ? input.checked
-      : ["panelLengthLoops", "panelWidthLoops"].includes(key)
+      : ["panelLengthLoops", "panelWidthLoops", "panelTipLoops"].includes(key)
         ? Math.round(Number(input.value))
         : Number(input.value);
     const relativeDimension = Boolean(isPanelGeometry(selected) && ["width", "panelThickness"].includes(key));
@@ -32442,6 +36032,7 @@ function createCustomClumpPreset(guide) {
 }
 
 function commitCustomCreationPreset() {
+  if (commitCustomHairMaterialPreset()) return;
   if (commitCustomShapePreset()) return;
   const type = pendingCreationPresetType;
   const name = creationPresetNameInput.value.trim();
@@ -32516,6 +36107,7 @@ function openRemoveCreationPreset(type) {
 }
 
 function commitRemoveCreationPreset() {
+  if (commitRemoveHairMaterialPreset()) return;
   if (commitRemoveShapePreset()) return;
   if (!pendingCreationPresetRemoval) return;
   const { type, id } = pendingCreationPresetRemoval;
@@ -32608,12 +36200,14 @@ creationPresetDialog.addEventListener("close", () => {
   pendingCreationPresetType = null;
   pendingClumpPresetGuideId = null;
   pendingShapePresetSave = null;
+  pendingHairMaterialPresetSave = null;
 });
 cancelRemoveCreationPresetButton.addEventListener("click", () => removeCreationPresetDialog.close());
 confirmRemoveCreationPresetButton.addEventListener("click", commitRemoveCreationPreset);
 removeCreationPresetDialog.addEventListener("close", () => {
   pendingCreationPresetRemoval = null;
   pendingShapePresetRemoval = null;
+  pendingHairMaterialPresetRemoval = null;
 });
 
 braidMeshPresetInput.addEventListener("change", () => {
@@ -32648,8 +36242,12 @@ appMenuTriggers.forEach((trigger) => {
     }
     if (menu.id === "curvesMenu") {
       openRebuildCurveButton.disabled = !selectedRebuildableCurves().length;
-      createCompoundStrandButton.disabled = false;
+      createCompoundStrandButton.disabled = !showDevTestFeatures || !compoundStrandExperimentalEnabled;
       createCompoundStrandButton.title = "Create a new editable three-curve compound strand";
+      createHairShellButton.disabled = !showDevTestFeatures || !hairShellExperimentalEnabled || !guideModel;
+      createHairShellButton.title = "Create a connected quad shell fitted slightly above the current scalp";
+      createArcHairSurfaceButton.disabled = !showDevTestFeatures || !arcHairSurfaceExperimentalEnabled;
+      createArcHairSurfaceButton.title = "Create an editable open quad canopy with an arched cross-section";
     }
     if (menu.id === "fileMenu") renderRecentProjectsMenu();
     setAppMenuOpen(trigger, menu, menu.classList.contains("hidden"));
@@ -32674,7 +36272,15 @@ turntableSpeedInput.addEventListener("input", () => {
 });
 setTurntableActive(false);
 setRadialMenusEnabled(radialMenusEnabled, { persist: false });
+setMultiCameraExperimentalEnabled(multiCameraExperimentalEnabled, { persist: false });
+setFloatingToolSettingsExperimentalEnabled(floatingToolSettingsExperimentalEnabled, { persist: false });
+setHotkeyToolSettingsKeepMain(hotkeyToolSettingsKeepMain, { persist: false });
+setHotkeyToolSettingsExperimentalEnabled(hotkeyToolSettingsExperimentalEnabled, { persist: false });
+setShowDevTestFeatures(showDevTestFeatures, { persist: false });
 setProceduralDrawExperimentalEnabled(proceduralDrawExperimentalEnabled, { persist: false });
+setCompoundStrandExperimentalEnabled(compoundStrandExperimentalEnabled, { persist: false });
+setHairShellExperimentalEnabled(hairShellExperimentalEnabled, { persist: false });
+setArcHairSurfaceExperimentalEnabled(arcHairSurfaceExperimentalEnabled, { persist: false });
 setNavigationTipsEnabled(navigationTipsEnabled, { persist: false });
 setNavigationStyle(navigationStyle, { persist: false });
 setCameraSmoothingEnabled(cameraSmoothingEnabled, { persist: false });
@@ -32682,13 +36288,18 @@ setCameraSmoothingStrength(cameraSmoothingStrength, { persist: false });
 setScaleSensitivity(scaleSensitivity);
 setToolTipsEnabled(toolTipsEnabled, { persist: false });
 setCompactToolButtonsEnabled(compactToolButtonsEnabled, { persist: false });
+setSidePanelStyle(sidePanelStyle, { persist: false });
+setGlassPanelColor(glassPanelColor, { persist: false });
 setViewportStatisticsEnabled(viewportStatisticsEnabled, { persist: false });
 setTwistCurveAllStrandsPreviewEnabled(twistCurveAllStrandsPreviewEnabled, { persist: false });
 setLayerColorShiftsEnabled(layerColorShiftsEnabled, { persist: false });
+setOutlinerFolderColorOpacity(outlinerFolderColorOpacity, { persist: false });
 setOutlinerFolderColorsEnabled(outlinerFolderColorsEnabled, { persist: false });
 setControlPointDisplaySize(controlPointDisplaySize, { persist: false });
 setViewportBackgroundColor(viewportBackgroundColor, { persist: false });
 setDefaultHairShader(defaultHairShader, { persist: false });
+setAutosaveInterval(autosaveIntervalSeconds, { persist: false });
+setAutosaveEnabled(autosaveEnabled, { persist: false });
 openPreferencesButton.addEventListener("click", openPreferencesDialog);
 preferenceCategoryButtons.forEach((button) => {
   button.addEventListener("click", () => setPreferenceCategory(button.dataset.preferenceCategory));
@@ -32719,11 +36330,51 @@ preferencesDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
   cancelPreferencesDialog();
 });
+autosavePreferenceInput.addEventListener("change", () => {
+  setAutosaveEnabled(autosavePreferenceInput.checked, { persist: false });
+});
+autosaveIntervalPreferenceInput.addEventListener("change", () => {
+  setAutosaveInterval(autosaveIntervalPreferenceInput.value, { persist: false });
+});
+recoverProjectButton.addEventListener("click", recoverPendingProject);
+discardRecoveryButton.addEventListener("click", discardPendingRecovery);
+downloadRecoveryButton.addEventListener("click", downloadPendingRecovery);
+recoveryDialog.addEventListener("cancel", (event) => event.preventDefault());
 radialMenusPreferenceInput.addEventListener("change", () => {
   setRadialMenusEnabled(radialMenusPreferenceInput.checked, { persist: false });
 });
+multiCameraExperimentalPreferenceInput.addEventListener("change", () => {
+  setMultiCameraExperimentalEnabled(multiCameraExperimentalPreferenceInput.checked, { persist: false });
+});
+floatingToolSettingsExperimentalPreferenceInput.addEventListener("change", () => {
+  setFloatingToolSettingsExperimentalEnabled(
+    floatingToolSettingsExperimentalPreferenceInput.checked,
+    { persist: false }
+  );
+});
+hotkeyToolSettingsExperimentalPreferenceInput.addEventListener("change", () => {
+  setHotkeyToolSettingsExperimentalEnabled(
+    hotkeyToolSettingsExperimentalPreferenceInput.checked,
+    { persist: false }
+  );
+});
+hotkeyToolSettingsKeepMainPreferenceInput.addEventListener("change", () => {
+  setHotkeyToolSettingsKeepMain(hotkeyToolSettingsKeepMainPreferenceInput.checked, { persist: false });
+});
+showDevTestFeaturesPreferenceInput.addEventListener("change", () => {
+  setShowDevTestFeatures(showDevTestFeaturesPreferenceInput.checked, { persist: false });
+});
 proceduralDrawExperimentalPreferenceInput.addEventListener("change", () => {
   setProceduralDrawExperimentalEnabled(proceduralDrawExperimentalPreferenceInput.checked, { persist: false });
+});
+compoundStrandExperimentalPreferenceInput.addEventListener("change", () => {
+  setCompoundStrandExperimentalEnabled(compoundStrandExperimentalPreferenceInput.checked, { persist: false });
+});
+hairShellExperimentalPreferenceInput.addEventListener("change", () => {
+  setHairShellExperimentalEnabled(hairShellExperimentalPreferenceInput.checked, { persist: false });
+});
+arcHairSurfaceExperimentalPreferenceInput.addEventListener("change", () => {
+  setArcHairSurfaceExperimentalEnabled(arcHairSurfaceExperimentalPreferenceInput.checked, { persist: false });
 });
 navigationTipsPreferenceInput.addEventListener("change", () => {
   setNavigationTipsEnabled(navigationTipsPreferenceInput.checked, { persist: false });
@@ -32743,6 +36394,15 @@ toolTipsPreferenceInput.addEventListener("change", () => {
 compactToolButtonsPreferenceInput.addEventListener("change", () => {
   setCompactToolButtonsEnabled(compactToolButtonsPreferenceInput.checked, { persist: false });
 });
+sidePanelStylePreferenceInput.addEventListener("change", () => {
+  setSidePanelStyle(sidePanelStylePreferenceInput.value, { persist: false });
+});
+glassPanelColorPreferenceInput.addEventListener("input", () => {
+  setGlassPanelColor(glassPanelColorPreferenceInput.value, { persist: false });
+});
+resetGlassPanelColorButton.addEventListener("click", () => {
+  setGlassPanelColor(DEFAULT_GLASS_PANEL_COLOR, { persist: false });
+});
 viewportStatisticsPreferenceInput.addEventListener("change", () => {
   setViewportStatisticsEnabled(viewportStatisticsPreferenceInput.checked, { persist: false });
 });
@@ -32759,6 +36419,9 @@ layerColorShiftsPreferenceInput.addEventListener("change", () => {
 });
 outlinerFolderColorsPreferenceInput.addEventListener("change", () => {
   setOutlinerFolderColorsEnabled(outlinerFolderColorsPreferenceInput.checked, { persist: false });
+});
+outlinerFolderColorOpacityPreferenceInput.addEventListener("input", () => {
+  setOutlinerFolderColorOpacity(outlinerFolderColorOpacityPreferenceInput.value, { persist: false });
 });
 sideNamingPerspectivePreferenceInput.addEventListener("change", () => {
   setSideNamingPerspective(sideNamingPerspectivePreferenceInput.value, { persist: false });
@@ -32987,6 +36650,22 @@ deleteSelectionAction.addEventListener("click", () => {
 });
 openRebuildCurveButton.addEventListener("click", openRebuildCurveDialog);
 createCompoundStrandButton.addEventListener("click", createCompoundStrand);
+createHairShellButton.addEventListener("click", createHairShell);
+createArcHairSurfaceButton.addEventListener("click", createArcHairSurface);
+Object.entries(arcHairSurfaceInputs).forEach(([key, input]) => {
+  bindUndoCapture(input);
+  input.addEventListener("input", () => {
+    const lock = getSelectedLock();
+    if (lock?.hairShellPrimitive !== "arc" || input.disabled) return;
+    const integer = key.endsWith("Segments");
+    lock.arcHairSurfaceSettings = normalizeArcHairSurfaceSettings({
+      ...lock.arcHairSurfaceSettings,
+      [key]: integer ? Math.round(Number(input.value)) : Number(input.value)
+    });
+    rebuildArcHairSurface(lock);
+    syncArcHairSurfaceControls(lock);
+  });
+});
 rebuildCurveForm.addEventListener("submit", (event) => {
   event.preventDefault();
   rebuildSelectedCurves();
@@ -33251,9 +36930,7 @@ scalpBrushSizeInput.addEventListener("input", () => updatePlacementStatus());
   });
 });
 proportionalLockRootInput.addEventListener("change", () => {
-  proportionalRootLocked = proportionalLockRootInput.checked;
-  refreshProportionalPreview();
-  updatePlacementStatus();
+  setProportionalRootLocked(proportionalLockRootInput.checked);
 });
 
 window.addEventListener("keydown", (event) => {
@@ -33362,7 +37039,22 @@ window.addEventListener("keydown", (event) => {
     && event.key.toLowerCase() === "d"
   ) {
     event.preventDefault();
-    if (!event.repeat) beginDuplicatePlacement(selectedLocksInOrder());
+    if (!event.repeat) duplicateCurrentSelection();
+    return;
+  }
+  if (
+    !editingField
+    && event.ctrlKey
+    && !event.metaKey
+    && !event.shiftKey
+    && !event.altKey
+    && event.key.toLowerCase() === "h"
+  ) {
+    event.preventDefault();
+    if (!event.repeat) {
+      if (selectedLocksInOrder().length) hideSelectedStrands();
+      else unhideHiddenStrands();
+    }
     return;
   }
   if (
@@ -33521,7 +37213,7 @@ window.addEventListener("keydown", (event) => {
   if (!tool) return;
   event.preventDefault();
   if (event.repeat) return;
-  if (["select", "move", "rotate", "scale"].includes(tool)) {
+  if (hotkeyToolSettingsExperimentalEnabled || ["select", "move", "rotate", "scale"].includes(tool)) {
     beginToolShortcutPress(event.key.toLowerCase(), tool);
   } else {
     setActiveTool(tool);
@@ -33600,6 +37292,11 @@ function deleteLocks(targetLocks) {
   const targets = [...new Set(targetLocks)].filter((lock) => locks.includes(lock));
   if (!targets.length) return;
   const targetIds = new Set(targets.map((lock) => lock.id));
+  const branchKnifeParentsToRefresh = new Set(
+    targets
+      .map((lock) => locks.find((item) => item.id === lock.branchParentId))
+      .filter((parent) => parent && !targetIds.has(parent.id))
+  );
   targetIds.forEach((id) => selectedStrandIds.delete(id));
   targets.forEach((lock) => {
     const partner = mirrorPartnerFor(lock);
@@ -33635,10 +37332,17 @@ function deleteLocks(targetLocks) {
     removeUvCheckerFromLock(item);
     item.mesh.material.dispose();
     item.selectionOutline?.material.dispose();
+    disposeBranchKnifeOverlay(item.wireOverlay);
     item.wireOverlay?.geometry.dispose();
     item.wireOverlay?.material.dispose();
     disposeCurveObjects(item);
     locks.splice(locks.indexOf(item), 1);
+  });
+  branchKnifeParentsToRefresh.forEach((parent) => {
+    if (locks.includes(parent)) rebuildLockGeometry(parent, {
+      updateBranches: false,
+      updateBranchKnifeParent: false
+    });
   });
   cleanSelectionSets();
   if (isolatedStrandIds) {
@@ -33657,6 +37361,7 @@ function deleteLocks(targetLocks) {
   applyStrandDisplayVisibility();
   renderLockList();
   updateCount();
+  requestShadowMapRefresh();
 }
 
 document.querySelector("#deleteLock").addEventListener("click", () => {
@@ -33685,6 +37390,14 @@ function disposeCurveObjects(lock) {
     line.geometry.dispose();
     line.material.dispose();
   });
+  lock.curveObjects.compoundBridgeHandles?.forEach((handle) => {
+    handle.geometry.dispose();
+    handle.material.dispose();
+  });
+  lock.curveObjects.compoundBridgeLines?.forEach((line) => {
+    line.geometry.dispose();
+    line.material.dispose();
+  });
   if (lock.curveObjects.strandSplitHandle) {
     lock.curveObjects.strandSplitHandle.geometry.dispose();
     lock.curveObjects.strandSplitHandle.material.dispose();
@@ -33701,7 +37414,11 @@ function disposeCurveObjects(lock) {
     lock.curveObjects.surfaceObjectAnchorStem.geometry.dispose();
     lock.curveObjects.surfaceObjectAnchorStem.material.dispose();
   }
-  lock.curveObjects.widthEdgeLines?.forEach((edge) => {
+  [
+    ...(lock.curveObjects.widthEdgeLines || []),
+    ...(lock.curveObjects.depthEdgeLines || []),
+    ...(lock.curveObjects.uniformEdgeLines || [])
+  ].forEach((edge) => {
     edge.geometry.dispose();
     edge.material.dispose();
   });
@@ -33723,17 +37440,31 @@ function beginPanelSplitHandleDrag(event) {
     && lock.curveObjects.strandSplitHandle?.visible
     ? [lock.curveObjects.strandSplitHandle]
     : [];
-  const handles = [...panelHandles, ...strandHandle];
+  const compoundHandles = lock?.geometryType === "curve-surface"
+    && lock.curveSurfaceCompoundProfile
+    && lock.curveObjects?.group.visible
+    ? lock.curveObjects.compoundBridgeHandles || []
+    : [];
+  const handles = [...panelHandles, ...strandHandle, ...compoundHandles];
   if (!handles.length) return false;
   const hit = raycaster.intersectObjects(handles.filter((handle) => handle.visible), false)[0];
   if (!hit) return false;
   pushUndoState();
   transformControls.detach();
+  const kind = hit.object.userData.strandSplitHandle
+    ? "strand"
+    : Number.isInteger(hit.object.userData.compoundBridgeIndex)
+      ? "compound"
+      : "panel";
+  const splitIndex = hit.object.userData.compoundBridgeIndex ?? hit.object.userData.panelSplitIndex;
   panelSplitDrag = {
     pointerId: event.pointerId,
     lockId: lock.id,
-    kind: hit.object.userData.strandSplitHandle ? "strand" : "panel",
-    splitIndex: hit.object.userData.panelSplitIndex
+    kind,
+    splitIndex,
+    compoundContext: kind === "compound"
+      ? createCompoundBridgeControlContext(lock, splitIndex)
+      : null
   };
   renderer.domElement.setPointerCapture?.(event.pointerId);
   renderer.domElement.style.cursor = "grabbing";
@@ -33754,6 +37485,73 @@ function updatePanelSplitHandleDrag(event) {
   const targetY = event.clientY - rect.top;
   const curve = strandGeometryCurve(lock);
   let best = null;
+  if (panelSplitDrag.kind === "compound") {
+    const seamCount = Math.max(0, Number(lock.curveSurfaceColumns || 0) - 1);
+    const seamIndex = THREE.MathUtils.clamp(panelSplitDrag.splitIndex, 0, Math.max(0, seamCount - 1));
+    const context = panelSplitDrag.compoundContext
+      || createCompoundBridgeControlContext(lock, seamIndex);
+    if (!context) return;
+    let parameterMin = 0.05;
+    let parameterMax = 0.9;
+    let offsetMin = -0.35;
+    let offsetMax = 0.35;
+    for (let pass = 0; pass < 2; pass += 1) {
+      const divisions = pass === 0 ? 10 : 6;
+      const parameterStep = (parameterMax - parameterMin) / divisions;
+      const offsetStepSize = (offsetMax - offsetMin) / divisions;
+      let passBest = null;
+      for (let tStep = 0; tStep <= divisions; tStep += 1) {
+        const parameter = THREE.MathUtils.lerp(parameterMin, parameterMax, tStep / divisions);
+        for (let offsetStep = 0; offsetStep <= divisions; offsetStep += 1) {
+          const offset = THREE.MathUtils.lerp(offsetMin, offsetMax, offsetStep / divisions);
+          const projected = compoundBridgeControlPoint(
+            lock,
+            seamIndex,
+            parameter,
+            offset,
+            context
+          ).project(camera);
+          if (projected.z < -1 || projected.z > 1) continue;
+          const x = (projected.x * 0.5 + 0.5) * rect.width;
+          const y = (-projected.y * 0.5 + 0.5) * rect.height;
+          const distanceSq = (x - targetX) ** 2 + (y - targetY) ** 2;
+          if (!passBest || distanceSq < passBest.distanceSq) {
+            passBest = { distanceSq, parameter, offset };
+          }
+        }
+      }
+      if (!passBest) break;
+      best = passBest;
+      parameterMin = Math.max(0.05, best.parameter - parameterStep);
+      parameterMax = Math.min(0.9, best.parameter + parameterStep);
+      offsetMin = Math.max(-0.35, best.offset - offsetStepSize);
+      offsetMax = Math.min(0.35, best.offset + offsetStepSize);
+    }
+    if (!best) return;
+    const renderSegments = THREE.MathUtils.clamp(
+      Math.max(
+        Math.round(Number(lock.lengthSegments) || 26),
+        Math.round(Number(lock.curveSurfaceRows) || DEFAULT_CURVE_SURFACE_ROWS) - 1
+      ),
+      4,
+      256
+    );
+    const zippers = normalizeCompoundBridgeZippers(lock.compoundBridgeZippers, seamCount);
+    zippers[seamIndex] = {
+      parameter: THREE.MathUtils.clamp(
+        Math.round(best.parameter * renderSegments) / renderSegments,
+        0.05,
+        0.9
+      ),
+      offset: THREE.MathUtils.clamp(best.offset, -0.35, 0.35)
+    };
+    lock.compoundBridgeZippers = zippers;
+    updateLockGeometry(lock, { defer: true });
+    updateCurveObjects(lock, { visible: true });
+    syncActiveMirror(lock, { deferGeometry: true });
+    event.preventDefault();
+    return;
+  }
   if (panelSplitDrag.kind === "strand") {
     const profileData = strandSplitProfileData(lock);
     for (let tStep = 0; tStep <= 48; tStep += 1) {
@@ -33819,16 +37617,30 @@ function updatePanelSplitHandleDrag(event) {
 
 function endPanelSplitHandleDrag(event) {
   if (!panelSplitDrag || (event?.pointerId !== undefined && event.pointerId !== panelSplitDrag.pointerId)) return;
-  const { pointerId, lockId } = panelSplitDrag;
+  const { pointerId, lockId, kind } = panelSplitDrag;
   panelSplitDrag = null;
   if (renderer.domElement.hasPointerCapture?.(pointerId)) renderer.domElement.releasePointerCapture(pointerId);
   renderer.domElement.style.cursor = "";
+  if (kind === "compound") flushPendingLockGeometryUpdates();
   const lock = locks.find((item) => item.id === lockId);
   if (lock) updateCurveObjects(lock, { visible: lock.id === selectedId });
   updateInteractionLocks();
 }
 
 orthographicViewToggle.addEventListener("click", () => setOrthographicView(!orthographicView));
+multiCameraViewToggle.addEventListener("click", () => setMultiCameraEnabled(!multiCameraEnabled));
+Object.entries(multiCameraPreviewContainers).forEach(([view, container]) => {
+  const activateView = (event) => {
+    if (!multiCameraEnabled || view === multiCameraActiveView) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setMultiCameraActiveView(view);
+  };
+  container.addEventListener("pointerdown", activateView);
+  container.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") activateView(event);
+  });
+});
 
 document.querySelector("#toggleWire").addEventListener("click", () => {
   hairTopologyVisible = !hairTopologyVisible;
@@ -33875,7 +37687,7 @@ function buildHairObj({ includeMesh = true, includeCurves = true } = {}) {
     }
 
     if (includeCurves) {
-      if (lock.geometryType !== "poly") {
+      if (!["poly", "hair-shell"].includes(lock.geometryType)) {
         const sourceCurves = lock.geometryType === "curve-surface"
           ? curveSurfaceControllerCurves(lock)
           : [lock.points];
@@ -33938,7 +37750,7 @@ function buildHairUsda({
         });
       }
     }
-    if (includeCurves && lock.geometryType !== "poly") {
+    if (includeCurves && !["poly", "hair-shell"].includes(lock.geometryType)) {
       const sourceCurves = lock.geometryType === "curve-surface"
         ? curveSurfaceControllerCurves(lock)
         : [lock.points];
@@ -33985,10 +37797,26 @@ function exportHairObjLocally() {
 function resize() {
   const { clientWidth, clientHeight } = viewport;
   updateCameraProjectionForViewport();
-  renderer.setSize(clientWidth, clientHeight, false);
+  const paneMetrics = multiCameraPaneMetrics();
+  const mainWidth = multiCameraEnabled
+    ? multiCameraViewPaneWidth(multiCameraActiveView, paneMetrics)
+    : clientWidth;
+  const mainHeight = multiCameraEnabled ? paneMetrics.height : clientHeight;
+  renderer.setSize(Math.max(1, Math.round(mainWidth)), Math.max(1, Math.round(mainHeight)), false);
+  if (multiCameraEnabled) {
+    viewportPanel.style.setProperty("--multi-camera-split-x", `${paneMetrics.leftWidth}px`);
+    const previewRenderers = ensureMultiCameraPreviewRenderers();
+    Object.entries(previewRenderers).forEach(([view, previewRenderer]) => {
+      const paneWidth = multiCameraViewPaneWidth(view, paneMetrics);
+      previewRenderer.setSize(Math.max(1, Math.round(paneWidth)), Math.max(1, Math.round(paneMetrics.height)), false);
+    });
+    syncMultiCameraPreviewCameras();
+  }
   referenceImages
     .filter((reference) => reference.type === "overlay")
     .forEach(applyReferenceImageRuntime);
+  syncViewportTopControlRows();
+  if (!floatingToolSettingsPanel.classList.contains("hidden")) positionFloatingToolSettingsPanel();
   invalidateUvInspector();
 }
 
@@ -34021,6 +37849,7 @@ function updateLightAngleFromInputs() {
   animeAnisotropicLightDirection.copy(keyLight.position).normalize();
   lightAzimuthValue.textContent = String(Math.round(Number(lightAzimuthInput.value)));
   lightElevationValue.textContent = String(Math.round(Number(lightElevationInput.value)));
+  requestShadowMapRefresh();
 }
 
 function startViewSnap(pointerId, startX, startY) {
@@ -34161,19 +37990,77 @@ function steppedDragAmount(delta) {
 
 function snapCameraToCardinalAxis(axis, distance) {
   axis = nearestCardinalAxis(axis);
+  camera.up.set(0, 1, 0);
+  const positionAxis = axis.clone();
   if (Math.abs(axis.y) > 0.5) {
-    camera.up.set(0, 0, axis.y > 0 ? -1 : 1);
+    const horizontalAxis = lastHorizontalViewAxis.clone();
+    horizontalAxis.y = 0;
+    if (horizontalAxis.lengthSq() < 0.000001) horizontalAxis.set(0, 0, 1);
+    horizontalAxis.normalize();
+    const poleOffset = 0.0001;
+    positionAxis
+      .multiplyScalar(Math.sqrt(1 - poleOffset * poleOffset))
+      .addScaledVector(horizontalAxis, poleOffset);
   } else {
-    camera.up.set(0, 1, 0);
     lastHorizontalViewAxis.copy(axis);
   }
-  camera.position.copy(controls.target).addScaledVector(axis, distance);
+  camera.position.copy(controls.target).addScaledVector(positionAxis, distance);
   camera.lookAt(controls.target);
   const dampingEnabled = controls.enableDamping;
   controls.enableDamping = false;
   controls.update();
   controls.enableDamping = dampingEnabled;
 }
+
+const CAMERA_VIEW_AXES = Object.freeze({
+  front: new THREE.Vector3(0, 0, 1),
+  back: new THREE.Vector3(0, 0, -1),
+  left: new THREE.Vector3(-1, 0, 0),
+  right: new THREE.Vector3(1, 0, 0),
+  top: new THREE.Vector3(0, 1, 0),
+  bottom: new THREE.Vector3(0, -1, 0)
+});
+
+function updateCameraViewCube() {
+  const offset = camera.position.clone().sub(controls.target);
+  if (offset.lengthSq() < 0.000001) return;
+  offset.normalize();
+  const yaw = Math.atan2(offset.x, offset.z);
+  const pitch = Math.atan2(offset.y, Math.hypot(offset.x, offset.z));
+  cameraViewCubeModel.style.transform = `rotateX(${-pitch}rad) rotateY(${-yaw}rad)`;
+
+  const activeAxisKey = cardinalAxisKey(nearestCardinalAxis(offset));
+  cameraViewCubeFaces.forEach((face) => {
+    const axis = CAMERA_VIEW_AXES[face.dataset.cameraView];
+    const active = Boolean(axis && cardinalAxisKey(axis) === activeAxisKey);
+    face.classList.toggle("active", active);
+    if (active) face.setAttribute("aria-current", "true");
+    else face.removeAttribute("aria-current");
+  });
+}
+
+cameraViewCubeFaces.forEach((face) => {
+  face.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  face.addEventListener("click", (event) => {
+    if (multiCameraOrthographicViewActive()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const axis = CAMERA_VIEW_AXES[face.dataset.cameraView];
+    if (!axis) return;
+    const distance = Math.max(0.01, camera.position.distanceTo(controls.target));
+    shiftSnappedViewActive = true;
+    snapCameraToCardinalAxis(axis, distance);
+    updateCameraViewCube();
+    focusViewportForHotkeys();
+    event.preventDefault();
+    event.stopPropagation();
+  });
+});
 
 function endViewSnap(event) {
   if (!viewSnapDrag || (event?.pointerId !== undefined && event.pointerId !== viewSnapDrag.pointerId)) return;
@@ -34245,7 +38132,7 @@ function refreshStrandControlPointSelection(lock) {
   transformControls.detach();
   activeHandleEdit = null;
   transformDragging = false;
-  if (proportionalEditing) updateLockGeometry(lock);
+  if (proportionalEditing) refreshProportionalStrandColors();
   locks.forEach((item) => updateCurveObjects(item, { visible: item.id === selectedId }));
 
   if (primary && ["move", "rotate", "scale"].includes(activeTool)) {
@@ -35249,15 +39136,20 @@ function beginStrandWidthEdgeDrag(event) {
   ) return;
   const lock = getSelectedLock();
   if (strandControlPointHit(event, lock)) return;
-  const edges = lock?.curveObjects?.widthEdgeLines?.filter((edge) => (
+  const edges = [
+    ...(lock?.curveObjects?.widthEdgeLines || []),
+    ...(lock?.curveObjects?.depthEdgeLines || []),
+    ...(lock?.curveObjects?.uniformEdgeLines || [])
+  ].filter((edge) => (
     edge.visible && (edge.geometry?.getAttribute("position")?.count || 0) >= 2
-  )) || [];
+  ));
   if (!edges.length) return;
   rayFromViewportEvent(event);
   const hit = raycaster.intersectObjects(edges, false)[0];
   if (!hit) return;
   const side = Number(hit.object.userData.side) < 0 ? -1 : 1;
-  const sample = strandWidthEdgeSample(lock, 0.5, side);
+  const dimension = hit.object.userData.dimension || "width";
+  const sample = strandWidthEdgeSample(lock, 0.5, side, null, null, dimension);
   if (!sample) return;
   const sideAxis = sample.edge.clone().sub(sample.center);
   const halfExtent = sideAxis.length();
@@ -35269,21 +39161,29 @@ function beginStrandWidthEdgeDrag(event) {
   const pixelsPerWorld = axisPixel.length();
   if (pixelsPerWorld < 0.001) return;
   const startWidth = editableStrandWidth(lock);
-  const widthTargets = selectedLocksInOrder().filter((item) => item.geometryType !== "poly");
+  const startDepth = strandDepthDimension(lock);
+  const startDimension = dimension === "depth" ? startDepth : startWidth;
+  const widthTargets = selectedLocksInOrder().filter((item) => !["poly", "hair-shell"].includes(item.geometryType));
   if (!widthTargets.includes(lock)) widthTargets.unshift(lock);
   pushUndoState();
   strandWidthEdgeDrag = {
     pointerId: event.pointerId,
     lockId: lock.id,
     side,
+    dimension,
     startX: event.clientX,
     startY: event.clientY,
     startWidth,
+    startDepth,
     startWidthState: {
       width: lock.width,
       baseWidth: lock.baseWidth,
       widthScale: lock.widthScale,
-      braidWidth: lock.braidWidth
+      braidWidth: lock.braidWidth,
+      depth: lock.depth,
+      depthScale: lock.depthScale,
+      braidDepth: lock.braidDepth,
+      panelThickness: lock.panelThickness
     },
     startPoints: lock.geometryType === "surface"
       ? lock.points.map((point) => point.clone())
@@ -35291,11 +39191,16 @@ function beginStrandWidthEdgeDrag(event) {
     targetSnapshots: widthTargets.map((item) => ({
       lockId: item.id,
       startWidth: editableStrandWidth(item),
+      startDepth: strandDepthDimension(item),
       startWidthState: {
         width: item.width,
         baseWidth: item.baseWidth,
         widthScale: item.widthScale,
-        braidWidth: item.braidWidth
+        braidWidth: item.braidWidth,
+        depth: item.depth,
+        depthScale: item.depthScale,
+        braidDepth: item.braidDepth,
+        panelThickness: item.panelThickness
       },
       startPoints: item.geometryType === "surface"
         ? item.points.map((point) => point.clone())
@@ -35303,10 +39208,11 @@ function beginStrandWidthEdgeDrag(event) {
     })),
     screenAxis: axisPixel.normalize(),
     pixelsPerWorld,
-    edgeScale: halfExtent / Math.max(0.0001, startWidth * 0.5)
+    edgeScale: halfExtent / Math.max(0.0001, startDimension * 0.5),
+    startHalfExtent: halfExtent
   };
   renderer.domElement.setPointerCapture?.(event.pointerId);
-  renderer.domElement.style.cursor = "ew-resize";
+  renderer.domElement.style.cursor = dimension === "depth" ? "ns-resize" : "ew-resize";
   updateCurveObjects(lock, { visible: true });
   updateInteractionLocks();
   event.preventDefault();
@@ -35323,18 +39229,28 @@ function updateStrandWidthEdgeDrag(event) {
     event.clientY - drag.startY
   );
   const worldDelta = pointerDelta.dot(drag.screenAxis) / drag.pixelsPerWorld;
-  const nextWidth = drag.startWidth + worldDelta * 2 / Math.max(0.0001, drag.edgeScale);
-  const widthDelta = nextWidth - drag.startWidth;
+  const nextDimension = (drag.dimension === "depth" ? drag.startDepth : drag.startWidth)
+    + worldDelta * 2 / Math.max(0.0001, drag.edgeScale);
+  const dimensionDelta = nextDimension - (drag.dimension === "depth" ? drag.startDepth : drag.startWidth);
+  const uniformScale = Math.max(0.05, 1 + worldDelta / Math.max(0.0001, drag.startHalfExtent));
   const targetSnapshots = drag.targetSnapshots?.length ? drag.targetSnapshots : [{
     lockId: lock.id,
     startWidth: drag.startWidth,
+    startDepth: drag.startDepth,
     startPoints: drag.startPoints
   }];
   const targetIds = new Set(targetSnapshots.map((snapshot) => snapshot.lockId));
   targetSnapshots.forEach((snapshot) => {
     const target = locks.find((item) => item.id === snapshot.lockId);
     if (!target) return;
-    applyEditableStrandWidth(target, snapshot.startWidth + widthDelta, snapshot);
+    if (drag.dimension === "width") {
+      applyEditableStrandWidth(target, snapshot.startWidth + dimensionDelta, snapshot);
+    } else if (drag.dimension === "depth") {
+      setStrandDepthDimension(target, snapshot.startDepth + dimensionDelta);
+    } else {
+      applyEditableStrandWidth(target, snapshot.startWidth * uniformScale, snapshot);
+      setStrandDepthDimension(target, snapshot.startDepth * uniformScale);
+    }
     syncLockFromCurve(target);
     updateLockGeometry(target, { immediate: true });
     updateCurveObjects(target, { visible: target.id === selectedId });
@@ -35393,7 +39309,8 @@ function setHoveredStrandWidthEdge(edge = null) {
   hoveredStrandWidthEdge = edge;
   [previous, hoveredStrandWidthEdge].filter(Boolean).forEach((item) => {
     const active = strandWidthEdgeDrag?.lockId === item.userData.lockId
-      && strandWidthEdgeDrag.side === item.userData.side;
+      && strandWidthEdgeDrag.side === item.userData.side
+      && strandWidthEdgeDrag.dimension === (item.userData.dimension || "width");
     const hovered = hoveredStrandWidthEdge === item;
     item.material.color.set(active || hovered ? 0xff42cf : 0xe7a95d);
     item.material.opacity = active ? 0.95 : hovered ? 0.82 : 0.22;
@@ -35408,22 +39325,26 @@ function updateStrandWidthEdgeHover(event) {
   const lock = viewportEditMode === "strand" ? getSelectedLock() : null;
   if (strandControlPointHit(event, lock)) {
     setHoveredStrandWidthEdge(null);
-    if (renderer.domElement.style.cursor === "ew-resize") renderer.domElement.style.cursor = "";
+    if (["ew-resize", "ns-resize"].includes(renderer.domElement.style.cursor)) renderer.domElement.style.cursor = "";
     return;
   }
-  const edges = lock?.curveObjects?.widthEdgeLines?.filter((edge) => (
+  const edges = [
+    ...(lock?.curveObjects?.widthEdgeLines || []),
+    ...(lock?.curveObjects?.depthEdgeLines || []),
+    ...(lock?.curveObjects?.uniformEdgeLines || [])
+  ].filter((edge) => (
     edge.visible && (edge.geometry?.getAttribute("position")?.count || 0) >= 2
-  )) || [];
+  ));
   if (!edges.length) {
     setHoveredStrandWidthEdge(null);
-    if (renderer.domElement.style.cursor === "ew-resize") renderer.domElement.style.cursor = "";
+    if (["ew-resize", "ns-resize"].includes(renderer.domElement.style.cursor)) renderer.domElement.style.cursor = "";
     return;
   }
   rayFromViewportEvent(event);
   const edge = raycaster.intersectObjects(edges, false)[0]?.object || null;
   setHoveredStrandWidthEdge(edge);
-  if (edge) renderer.domElement.style.cursor = "ew-resize";
-  else if (renderer.domElement.style.cursor === "ew-resize") renderer.domElement.style.cursor = "";
+  if (edge) renderer.domElement.style.cursor = edge.userData.dimension === "depth" ? "ns-resize" : "ew-resize";
+  else if (["ew-resize", "ns-resize"].includes(renderer.domElement.style.cursor)) renderer.domElement.style.cursor = "";
 }
 
 const controlPointHoverOverlay = new THREE.Mesh(
@@ -35519,6 +39440,7 @@ function updateControlPointHover(event) {
 }
 
 window.addEventListener("resize", resize);
+new ResizeObserver(syncViewportTopControlRows).observe(viewportPanel);
 new ResizeObserver(invalidateUvInspector).observe(uvInspectorWindow);
 updateGuideControlsVisibility();
 updateHistoryButtons();
@@ -35760,6 +39682,10 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
     return;
   }
   if (scalpShapeEditing) return;
+  if (selectHairShellFaceAtEvent(event)) {
+    event.preventDefault();
+    return;
+  }
   if (beginPanelSplitHandleDrag(event)) {
     event.preventDefault();
     return;
@@ -35803,8 +39729,15 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   if (["draw", "procedural-draw", "braid", "panel"].includes(activeTool)) {
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     const extensionLock = selectedTipContinuationLock(event);
-    const branchStart = extensionLock ? null : selectedDrawBranchPoint(event);
-    const surfaceHit = extensionLock || branchStart ? null : drawSurfaceHitFromEvent(event, { root: true });
+    const selectedLock = getSelectedLock();
+    const drawingHairShell = activeTool === "draw" && selectedLock?.geometryType === "hair-shell";
+    const hairShellStart = extensionLock ? null : selectedHairShellFaceStart(event);
+    const branchStart = extensionLock
+      ? null
+      : hairShellStart || (!drawingHairShell ? selectedDrawBranchPoint(event) : null);
+    const surfaceHit = extensionLock || branchStart || drawingHairShell
+      ? null
+      : drawSurfaceHitFromEvent(event, { root: true });
     beginDrawStrandStroke(event, surfaceHit, extensionLock, branchStart);
     return;
   }
@@ -36058,13 +39991,19 @@ function animate(timestamp = performance.now()) {
     camera.lookAt(controls.target);
   }
   controls.update();
+  updateCameraViewCube();
   updateSculptBrushViabilityPlane();
   updateReferencePlaneVisibility();
   updateReferenceCropHandles();
   updateViewPlaneGrid();
   updatePullGuideVisual();
   renderUvInspector(timestamp);
+  refreshShadowMapWhenIdle(timestamp);
   renderer.render(scene, camera);
+  if (multiCameraEnabled && multiCameraPreviewRenderers) {
+    syncMultiCameraPreviewCameras();
+    renderNextInactiveMultiCameraPreview();
+  }
   requestAnimationFrame(animate);
 }
 
@@ -36147,9 +40086,12 @@ toggleAttributeEditorPanelButton.addEventListener("click", () => {
 
 setAttributeEditorTab("main");
 syncCompactSidebarLayout();
+loadCustomHairMaterialPresets();
+populateHairMaterialPresetSelect();
 syncHairMaterialEditor();
 renderLockList();
 updateAttributeEditorMode();
 setSideNamingPerspective(sideNamingPerspective, { persist: false });
 resize();
 animate();
+offerRecoverySnapshot();

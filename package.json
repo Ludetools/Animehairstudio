@@ -1,0 +1,10 @@
+{
+  "name": "anime-hair-studio",
+  "version": "0.1.5",
+  "license": "SEE LICENSE IN LICENSE",
+  "private": true,
+  "scripts": {
+    "check": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-project.ps1",
+    "test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-project.ps1"
+  }
+}

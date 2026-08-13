@@ -6,7 +6,8 @@ export function createPreferencesBackup({
   exportedAt = new Date().toISOString(),
   preferences,
   presets,
-  shapePresets
+  shapePresets,
+  materialPresets
 }) {
   return {
     format: PREFERENCES_BACKUP_FORMAT,
@@ -22,7 +23,10 @@ export function createPreferencesBackup({
       sweepProfile: Array.isArray(shapePresets?.sweepProfile) ? shapePresets.sweepProfile.map((preset) => ({ ...preset })) : [],
       taperCurve: Array.isArray(shapePresets?.taperCurve) ? shapePresets.taperCurve.map((preset) => ({ ...preset })) : [],
       depthCurve: Array.isArray(shapePresets?.depthCurve) ? shapePresets.depthCurve.map((preset) => ({ ...preset })) : []
-    }
+    },
+    materialPresets: Array.isArray(materialPresets)
+      ? materialPresets.map((preset) => ({ ...preset, value: { ...preset?.value } }))
+      : []
   };
 }
 
@@ -59,7 +63,10 @@ export function normalizePreferencesBackup(value) {
       depthCurve: Array.isArray(value.shapePresets?.depthCurve)
         ? value.shapePresets.depthCurve.map((preset) => ({ ...preset }))
         : []
-    }
+    },
+    materialPresets: Array.isArray(value.materialPresets)
+      ? value.materialPresets.map((preset) => ({ ...preset, value: { ...preset?.value } }))
+      : []
   };
 }
 

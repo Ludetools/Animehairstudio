@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Hair Studio</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="stylesheet" href="./styles.css?v=20260806-101" />
+  <link rel="stylesheet" href="./styles.css?v=20260812-31" />
   </head>
   <body>
     <main class="studio-shell">
@@ -74,7 +74,9 @@
               <button id="curvesMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">Curves</button>
               <div id="curvesMenu" class="app-menu-dropdown hidden" role="menu" aria-label="Curves">
                 <button id="openRebuildCurve" type="button" role="menuitem">Rebuild Curve...</button>
-                <button id="createCompoundStrand" type="button" role="menuitem">Create Compound Strand</button>
+                <button id="createCompoundStrand" type="button" role="menuitem" hidden aria-hidden="true" tabindex="-1">Create Compound Strand</button>
+                <button id="createHairShell" type="button" role="menuitem" hidden aria-hidden="true" tabindex="-1">Create Hair Shell</button>
+                <button id="createArcHairSurface" type="button" role="menuitem" hidden aria-hidden="true" tabindex="-1">Create Arc Hair Surface</button>
               </div>
             </div>
             <div class="app-menu-shell">
@@ -173,14 +175,11 @@
         <input id="referenceImageFile" class="hidden-file-input" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
       </header>
       <aside class="outliner-panel" aria-label="Scene outliner">
-        <div class="outliner-titlebar">
-          <span>Outliner</span>
-          <button id="toggleOutlinerPanel" class="sidebar-collapse-toggle" type="button" title="Collapse outliner" aria-label="Collapse outliner" aria-expanded="true"><span aria-hidden="true">&#x2303;</span></button>
-        </div>
         <div class="outliner-tabs" role="tablist" aria-label="Outliner content">
           <button id="strandOutlinerTab" class="outliner-tab active" type="button" role="tab" aria-selected="true" aria-controls="lockList">Strands</button>
           <button id="guideOutlinerTab" class="outliner-tab" type="button" role="tab" aria-selected="false" aria-controls="guideOutliner">Guides</button>
           <button id="referenceOutlinerTab" class="outliner-tab" type="button" role="tab" aria-selected="false" aria-controls="referenceOutliner">References</button>
+          <button id="toggleOutlinerPanel" class="sidebar-collapse-toggle" type="button" title="Collapse outliner" aria-label="Collapse outliner" aria-expanded="true"><span aria-hidden="true">&#x2303;</span></button>
         </div>
         <div id="lockList" class="lock-list outliner-content" role="tabpanel" aria-labelledby="strandOutlinerTab"></div>
         <div id="guideOutliner" class="guide-outliner outliner-content hidden" role="tabpanel" aria-labelledby="guideOutlinerTab"></div>
@@ -189,6 +188,50 @@
 
       <section class="viewport-panel" aria-label="3D hair editor">
         <div id="viewport"></div>
+        <div id="multiCameraViews" class="multi-camera-views" aria-hidden="true">
+          <div id="multiCameraPerspective" class="multi-camera-preview multi-camera-perspective active" role="button" tabindex="0" aria-label="Activate perspective view"><span>Persp</span></div>
+          <div id="multiCameraFront" class="multi-camera-preview multi-camera-front" role="button" tabindex="0" aria-label="Activate front view"><span>Front</span></div>
+          <div id="multiCameraRight" class="multi-camera-preview multi-camera-right" role="button" tabindex="0" aria-label="Activate right view"><span>Right</span></div>
+          <div id="multiCameraTop" class="multi-camera-preview multi-camera-top" role="button" tabindex="0" aria-label="Activate top view"><span>Top</span></div>
+        </div>
+        <div id="cameraViewCube" class="camera-view-cube" role="group" aria-label="Camera view controls">
+          <div id="cameraViewCubeModel" class="camera-view-cube-model">
+            <button class="camera-view-cube-face camera-view-cube-front" type="button" data-camera-view="front" title="Snap camera to front view" aria-label="Front view">Front</button>
+            <button class="camera-view-cube-face camera-view-cube-back" type="button" data-camera-view="back" title="Snap camera to back view" aria-label="Back view">Back</button>
+            <button class="camera-view-cube-face camera-view-cube-left" type="button" data-camera-view="left" title="Snap camera to left view" aria-label="Left view">Left</button>
+            <button class="camera-view-cube-face camera-view-cube-right" type="button" data-camera-view="right" title="Snap camera to right view" aria-label="Right view">Right</button>
+            <button class="camera-view-cube-face camera-view-cube-top" type="button" data-camera-view="top" title="Snap camera to top view" aria-label="Top view">Top</button>
+            <button class="camera-view-cube-face camera-view-cube-bottom" type="button" data-camera-view="bottom" title="Snap camera to bottom view" aria-label="Bottom view">Bottom</button>
+          </div>
+        </div>
+        <section id="strandObjectTransformPanel" class="strand-object-transform-panel hidden" aria-label="Selected strand transform">
+          <h2>Transform</h2>
+          <div class="strand-object-transform-section">
+            <div class="strand-object-transform-heading"><h3>Translation</h3></div>
+            <div class="strand-object-transform-axes">
+              <label><span>X</span><input type="number" step="0.01" value="0" data-object-transform="location" data-axis="x" aria-label="Translation X" /><button type="button" data-reset-object-transform="location" data-axis="x" title="Reset Translation X" aria-label="Reset Translation X">⟲</button></label>
+              <label><span>Y</span><input type="number" step="0.01" value="0" data-object-transform="location" data-axis="y" aria-label="Translation Y" /><button type="button" data-reset-object-transform="location" data-axis="y" title="Reset Translation Y" aria-label="Reset Translation Y">⟲</button></label>
+              <label><span>Z</span><input type="number" step="0.01" value="0" data-object-transform="location" data-axis="z" aria-label="Translation Z" /><button type="button" data-reset-object-transform="location" data-axis="z" title="Reset Translation Z" aria-label="Reset Translation Z">⟲</button></label>
+            </div>
+          </div>
+          <div class="strand-object-transform-section">
+            <div class="strand-object-transform-heading"><h3>Rotation</h3></div>
+            <div class="strand-object-transform-axes">
+              <label><span>X</span><input type="number" step="1" value="0" data-object-transform="rotation" data-axis="x" aria-label="Rotation X in degrees" /><button type="button" data-reset-object-transform="rotation" data-axis="x" title="Reset Rotation X" aria-label="Reset Rotation X">⟲</button></label>
+              <label><span>Y</span><input type="number" step="1" value="0" data-object-transform="rotation" data-axis="y" aria-label="Rotation Y in degrees" /><button type="button" data-reset-object-transform="rotation" data-axis="y" title="Reset Rotation Y" aria-label="Reset Rotation Y">⟲</button></label>
+              <label><span>Z</span><input type="number" step="1" value="0" data-object-transform="rotation" data-axis="z" aria-label="Rotation Z in degrees" /><button type="button" data-reset-object-transform="rotation" data-axis="z" title="Reset Rotation Z" aria-label="Reset Rotation Z">⟲</button></label>
+            </div>
+          </div>
+          <div class="strand-object-transform-section" title="Scale is an offset from the authored size. Zero leaves the size unchanged.">
+            <div class="strand-object-transform-heading"><h3>Scale</h3></div>
+            <div class="strand-object-transform-axes">
+              <label><span>X</span><input type="number" step="0.01" min="-0.95" value="0" data-object-transform="scale" data-axis="x" aria-label="Scale X offset" /><button type="button" data-reset-object-transform="scale" data-axis="x" title="Reset Scale X" aria-label="Reset Scale X">⟲</button></label>
+              <label><span>Y</span><input type="number" step="0.01" min="-0.95" value="0" data-object-transform="scale" data-axis="y" aria-label="Scale Y offset" /><button type="button" data-reset-object-transform="scale" data-axis="y" title="Reset Scale Y" aria-label="Reset Scale Y">⟲</button></label>
+              <label><span>Z</span><input type="number" step="0.01" min="-0.95" value="0" data-object-transform="scale" data-axis="z" aria-label="Scale Z offset" /><button type="button" data-reset-object-transform="scale" data-axis="z" title="Reset Scale Z" aria-label="Reset Scale Z">⟲</button></label>
+            </div>
+          </div>
+        </section>
+        <section id="floatingToolSettingsPanel" class="floating-tool-settings-panel hidden" aria-label="Tool settings"></section>
         <div id="viewportReferenceImages" class="viewport-reference-images" aria-hidden="true"></div>
         <div id="referenceImageDropTarget" class="reference-image-drop-target" aria-hidden="true">
           <div class="reference-image-drop-shell">
@@ -256,26 +299,42 @@
             </div>
           </div>
         </div>
-        <div id="viewportDrawSettings" class="viewport-draw-settings hidden" aria-label="Draw settings">
-          <div class="viewport-live-surface-control">
-            <label class="viewport-live-surface-select" for="drawStrandSurface">
-              <span>Live Surface</span>
-              <select id="drawStrandSurface" title="Choose the surface used to guide drawing.">
-                <option value="head" selected>Head Mesh</option>
-                <option value="contextual-plane">Contextual 2D Plane</option>
+        <div class="viewport-top-controls">
+          <div class="bar-actions viewport-display-actions" aria-label="Viewport display controls">
+            <button id="presetLibraryToggle" class="tool-button preset-library-button" title="Open preset library" aria-label="Open preset library" aria-pressed="false"><span class="preset-library-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span></button>
+            <button id="orthographicViewToggle" class="orthographic-view-button" title="Switch to orthographic view" aria-label="Toggle orthographic view" aria-pressed="false"><span>O</span></button>
+            <button id="multiCameraViewToggle" class="multi-camera-view-button" type="button" title="Toggle four-view camera layout" aria-label="Toggle four-view camera layout" aria-pressed="false" hidden aria-hidden="true" tabindex="-1"><span class="multi-camera-view-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
+            <button id="toggleWire" title="Toggle strand topology" aria-label="Toggle strand topology" aria-pressed="false"><span>W</span></button>
+            <button id="scalpGuideVisibilityToggle" class="scalp-guide-visibility-button" title="Cycle guide visibility" aria-label="Cycle guide visibility" aria-pressed="true" aria-haspopup="menu"><span class="tool-icon icon-scalp-guide" aria-hidden="true"></span></button>
+            <button id="groupColorToggle" class="group-color-button" title="Show group colors" aria-label="Show group colors" aria-pressed="false"><span class="group-color-swatches" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
+          </div>
+          <div id="viewportDrawSettings" class="viewport-draw-settings hidden" aria-label="Draw settings">
+            <div class="viewport-live-surface-control">
+              <label class="viewport-live-surface-select" for="drawStrandSurface">
+                <span>Live Surface</span>
+                <select id="drawStrandSurface" title="Choose the surface used to guide drawing.">
+                  <option value="head" selected>Head Mesh</option>
+                  <option value="contextual-plane">Contextual 2D Plane</option>
+                </select>
+              </label>
+              <button id="drawSurfaceDynamic" class="viewport-dynamic-toggle" type="button" aria-pressed="true" data-boolean-control="true" title="Continue a stroke on a camera-facing contextual 2D plane after it leaves the selected surface.">Dynamic</button>
+            </div>
+            <label for="viewportDrawLayer">
+              <span>Layer</span>
+              <select id="viewportDrawLayer" title="Choose the layer assigned to newly drawn strands.">
+                <option value="bottom">Bottom</option>
+                <option value="mid" selected>Mid</option>
+                <option value="top">Top</option>
+                <option value="accent">Accent</option>
               </select>
             </label>
-            <button id="drawSurfaceDynamic" class="viewport-dynamic-toggle" type="button" aria-pressed="true" data-boolean-control="true" title="Continue a stroke on a camera-facing contextual 2D plane after it leaves the selected surface.">Dynamic</button>
           </div>
-          <label for="viewportDrawLayer">
-            <span>Layer</span>
-            <select id="viewportDrawLayer" title="Choose the layer assigned to newly drawn strands.">
-              <option value="bottom">Bottom</option>
-              <option value="mid" selected>Mid</option>
-              <option value="top">Top</option>
-              <option value="accent">Accent</option>
-            </select>
-          </label>
+          <div class="viewport-modes" aria-label="Editing modes">
+            <button id="mirrorXToggle" class="tool-button mirror-button" title="Mirror edits and new strands across the X axis" aria-label="Toggle X axis mirror" aria-pressed="false"><span class="tool-icon icon-mirror-x" aria-hidden="true"></span></button>
+            <button id="spaceToggle" class="tool-button space-button" title="Toggle world/object space (O)" aria-label="Toggle transform space"><span class="tool-icon icon-space" aria-hidden="true"></span><kbd>O</kbd></button>
+            <button id="hierarchyToggle" class="tool-button hierarchy-button" title="Toggle hierarchy editing (H)" aria-label="Toggle hierarchy editing"><img src="./assets/hierarchy-icon.png" alt="" /><kbd>H</kbd></button>
+            <button id="proportionalToggle" class="tool-button proportional-button" title="Toggle proportional editing (B)" aria-label="Toggle proportional editing"><span class="tool-icon icon-proportional" aria-hidden="true"></span><kbd>B</kbd></button>
+          </div>
         </div>
         <button id="exitSetupEditor" class="viewport-exit-editor hidden" type="button">
           <span class="exit-editor-icon" aria-hidden="true">&#10005;</span>
@@ -304,19 +363,6 @@
           <button id="viewportDrawCapsuleGuideTool" class="tool-button guide-toolbar-tool hidden" data-tool="draw-capsule-guide" type="button" title="Draw a capsule guide along a curve" aria-label="Draw Capsule Guide tool" aria-pressed="false"><span class="tool-icon icon-draw" aria-hidden="true"></span></button>
           <button id="viewportCapsuleGuideTool" class="tool-button guide-toolbar-tool hidden" type="button" title="Create or edit a capsule guide" aria-label="Capsule Guide tool" aria-pressed="false"><span class="tool-icon icon-surface-guide" aria-hidden="true"></span></button>
           <button id="viewportCurveLatticeGuideTool" class="tool-button guide-toolbar-tool hidden" type="button" title="Create a curve lattice guide" aria-label="Curve Lattice Guide tool" aria-pressed="false"><span class="tool-icon icon-curve-lattice-guide" aria-hidden="true"></span></button>
-        </div>
-        <div class="viewport-modes" aria-label="Editing modes">
-          <button id="mirrorXToggle" class="tool-button mirror-button" title="Mirror edits and new strands across the X axis" aria-label="Toggle X axis mirror" aria-pressed="false"><span class="tool-icon icon-mirror-x" aria-hidden="true"></span></button>
-          <button id="spaceToggle" class="tool-button space-button" title="Toggle world/object space (O)" aria-label="Toggle transform space"><span class="tool-icon icon-space" aria-hidden="true"></span><kbd>O</kbd></button>
-          <button id="hierarchyToggle" class="tool-button hierarchy-button" title="Toggle hierarchy editing (H)" aria-label="Toggle hierarchy editing"><img src="./assets/hierarchy-icon.png" alt="" /><kbd>H</kbd></button>
-          <button id="proportionalToggle" class="tool-button proportional-button" title="Toggle proportional editing (B)" aria-label="Toggle proportional editing"><span class="tool-icon icon-proportional" aria-hidden="true"></span><kbd>B</kbd></button>
-        </div>
-        <div class="bar-actions viewport-display-actions" aria-label="Viewport display controls">
-          <button id="presetLibraryToggle" class="tool-button preset-library-button" title="Open preset library" aria-label="Open preset library" aria-pressed="false"><span class="preset-library-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span></button>
-          <button id="orthographicViewToggle" class="orthographic-view-button" title="Switch to orthographic view" aria-label="Toggle orthographic view" aria-pressed="false"><span>O</span></button>
-          <button id="toggleWire" title="Toggle strand topology" aria-label="Toggle strand topology" aria-pressed="false"><span>W</span></button>
-          <button id="scalpGuideVisibilityToggle" class="scalp-guide-visibility-button" title="Cycle guide visibility" aria-label="Cycle guide visibility" aria-pressed="true" aria-haspopup="menu"><span class="tool-icon icon-scalp-guide" aria-hidden="true"></span></button>
-          <button id="groupColorToggle" class="group-color-button" title="Show group colors" aria-label="Show group colors" aria-pressed="false"><span class="group-color-swatches" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
         </div>
         <section id="presetLibrary" class="preset-library hidden" role="dialog" aria-modal="false" aria-labelledby="presetLibraryTitle">
           <header class="preset-library-head">
@@ -389,6 +435,7 @@
           <button id="attributeMaterialsTab" type="button" role="tab" aria-selected="false" data-attribute-tab="materials">Materials</button>
           <button id="toggleAttributeEditorPanel" class="sidebar-collapse-toggle" type="button" title="Collapse attribute editor" aria-label="Collapse attribute editor" aria-expanded="true"><span aria-hidden="true">&#x2303;</span></button>
         </div>
+        <div class="attribute-editor-content">
         <div id="turntablePanel" class="panel-section sliders hidden" data-attribute-panel="tools">
           <div class="section-head">
             <span>Turntable</span>
@@ -560,6 +607,19 @@
           <div class="point-status">Point <span id="selectedPointLabel">None</span></div>
         </div>
 
+        <div id="arcHairSurfacePanel" class="panel-section sliders hidden" data-attribute-panel="strands">
+          <div class="section-head"><span>Arc Hair Surface</span></div>
+          <div class="subsection-label">Shape</div>
+          <label class="topology-control">Width <input id="arcHairSurfaceWidth" type="range" min="0.2" max="6" step="0.01" value="1.6" /><output id="arcHairSurfaceWidthValue" class="slider-value">1.60</output></label>
+          <label class="topology-control">Arc Height <input id="arcHairSurfaceHeight" type="range" min="0.1" max="4" step="0.01" value="0.9" /><output id="arcHairSurfaceHeightValue" class="slider-value">0.90</output></label>
+          <label class="topology-control">Side Length <input id="arcHairSurfaceLegLength" type="range" min="0" max="4" step="0.01" value="0.8" /><output id="arcHairSurfaceLegLengthValue" class="slider-value">0.80</output></label>
+          <label class="topology-control">Depth <input id="arcHairSurfaceDepth" type="range" min="0.1" max="6" step="0.01" value="1.2" /><output id="arcHairSurfaceDepthValue" class="slider-value">1.20</output></label>
+          <div class="subsection-label">Topology</div>
+          <label class="topology-control">Arc Loops <input id="arcHairSurfaceArcSegments" type="range" min="2" max="32" step="1" value="8" /><output id="arcHairSurfaceArcSegmentsValue" class="slider-value">8</output></label>
+          <label class="topology-control">Side Loops <input id="arcHairSurfaceLegSegments" type="range" min="1" max="24" step="1" value="3" /><output id="arcHairSurfaceLegSegmentsValue" class="slider-value">3</output></label>
+          <label class="topology-control">Depth Loops <input id="arcHairSurfaceDepthSegments" type="range" min="1" max="32" step="1" value="5" /><output id="arcHairSurfaceDepthSegmentsValue" class="slider-value">5</output></label>
+        </div>
+
         <div id="clumpGuidePanel" class="panel-section sliders hidden" data-attribute-panel="strands">
           <div class="section-head">
             <span>Clump Guide</span>
@@ -584,6 +644,15 @@
             <button id="addProjectHairMaterial" class="compact-icon-button" type="button" title="Create material" aria-label="Create material">+</button>
           </div>
           <div id="hairMaterialOutliner" class="material-outliner" role="listbox" aria-label="Project materials"></div>
+          <div class="creation-preset-row material-preset-row">
+            <label class="compact-select-row" for="hairMaterialPreset"><span>Material Preset</span>
+              <select id="hairMaterialPreset">
+                <option value="">Current Material</option>
+              </select>
+            </label>
+            <button id="saveHairMaterialPreset" class="creation-preset-add" type="button" title="Save material preset" aria-label="Save material preset">+</button>
+            <button id="removeHairMaterialPreset" class="creation-preset-remove" type="button" title="Remove selected material preset" aria-label="Remove selected material preset" disabled>&times;</button>
+          </div>
           <div class="subsection-label">Material Properties</div>
           <label for="hairMaterialName">Name</label>
           <input id="hairMaterialName" type="text" value="Default Purple" />
@@ -593,6 +662,16 @@
             <option value="anime-anisotropic">Anime Anisotropic</option>
             <option value="lambert">Lambert</option>
           </select>
+          <div class="material-gradient-control">
+            <label class="toggle-row" for="hairMaterialGradientEnabled" title="Use a root-to-tip color gradient instead of one solid base color.">
+              <span>Base Color Gradient</span>
+              <input id="hairMaterialGradientEnabled" type="checkbox" />
+            </label>
+            <button id="editHairMaterialGradient" class="material-gradient-button" type="button">
+              <span id="hairMaterialGradientPreview" class="material-gradient-preview" aria-hidden="true"></span>
+              <span>Edit Gradient</span>
+            </button>
+          </div>
           <div id="hairMaterialStandardControls">
             <label for="hairMaterialColor">Color</label>
             <input id="hairMaterialColor" type="color" value="#2c223a" />
@@ -658,6 +737,13 @@
           <div class="section-head">
             <span id="transformToolTitle">Move Tool</span>
           </div>
+          <div class="transform-space-setting">
+            <span>Transform Space</span>
+            <div class="segmented-control" role="group" aria-label="Transform space">
+              <button type="button" data-transform-space="world" class="active" aria-pressed="true">World</button>
+              <button type="button" data-transform-space="object" aria-pressed="false">Object</button>
+            </div>
+          </div>
           <label id="pullMoveSetting" class="toggle-row" for="pullMove" title="Pull the strand chain toward a free target while moving a curve point.">
             <span>Pull Strand</span>
             <input id="pullMove" type="checkbox" />
@@ -676,12 +762,55 @@
             <span>Snapped Views Only</span>
             <input id="viewPlaneMoveSnappedOnly" type="checkbox" />
           </label>
-          <div class="transform-space-setting">
-            <span>Transform Space</span>
-            <div class="segmented-control" role="group" aria-label="Transform space">
-              <button type="button" data-transform-space="world" class="active" aria-pressed="true">World</button>
-              <button type="button" data-transform-space="object" aria-pressed="false">Object</button>
+          <div id="moveGrabHandlesSetting" class="move-grab-handles hidden">
+            <div class="subsection-label">Grab Handles</div>
+            <div class="move-grab-handle-options">
+              <label class="move-curve-segment" for="moveWidthGrabHandles" title="Show draggable handles that adjust strand width.">
+                <span>Width</span>
+                <input id="moveWidthGrabHandles" type="checkbox" checked />
+              </label>
+              <label class="move-curve-segment" for="moveDepthGrabHandles" title="Show draggable handles that adjust strand depth.">
+                <span>Depth</span>
+                <input id="moveDepthGrabHandles" type="checkbox" />
+              </label>
+              <label class="move-curve-segment" for="moveUniformGrabHandles" title="Show draggable handles that scale strand width and depth together.">
+                <span>Uniform</span>
+                <input id="moveUniformGrabHandles" type="checkbox" />
+              </label>
             </div>
+          </div>
+          <div id="moveCurveControlsSetting" class="move-curve-controls hidden">
+            <div class="subsection-label">Viewport Curve Controls</div>
+            <div class="move-curve-viewport-options">
+              <div class="move-curve-dual-button">
+                <label class="move-curve-segment move-curve-control-segment" for="moveWidthCurveControls" title="Show draggable Width Curve controls directly on the selected strand.">
+                  <span>Width</span>
+                  <input id="moveWidthCurveControls" type="checkbox" />
+                </label>
+                <label class="move-curve-segment move-curve-symmetry-segment" for="moveAsymmetricWidth" title="Switch Width Curve editing between symmetrical and asymmetrical sides.">
+                  <span id="moveAsymmetricWidthLabel">Sym</span>
+                  <input id="moveAsymmetricWidth" type="checkbox" />
+                </label>
+              </div>
+              <div class="move-curve-dual-button">
+                <label class="move-curve-segment move-curve-control-segment" for="moveDepthCurveControls" title="Show draggable Depth Curve controls directly on the selected strand.">
+                  <span>Depth</span>
+                  <input id="moveDepthCurveControls" type="checkbox" />
+                </label>
+                <label class="move-curve-segment move-curve-symmetry-segment" for="moveAsymmetricDepth" title="Switch Depth Curve editing between symmetrical and asymmetrical sides.">
+                  <span id="moveAsymmetricDepthLabel">Sym</span>
+                  <input id="moveAsymmetricDepth" type="checkbox" />
+                </label>
+              </div>
+              <label class="move-curve-segment" for="moveTwistCurveControls" title="Show draggable Twist Curve controls directly on the selected strand.">
+                <span>Twist</span>
+                <input id="moveTwistCurveControls" type="checkbox" />
+              </label>
+            </div>
+            <label class="move-curve-checkbox" for="moveCenterAsymmetricProfile" title="Keep an asymmetric width or depth profile centered around the strand curve.">
+              <span>Center Asymmetric Profile</span>
+              <input id="moveCenterAsymmetricProfile" type="checkbox" />
+            </label>
           </div>
         </div>
 
@@ -956,8 +1085,11 @@
             <div class="subsection-label">Edge Length</div>
             <label class="topology-control" title="Shortens the left boundary toward the root while leaving the opposite edge at full length.">Left Edge Trim <input id="panelLeftEdgeTrim" type="range" min="0" max="0.75" step="0.01" value="0" /><output id="panelLeftEdgeTrimValue" class="slider-value">0.00</output></label>
             <label class="topology-control" title="Shortens the right boundary toward the root while leaving the opposite edge at full length.">Right Edge Trim <input id="panelRightEdgeTrim" type="range" min="0" max="0.75" step="0.01" value="0" /><output id="panelRightEdgeTrimValue" class="slider-value">0.00</output></label>
+            <label id="panelTipCurveControl" class="topology-control" title="Bows the fringe tip in either direction without changing the panel topology.">Tip Curve <input id="panelTipCurve" type="range" min="-1" max="1" step="0.01" value="0" /><output id="panelTipCurveValue" class="slider-value">0.00</output></label>
+            <label class="topology-control" title="Adds extra horizontal loops only through the lower fringe for smoother tips and zipper openings.">Tip Loops <input id="panelTipLoops" type="range" min="0" max="16" step="1" value="0" /><output id="panelTipLoopsValue" class="slider-value">0</output></label>
             <div class="subsection-label">Split Tip</div>
             <label class="toggle-row" for="panelSplitEnabled" title="Shows independent zipper handles for adding and positioning tip slits."><span>Split Geometry</span><input id="panelSplitEnabled" type="checkbox" checked /></label>
+            <label class="toggle-row" for="panelHardZipperEdges" title="Uses hard shading along the zipper openings and the panel perimeter."><span>Hard Split Edges</span><input id="panelHardZipperEdges" type="checkbox" /></label>
             <label class="toggle-row" for="panelSplitSnapToLoops" title="Snaps vertical zipper movement to the panel's vertical topology loops."><span>Snap Zippers to Loops</span><input id="panelSplitSnapToLoops" type="checkbox" checked /></label>
             <div class="panel-zipper-count-row" title="Adds independent zipper controls. The available count is limited by the number of horizontal loops.">
               <span>Zipper Controls</span>
@@ -1083,7 +1215,7 @@
           <label class="topology-control">Horizontal <input id="lightAzimuth" type="range" min="-180" max="180" step="1" value="37" /><output id="lightAzimuthValue" class="slider-value">37</output></label>
           <label class="topology-control">Vertical <input id="lightElevation" type="range" min="-85" max="85" step="1" value="39" /><output id="lightElevationValue" class="slider-value">39</output></label>
         </div>
-
+        </div>
       </aside>
     </main>
 
@@ -1129,6 +1261,20 @@
       <span id="toolRadialLine" class="strand-radial-line" aria-hidden="true"></span>
       <span id="toolRadialCenter" class="strand-radial-center" aria-hidden="true">Tool</span>
     </div>
+
+    <dialog id="selectionSetMembershipDialog" class="warning-dialog selection-set-membership-dialog" aria-labelledby="selectionSetMembershipDialogTitle">
+      <form id="selectionSetMembershipForm">
+        <div class="warning-dialog-body">
+          <h2 id="selectionSetMembershipDialogTitle">Add to Selection Set</h2>
+          <p id="selectionSetMembershipDialogDescription">Choose a selection set for the selected strands.</p>
+          <fieldset id="selectionSetMembershipList" class="selection-set-membership-list"></fieldset>
+          <div class="dialog-actions">
+            <button id="cancelSelectionSetMembership" type="button">Cancel</button>
+            <button id="confirmSelectionSetMembership" type="submit" class="primary-action">Confirm</button>
+          </div>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="proceduralDuplicateDialog" class="creation-preset-dialog procedural-duplicate-dialog" aria-labelledby="proceduralDuplicateDialogTitle">
       <form id="proceduralDuplicateForm">
@@ -1200,9 +1346,10 @@
             <div class="shortcut-row"><kbd>Tab</kbd><span>Toggle Component and Object edit mode</span></div>
             <div class="shortcut-row"><span class="shortcut-key-group"><kbd>1</kbd><span>/</span><kbd>2</kbd><span>/</span><kbd>3</kbd></span><span>Strands / Guides / References workspaces</span></div>
             <div class="shortcut-row"><span class="shortcut-key-group"><kbd>S</kbd><span>+</span><span>Left drag</span></span><span>Adjust the active brush size</span></div>
-            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><kbd>D</kbd></span><span>Duplicate selected strands</span></div>
+            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><kbd>D</kbd></span><span>Duplicate selected strands, guides, or references</span></div>
             <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><kbd>1</kbd></span><span>Isolate selected strands</span></div>
             <div class="shortcut-row"><kbd>L</kbd><span>Lock selected strands; unlock all when none are selected</span></div>
+            <div class="shortcut-row"><span class="shortcut-key-group"><kbd>Ctrl</kbd><span>+</span><kbd>H</kbd></span><span>Hide selected strands; unhide all when none are selected</span></div>
             <div class="shortcut-row"><kbd>Delete</kbd><span>Delete selected strands, guides, or references</span></div>
             <div class="shortcut-row"><kbd>O</kbd><span>Toggle World and Object transform space</span></div>
             <div class="shortcut-row"><kbd>X</kbd><span>Toggle X-axis mirror editing</span></div>
@@ -1238,14 +1385,18 @@
       <div class="patch-notes-dialog-shell">
         <header class="patch-notes-dialog-head">
           <div>
-            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 0.1.4 Patch Notes</h2>
-            <p id="patchNotesDialogSummary">More flexible editing, faster scene organization, new strand-shaping tools, and improved project workflows.</p>
+            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 0.1.5 Patch Notes</h2>
+            <p id="patchNotesDialogSummary">Autosave recovery, material gradients, customizable panels, camera tools, and expanded editing workflows.</p>
           </div>
           <button id="closePatchNotes" type="button" title="Close patch notes" aria-label="Close patch notes">X</button>
         </header>
         <div class="patch-notes-workspace">
           <nav class="patch-notes-sidebar" role="tablist" aria-label="Patch note versions">
-            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="0.1.4">
+            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="0.1.5">
+              <strong>0.1.5</strong>
+              <time datetime="2026-08-12">August 12, 2026</time>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-patch-notes-version="0.1.4">
               <strong>0.1.4</strong>
               <time datetime="2026-08-05">August 5, 2026</time>
             </button>
@@ -1265,9 +1416,84 @@
           <div class="patch-notes-panels">
             <article
               class="patch-notes-content"
+              data-patch-notes-panel="0.1.5"
+              data-patch-notes-title="Anime Hair Studio Version 0.1.5 Patch Notes"
+              data-patch-notes-summary="Autosave recovery, material gradients, customizable panels, camera tools, and expanded editing workflows."
+            >
+              <section class="patch-notes-section">
+                <h3>New features</h3>
+                <ul>
+                  <li><strong>Autosave and Crash Recovery</strong><br />Anime Hair Studio can now keep a local recovery copy of your project while you work. Autosave runs after committed changes without interrupting active edits, and Preferences includes controls for enabling it and choosing how frequently it saves.</li>
+                  <li><strong>Material Presets</strong><br />You can now save a material as a reusable preset and apply it in other projects. Material presets retain the reusable appearance settings without carrying over project-specific material assignments.</li>
+                  <li><strong>Base Color Gradients</strong><br />Hair materials can now use an editable color gradient instead of a single base color. Gradient stops control how the color changes along the strand and are evaluated directly by the hair material for a responsive preview.</li>
+                  <li><strong>Expanded Selection Sets</strong><br />Selected strands can be added to or removed from an existing set, and sets can hide, show, lock, unlock, or select all of their members from the outliner. The eye button beside a set controls every member's visibility and shows a partial state when only some members are visible.</li>
+                  <li><strong>Camera View Cube</strong><br />Click Front, Back, Left, Right, Top, or Bottom on the view cube to snap directly to that view. Top and Bottom use a stable camera orientation so normal orbiting still behaves correctly afterward.</li>
+                  <li><strong>Multi-Cam View</strong><br />The experimental Multi-Cam option divides the viewport into four equal views. Each view has its own camera and can be activated by clicking inside it. Perspective remains freely orbitable, while cardinal views use orthographic projection with independent pan and zoom controls.</li>
+                  <li><strong>Numeric Object Transforms</strong><br />Object Edit Mode now includes a compact floating Transform panel. Translation, Rotation, and Scale can be entered directly, and each individual axis has its own reset button. Values update alongside viewport gizmo edits.</li>
+                  <li><strong>Viewport Curve Controls for Move</strong><br />Move tool settings can expose Width, Depth, and Twist Curve controls directly on the strand. Width and Depth can switch between symmetrical and asymmetrical editing, and optional Width, Depth, or Uniform grab handles provide faster profile scaling.</li>
+                  <li><strong>Relax Position and Rotation Separately</strong><br />The Relax tool has independent Position and Rotation controls. Position follows the surrounding curve, while Rotation smooths the authored orientation and displays the normal direction in the viewport.</li>
+                  <li><strong>Split Panel Tip Curvature</strong><br />Split Panel strands have a signed tip-curvature control for shaping curved fringes in either direction. Additional tip density can be added where the split needs more detail, and open split boundaries can be displayed as hard edges.</li>
+                  <li><strong>Branch Surface Imprints</strong><br />Attached branch strands can project their profile intersection onto the parent as additional topology. The imprint remains part of the parent geometry when the branch is hidden.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>UI changes</h3>
+                <ul>
+                  <li><strong>Customizable Panel Styles</strong><br />Preferences offers Default Panels, No Panels, and Glass Panels. No Panels extends the viewport behind the interface, while Glass Panels retains the panel structure with a translucent glass treatment.</li>
+                  <li><strong>Custom Glass Color</strong><br />The Glass Panels color can be changed or reset from Preferences. The color is shared by side panels, workspace controls, top viewport controls, dropdowns, tabs, and other glass-styled elements while preserving their value differences.</li>
+                  <li><strong>Responsive Viewport Header</strong><br />Compact square buttons are aligned around the Workspace, Live Surface, and Layer controls. When horizontal space is limited, the buttons move to a second row while the dropdown groups avoid overlapping.</li>
+                  <li><strong>Pie-Style Radial Menus</strong><br />Radial actions use pie-menu sectors with subtle dividers and a cyan hover gradient. Hovering over a submenu reveals smaller actions in a nearby outer ring, while lower-priority commands remain in the list beneath the menu.</li>
+                  <li><strong>Cleaner Interface Interaction</strong><br />Interface labels are no longer accidentally selectable, while text fields and Patch Notes remain selectable. No Panels mode also uses simplified scrollbars and transparent outliner region rows.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Tweaks and quality of life</h3>
+                <ul>
+                  <li>Press Ctrl+H with strands selected to hide them. Press it with nothing selected to unhide all hidden strands.</li>
+                  <li>Rebuild Curve appears in the strand radial ring when space is available and in the action list when the ring is full.</li>
+                  <li>Ctrl+D and the other duplicate commands work with selected Guides and References in their respective workspaces.</li>
+                  <li>Strands can be dragged into another outliner region and receive an appropriate unique name.</li>
+                  <li>Isolated View and Live Surface changes are excluded from Undo history.</li>
+                  <li>Recognized viewport shortcuts work after using checkboxes, toggles, dropdowns, and sliders.</li>
+                  <li>Hold S and drag to resize the Move or Smooth brush while keeping the cursor anchored.</li>
+                  <li>Preserve Tips has an independent state for each applicable brush.</li>
+                  <li>Zipper controls share the curve control-point display size and its preference.</li>
+                  <li>The UV checker remains responsive on larger hairstyles, and exported UVs use the expected orientation in applications such as Maya.</li>
+                  <li>Split Panel topology uses quads wherever the profile retains distinct corners, with triangles limited to collapsed taper regions.</li>
+                  <li>Proportional Editing uses a lighter influence display that disappears when the selection is cleared.</li>
+                  <li>Undo and Redo remain responsive with many visible strands.</li>
+                  <li>Locked strands use a restrained grey treatment with a subtle translucent magenta wireframe.</li>
+                  <li>Viewport shadows update live as strands, guides, lighting, and the camera change.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Bug fixes</h3>
+                <ul>
+                  <li>Linked mirrored strands correctly reverse asymmetric Width Curve profiles.</li>
+                  <li>Branch roots remain attached to their parent control points during object and hierarchical transforms.</li>
+                  <li>Attached branches retain their authored orientation through large parent rotations.</li>
+                  <li>Open curve editor windows follow the active strand when the selection changes.</li>
+                  <li>Viewport Width, Depth, and Twist Curve controls stay attached to rebuilt strand geometry.</li>
+                  <li>Tool shortcuts remain available while editing viewport curve points and after interacting with compatible panel controls.</li>
+                  <li>Move Brush selection masking continues to update linked mirror instances.</li>
+                  <li>Undo preserves Move Brush curve and control-point overlays without revealing unrelated controls.</li>
+                  <li>Relax Rotation interpolates consistently across wrapped angles.</li>
+                  <li>Guide Capsule radius changes preserve the capsule's position.</li>
+                  <li>Standard object-mode marquee selection selects the strands inside the drag rectangle.</li>
+                  <li>Top and Bottom camera snaps preserve stable orbit behaviour when returning to perspective.</li>
+                  <li>Radial submenu labels, dividers, hover regions, bottom sectors, and action lists remain aligned and selectable.</li>
+                  <li>Panel content and responsive layouts behave consistently across all three panel styles.</li>
+                  <li>Texture updates wait for valid image data, preventing the associated Three.js warning.</li>
+                  <li>Open zipper boundaries receive hard edges, while closed splits remain seamless.</li>
+                </ul>
+              </section>
+            </article>
+            <article
+              class="patch-notes-content"
               data-patch-notes-panel="0.1.4"
               data-patch-notes-title="Anime Hair Studio Version 0.1.4 Patch Notes"
               data-patch-notes-summary="More flexible editing, faster scene organization, new strand-shaping tools, and improved project workflows."
+              hidden
             >
               <section class="patch-notes-section">
                 <h3>New tools</h3>
@@ -1374,7 +1600,7 @@
               <li>Shift+Ctrl-click a control point to remove it while preserving the surrounding curve shape. Removing the tip shortens the curve, while attempting to remove the root has no effect.</li>
               <li>Added <strong>Curves → Rebuild Curve</strong> to the title bar. This lets you change the number of control points on one or multiple selected curves while retaining their shape. Control points can also be evenly distributed along the curve.</li>
               <li>Delete now removes selected strands, removable guides, or references. Scene-critical elements such as the scalp guide remain protected.</li>
-              <li>Ctrl+D duplicates the selected strand or strands and lets you position the duplicates with the mouse.</li>
+              <li>Ctrl+D duplicates the current selection. Strand copies can be positioned with the mouse, while guide and reference copies are created in place and selected for editing.</li>
               <li>With two strands selected, hold Spacebar and choose Duplicate Procedural to open a window that creates evenly spaced blended strands between them.</li>
               <li>Holding Shift before or during a Draw Strand, Braid, or Split Panel stroke constrains the stroke to eight directions in 45-degree increments while keeping it conformed to the active surface.</li>
               <li>The F shortcut now cycles between framing the current selection and framing the complete scene.</li>
@@ -1640,9 +1866,29 @@
                     <span><strong>Compact tool buttons</strong><small>Hide shortcut labels and reduce the size of viewport tool buttons.</small></span>
                     <input id="compactToolButtonsPreference" type="checkbox" />
                   </label>
+                  <label class="preference-select" for="sidePanelStylePreference">
+                    <span><strong>Side panel style</strong><small>Choose how the side panels sit over the viewport.</small></span>
+                    <select id="sidePanelStylePreference">
+                      <option value="default">Default panels</option>
+                      <option value="transparent">No panel backgrounds</option>
+                      <option value="glass">Glass Panels</option>
+                    </select>
+                  </label>
+                  <label class="preference-color" for="glassPanelColorPreference">
+                    <span><strong>Glass panel color</strong><small>Set the dark smokey tint used by Glass Panels.</small></span>
+                    <span class="preference-color-control">
+                      <input id="glassPanelColorPreference" type="color" value="#19181d" />
+                      <output id="glassPanelColorPreferenceValue" for="glassPanelColorPreference">#19181D</output>
+                      <button id="resetGlassPanelColor" class="slider-reset-button" type="button" title="Reset glass panel color" aria-label="Reset glass panel color">&#x21BA;</button>
+                    </span>
+                  </label>
                   <label class="preference-toggle" for="outlinerFolderColorsPreference">
                     <span><strong>Outliner folder colors</strong><small>Tint strand region folders with their region colors.</small></span>
                     <input id="outlinerFolderColorsPreference" type="checkbox" checked />
+                  </label>
+                  <label class="preference-slider" for="outlinerFolderColorOpacityPreference">
+                    <span><strong>Folder color opacity</strong><small>Adjust the strength of region colors in strand folders.</small></span>
+                    <input id="outlinerFolderColorOpacityPreference" type="range" min="0" max="100" step="1" value="100" />
                   </label>
                 </div>
               </div>
@@ -1688,19 +1934,96 @@
               </label>
             </section>
             <section class="preferences-section hidden" role="tabpanel" data-preference-panel="experimental">
-              <label class="preference-toggle" for="proceduralDrawExperimentalPreference">
+              <label class="preference-toggle" for="multiCameraExperimentalPreference">
                 <span>
-                  <strong>Procedural Draw</strong>
-                  <small>Show the experimental Procedural Draw tool in the viewport toolbar.</small>
+                  <strong>Multi-cam View</strong>
+                  <small>Show the experimental four-view camera toggle in the viewport toolbar.</small>
                 </span>
-                <input id="proceduralDrawExperimentalPreference" type="checkbox" />
+                <input id="multiCameraExperimentalPreference" type="checkbox" />
               </label>
+              <label class="preference-toggle" for="floatingToolSettingsExperimentalPreference">
+                <span>
+                  <strong>Floating Tool Settings</strong>
+                  <small>Move the active tool settings into a glass panel beside the viewport tool buttons.</small>
+                </span>
+                <input id="floatingToolSettingsExperimentalPreference" type="checkbox" />
+              </label>
+              <label class="preference-toggle" for="hotkeyToolSettingsExperimentalPreference">
+                <span>
+                  <strong>Hotkey Tool Settings</strong>
+                  <small>Replace tool hotkey radial menus with the floating glass settings panel while the hotkey is held.</small>
+                </span>
+                <input id="hotkeyToolSettingsExperimentalPreference" type="checkbox" />
+              </label>
+              <label id="hotkeyToolSettingsKeepMainPreferenceRow" class="preference-toggle" for="hotkeyToolSettingsKeepMainPreference">
+                <span>
+                  <strong>Keep settings in Main tab</strong>
+                  <small>Keep tool settings available in Main when the hotkey panel is closed.</small>
+                </span>
+                <input id="hotkeyToolSettingsKeepMainPreference" type="checkbox" />
+              </label>
+              <div class="experimental-dev-tests">
+                <h3>Dev tests</h3>
+                <p>Dev test features are not intended as functional tools and are included only for testing purposes.</p>
+                <label class="preference-toggle hidden" for="proceduralDrawExperimentalPreference" data-dev-test-feature>
+                  <span>
+                    <strong>Procedural Draw</strong>
+                    <small>Show the experimental Procedural Draw tool in the viewport toolbar.</small>
+                  </span>
+                  <input id="proceduralDrawExperimentalPreference" type="checkbox" />
+                </label>
+                <label class="preference-toggle hidden" for="compoundStrandExperimentalPreference" data-dev-test-feature>
+                  <span>
+                    <strong>Compound Strand</strong>
+                    <small>Show the experimental Compound Strand command in the Curves menu.</small>
+                  </span>
+                  <input id="compoundStrandExperimentalPreference" type="checkbox" />
+                </label>
+                <label class="preference-toggle hidden" for="hairShellExperimentalPreference" data-dev-test-feature>
+                  <span>
+                    <strong>Hair Shell</strong>
+                    <small>Show the experimental Hair Shell command in the Curves menu.</small>
+                  </span>
+                  <input id="hairShellExperimentalPreference" type="checkbox" />
+                </label>
+                <label class="preference-toggle hidden" for="arcHairSurfaceExperimentalPreference" data-dev-test-feature>
+                  <span>
+                    <strong>Arc Hair Surface</strong>
+                    <small>Show the experimental Arc Hair Surface command in the Curves menu.</small>
+                  </span>
+                  <input id="arcHairSurfaceExperimentalPreference" type="checkbox" />
+                </label>
+                <label class="dev-test-visibility-toggle" for="showDevTestFeaturesPreference">
+                  <span>Show Dev test features</span>
+                  <input id="showDevTestFeaturesPreference" type="checkbox" />
+                </label>
+              </div>
             </section>
             <section class="preferences-section hidden" role="tabpanel" data-preference-panel="backup">
               <div class="preference-download-card">
                 <span>
+                  <strong>Autosave and recovery</strong>
+                  <small>Keep one private recovery snapshot in this browser. Autosave never replaces a project file.</small>
+                </span>
+                <label class="preference-toggle" for="autosavePreference">
+                  <span><strong>Enable autosave</strong><small>Save recovery data after committed project changes.</small></span>
+                  <input id="autosavePreference" type="checkbox" checked />
+                </label>
+                <label class="preference-select" for="autosaveIntervalPreference">
+                  <span><strong>Autosave frequency</strong><small>Maximum time between recovery saves while the project is changing.</small></span>
+                  <select id="autosaveIntervalPreference">
+                    <option value="15">Every 15 seconds</option>
+                    <option value="30" selected>Every 30 seconds</option>
+                    <option value="60">Every minute</option>
+                    <option value="120">Every 2 minutes</option>
+                    <option value="300">Every 5 minutes</option>
+                  </select>
+                </label>
+              </div>
+              <div class="preference-download-card">
+                <span>
                   <strong>Preferences and presets</strong>
-                  <small>Save or restore application preferences and custom Brush and Braid presets with a JSON file.</small>
+                  <small>Save or restore application preferences and custom Brush, Braid, shape, and material presets with a JSON file.</small>
                 </span>
                 <div class="preference-backup-actions">
                   <button id="loadPreferencesAndPresets" type="button">Load Preferences &amp; Presets</button>
@@ -1713,6 +2036,28 @@
           </div>
         </div>
       </div>
+    </dialog>
+
+    <dialog id="recoveryDialog" class="creation-preset-dialog file-action-dialog recovery-dialog" aria-labelledby="recoveryDialogTitle">
+      <form method="dialog">
+        <div class="profile-dialog-head">
+          <div>
+            <h2 id="recoveryDialogTitle">Unsaved Recovery Found</h2>
+            <p>Anime Hair Studio found project changes that were not manually saved.</p>
+          </div>
+        </div>
+        <div class="recovery-project-details">
+          <strong id="recoveryProjectName">Untitled Hair Project</strong>
+          <small id="recoveryProjectTime"></small>
+        </div>
+        <p>Recover the project, download a copy for safekeeping, or discard this recovery snapshot.</p>
+        <p id="recoveryStatus" class="preference-backup-status" aria-live="polite"></p>
+        <div class="dialog-actions recovery-dialog-actions">
+          <button id="discardRecovery" type="button">Discard</button>
+          <button id="downloadRecovery" type="button">Download .ahs</button>
+          <button id="recoverProject" type="button" class="primary-action">Recover Project</button>
+        </div>
+      </form>
     </dialog>
 
     <dialog id="groupDefaultsWarning" class="warning-dialog" aria-labelledby="groupDefaultsWarningTitle">
@@ -1994,6 +2339,29 @@
       </form>
     </dialog>
 
+    <dialog id="hairMaterialGradientDialog" class="creation-preset-dialog material-gradient-dialog" aria-labelledby="hairMaterialGradientDialogTitle">
+      <form method="dialog">
+        <div class="profile-dialog-head">
+          <div>
+            <h2 id="hairMaterialGradientDialogTitle">Base Color Gradient</h2>
+            <p>Blend colors from the strand root to its tip.</p>
+          </div>
+          <button id="closeHairMaterialGradientDialog" type="button" title="Close" aria-label="Close gradient editor">X</button>
+        </div>
+        <div id="hairMaterialGradientTrack" class="material-gradient-track" aria-label="Gradient stops"></div>
+        <div class="material-gradient-stop-editor">
+          <label>Color<input id="hairMaterialGradientStopColor" type="color" value="#2c223a" /></label>
+          <label>Position<input id="hairMaterialGradientStopPosition" type="range" min="0" max="1" step="0.01" value="0" /><output id="hairMaterialGradientStopPositionValue">0%</output></label>
+        </div>
+        <div class="dialog-actions">
+          <button id="deleteHairMaterialGradientStop" type="button">Delete Stop</button>
+          <button id="addHairMaterialGradientStop" type="button">Add Stop</button>
+          <button id="resetHairMaterialGradient" type="button">Reset</button>
+          <button id="doneHairMaterialGradient" type="button" class="primary-action">Done</button>
+        </div>
+      </form>
+    </dialog>
+
     <script type="importmap">
       {
         "imports": {
@@ -2002,6 +2370,6 @@
         }
       }
     </script>
-  <script type="module" src="./app.js?v=20260806-85"></script>
+  <script type="module" src="./app.js?v=20260812-47"></script>
   </body>
 </html>
