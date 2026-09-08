@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
+const { writeProjectFile } = require("./server/write-project.cjs");
 
 const root = __dirname;
 const port = Number(process.env.PORT || 5173);
@@ -18,33 +19,9 @@ const types = {
 
 function sendJson(response, status, value) {
   response.writeHead(status, {
-    "Content-Type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*"
+    "Content-Type": "application/json; charset=utf-8"
   });
   response.end(JSON.stringify(value));
-}
-
-function writeProjectFile(destination, content, callback) {
-  const temporary = `${destination}.saving-${process.pid}`;
-  fs.writeFile(temporary, content, "utf8", (writeError) => {
-    if (writeError) {
-      callback(writeError);
-      return;
-    }
-    fs.rename(temporary, destination, (renameError) => {
-      if (!renameError) {
-        callback(null);
-        return;
-      }
-      fs.unlink(destination, (unlinkError) => {
-        if (unlinkError && unlinkError.code !== "ENOENT") {
-          fs.unlink(temporary, () => callback(unlinkError));
-          return;
-        }
-        fs.rename(temporary, destination, callback);
-      });
-    });
-  });
 }
 
 function saveFileWithNativeDialog(request, response) {
@@ -62,7 +39,7 @@ function saveFileWithNativeDialog(request, response) {
       sendJson(response, 400, { error: "Invalid project payload" });
       return;
     }
-    if (typeof payload.content !== "string" || typeof payload.suggestedName !== "string") {
+    if (typeof payload?.content !== "string" || typeof payload?.suggestedName !== "string") {
       sendJson(response, 400, { error: "Project content and filename are required" });
       return;
     }
@@ -133,58 +110,105 @@ function saveFileWithNativeDialog(request, response) {
           sendJson(response, 200, { saved: false, cancelled: true });
           return;
         }
-        writeProjectFile(destination, payload.content, (writeError) => {
-          if (writeError) {
-            sendJson(response, 500, { error: "Could not write the selected file" });
-            return;
-          }
+        writeProjectFile(destination, payload.content).then(() => {
           sendJson(response, 200, { saved: true, fileName: path.basename(destination) });
+        }, (writeError) => {
+          sendJson(response, 500, {
+            error: writeError.recoveryPath
+              ? `Could not replace the selected file. Recovery copy: ${writeError.recoveryPath}`
+              : "Could not write the selected file; the existing file was not removed."
+          });
         });
       }
     );
   });
 }
 
-const server = http.createServer((request, response) => {
-  const url = new URL(request.url, `http://${request.headers.host}`);
-  if (request.method === "OPTIONS") {
-    response.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type"
-    });
-    response.end();
-    return;
-  }
-  if (request.method === "GET" && url.pathname === "/api/health") {
-    sendJson(response, 200, { app: "anime-hair-studio", saveAs: true, usdaExport: true });
-    return;
-  }
-  if (request.method === "POST" && url.pathname === "/api/save-project") {
-    saveFileWithNativeDialog(request, response);
-    return;
-  }
-  const decoded = decodeURIComponent(url.pathname);
-  const requested = decoded === "/" ? "/index.html" : decoded;
-  const filePath = path.normalize(path.join(root, requested));
-
-  if (!filePath.startsWith(root)) {
-    response.writeHead(403);
-    response.end("Forbidden");
-    return;
-  }
-
-  fs.readFile(filePath, (error, data) => {
-    if (error) {
-      response.writeHead(404);
-      response.end("Not found");
+function createAppServer({ rootDirectory = root, saveHandler = saveFileWithNativeDialog } = {}) {
+  const server = http.createServer((request, response) => {
+    const listeningPort = server.address()?.port;
+    const allowedHosts = new Set([`127.0.0.1:${listeningPort}`, `localhost:${listeningPort}`]);
+    if (!allowedHosts.has(request.headers.host)) {
+      sendJson(response, 403, { error: "Invalid local host" });
       return;
     }
-    response.writeHead(200, { "Content-Type": types[path.extname(filePath)] || "application/octet-stream" });
-    response.end(data);
-  });
-});
+    const origin = request.headers.origin;
+    if (origin && ![...allowedHosts].some((host) => origin === `http://${host}`)) {
+      sendJson(response, 403, { error: "Open Anime Hair Studio through its local launcher to use this service." });
+      return;
+    }
+    if (origin) {
+      response.setHeader("Access-Control-Allow-Origin", origin);
+      response.setHeader("Vary", "Origin");
+    }
+    let url, decoded;
+    try {
+      url = new URL(request.url, `http://${request.headers.host}`);
+      decoded = decodeURIComponent(url.pathname);
+      if (decoded.includes("\0")) throw new Error("Invalid path");
+    } catch {
+      sendJson(response, 400, { error: "Invalid URL" });
+      return;
+    }
+    if (request.method === "OPTIONS") {
+      response.writeHead(204, {
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      });
+      response.end();
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/health") {
+      sendJson(response, 200, { app: "anime-hair-studio", saveAs: true, usdaExport: true });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/api/save-project") {
+      saveHandler(request, response);
+      return;
+    }
+    if (!["GET", "HEAD"].includes(request.method)) {
+      sendJson(response, 405, { error: "Method not allowed" });
+      return;
+    }
+    const requested = decoded === "/" ? "/index.html" : decoded;
+    const filePath = path.resolve(rootDirectory, `.${requested}`);
+    const relative = path.relative(rootDirectory, filePath);
+    const publicRootFiles = new Set(["index.html", "app.js", "styles.css", "favicon.svg"]);
+    const publicDirectory = ["modules", "assets"].includes(relative.split(path.sep)[0]);
 
-server.listen(port, "127.0.0.1", () => {
-  console.log(`Anime Hair Studio running at http://127.0.0.1:${port}/`);
-});
+    if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)
+      || relative.split(path.sep).some((part) => part.startsWith("."))
+      || (!publicDirectory && !publicRootFiles.has(relative))) {
+      response.writeHead(403);
+      response.end("Forbidden");
+      return;
+    }
+
+    fs.realpath(filePath, (realError, realPath) => {
+      const realRelative = !realError && path.relative(rootDirectory, realPath);
+      if (realError || path.isAbsolute(realRelative) || realRelative === ".." || realRelative.startsWith(`..${path.sep}`)) {
+        response.writeHead(realError ? 404 : 403);
+        response.end("Not found");
+        return;
+      }
+      fs.readFile(realPath, (error, data) => {
+        if (error) {
+          response.writeHead(404);
+          response.end("Not found");
+          return;
+        }
+        response.writeHead(200, { "Content-Type": types[path.extname(filePath)] || "application/octet-stream" });
+        response.end(request.method === "HEAD" ? undefined : data);
+      });
+    });
+  });
+  return server;
+}
+
+if (require.main === module) {
+  const server = createAppServer();
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`Anime Hair Studio running at http://127.0.0.1:${port}/`);
+  });
+}
+module.exports = { createAppServer };

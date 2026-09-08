@@ -1,3 +1,5 @@
+import { normalizeTaperCurve, sampleTaperCurve } from "./curve-math.js";
+
 export function sculptBrushWeight(distance, radius, falloff = 0.5) {
   const safeRadius = Math.max(0.0001, Number(radius) || 0);
   const normalizedDistance = Math.max(0, Number(distance) || 0) / safeRadius;
@@ -79,19 +81,82 @@ export function cameraFacingPlaneNormal(viewPosition) {
   };
 }
 
-export function inflateSculptPointScale(pointScale, weight, strength, strokeDistance, radius) {
+export function inflateSculptPointScale(
+  pointScale,
+  weight,
+  strength,
+  strokeDistance,
+  radius,
+  direction = 1
+) {
   const influence = Math.min(1, Math.max(0, Number(weight) || 0));
   const normalizedStroke = Math.min(
     1,
     Math.max(0, Number(strokeDistance) || 0) / Math.max(1, Number(radius) || 0)
   );
+  const signedDirection = Number(direction) < 0 ? -1 : 1;
   const amount = normalizedStroke
     * Math.max(0, Number(strength) || 0)
-    * influence;
+    * influence
+    * signedDirection;
   return {
     x: Math.max(0.18, (Number(pointScale?.x) || 1) + amount),
     z: Math.max(0.18, (Number(pointScale?.z) || 1) + amount)
   };
+}
+
+function sculptProfileScaleAt(samples, position) {
+  if (!samples.length) return 1;
+  if (position <= samples[0].position) return samples[0].scale;
+  if (position >= samples.at(-1).position) return samples.at(-1).scale;
+  const rightIndex = samples.findIndex((sample) => sample.position >= position);
+  const left = samples[Math.max(0, rightIndex - 1)];
+  const right = samples[rightIndex];
+  const span = Math.max(0.000001, right.position - left.position);
+  const amount = Math.min(1, Math.max(0, (position - left.position) / span));
+  return left.scale + (right.scale - left.scale) * amount;
+}
+
+export function rebuildInflatedSculptProfileCurve(curve, scaleSamples, valueMaximum = 1.5) {
+  const normalized = normalizeTaperCurve(curve, {}, valueMaximum);
+  const samples = (Array.isArray(scaleSamples) ? scaleSamples : [])
+    .map((sample) => ({
+      position: Math.min(1, Math.max(0, Number(sample?.position) || 0)),
+      scale: Math.max(0.001, Number(sample?.scale) || 1)
+    }))
+    .sort((left, right) => left.position - right.position)
+    .filter((sample, index, source) => (
+      index === source.length - 1
+      || Math.abs(sample.position - source[index + 1].position) > 0.000001
+    ));
+  if (samples.length < 2 || samples.every((sample) => Math.abs(sample.scale - 1) < 0.000001)) {
+    return normalized;
+  }
+
+  const insertedPositions = new Set();
+  samples.forEach((sample, index) => {
+    if (Math.abs(sample.scale - 1) < 0.000001) return;
+    [index - 1, index, index + 1].forEach((neighborIndex) => {
+      const neighbor = samples[neighborIndex];
+      if (neighbor) insertedPositions.add(Number(neighbor.position.toFixed(6)));
+    });
+  });
+  normalized.forEach((point) => insertedPositions.add(Number(point.position.toFixed(6))));
+
+  const interpolationAt = (position) => normalized.find(
+    (point) => Math.abs(point.position - position) < 0.000001
+  )?.interpolation || "smooth";
+  return normalizeTaperCurve(
+    [...insertedPositions]
+      .sort((left, right) => left - right)
+      .map((position) => ({
+        position,
+        value: sampleTaperCurve(normalized, position) * sculptProfileScaleAt(samples, position),
+        interpolation: interpolationAt(position)
+      })),
+    {},
+    valueMaximum
+  );
 }
 
 export function pointInCameraFacingHalfSpace(point, planeNormal, planeOffset = 0, tolerance = 0.0001) {

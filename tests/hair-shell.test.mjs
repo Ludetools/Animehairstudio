@@ -3,7 +3,8 @@ import {
   buildHairShellTopology,
   canExtrudeHairShellFace,
   hairShellFaceCenter,
-  hairShellFaceNormal
+  hairShellFaceNormal,
+  remapHairShellExtrusions
 } from "../modules/hair-shell.js";
 
 const points = [
@@ -19,11 +20,14 @@ const faces = [[0, 1, 2, 3], [1, 4, 5, 2]];
 assert.deepEqual(hairShellFaceCenter(points, faces[0]), { x: 0, y: 0, z: 0 });
 assert.deepEqual(hairShellFaceNormal(points, faces[0]), { x: 0, y: -1, z: 0 });
 assert.equal(canExtrudeHairShellFace(faces, [], 0), true);
-assert.equal(canExtrudeHairShellFace(faces, [{ faceIndex: 0 }], 1), false);
+assert.equal(canExtrudeHairShellFace(faces, [{ faceIndex: 0 }], 0), false);
+assert.equal(canExtrudeHairShellFace(faces, [{ faceIndex: 0 }], 1), true);
 
 const result = buildHairShellTopology(points, faces, [{
   faceIndex: 0,
   loops: 3,
+  // This fixture tests the plain quad sweep, without the optional parent support.
+  rootTriangle: false,
   curvePoints: [
     { x: 0, y: 0, z: 0 },
     { x: 0, y: -1, z: 0 },
@@ -35,5 +39,22 @@ assert.equal(result.faces.length, 14);
 assert.equal(result.points.length, 18);
 assert.deepEqual(result.faceSources, [1, ...new Array(13).fill(null)]);
 assert.deepEqual(result.faces[1].slice(0, 2), [0, 1]);
+
+const translatedPoints = points.map((point) => ({ ...point, y: point.y + 2 }));
+const remapped = remapHairShellExtrusions(points, faces, translatedPoints, faces, [{
+  faceIndex: 0,
+  loops: 3,
+  curvePoints: [
+    { x: 0, y: 0, z: 0 },
+    { x: 0, y: -1, z: 0 },
+    { x: 0.5, y: -2, z: 0 }
+  ]
+}]);
+assert.deepEqual(remapped[0].curvePoints, [
+  { x: 0, y: 2, z: 0 },
+  { x: 0, y: 1, z: 0 },
+  { x: 0.5, y: 0, z: 0 }
+]);
+assert.deepEqual(remapHairShellExtrusions(points, faces, translatedPoints, [faces[0]], remapped), []);
 
 console.log("hair-shell tests passed");

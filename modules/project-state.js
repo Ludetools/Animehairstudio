@@ -2,6 +2,13 @@ function cloneOptionalRecord(value) {
   return value ? { ...value } : null;
 }
 
+function normalizeVisibilityRecord(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).map(([key, visible]) => [key, visible !== false])
+  );
+}
+
 export function createProjectSelectionSnapshot({
   selectedId,
   selectedStrandIds = [],
@@ -48,6 +55,7 @@ export function createProjectRestorePlan(state, {
     counters: {
       lockIndex: state.lockIndex,
       referenceImageIndex: state.referenceImageIndex || 1,
+      greasePencilStrokeIndex: state.greasePencilStrokeIndex || 1,
       hairMaterialIndex: state.hairMaterialIndex || 1
     },
     visibility: {
@@ -55,8 +63,10 @@ export function createProjectRestorePlan(state, {
       strandLayers: [...(state.visibleStrandLayers || layerIds)],
       capsuleGuides: state.capsuleGuidesVisible !== false,
       curveLatticeGuides: state.curveLatticeGuidesVisible !== false,
+      references: state.referencesVisible !== false,
       headMesh: state.headMeshVisible !== false,
-      bodyMesh: state.bodyMeshVisible !== false
+      bodyMesh: state.bodyMeshVisible !== false,
+      importedMeshes: normalizeVisibilityRecord(state.importedMeshVisibility)
     },
     resources: {
       hairMaterials: state.hairMaterials?.length ? state.hairMaterials : null
@@ -65,6 +75,7 @@ export function createProjectRestorePlan(state, {
       locks: state.locks,
       guides: state.guides,
       referenceImages: state.referenceImages || [],
+      greasePencilStrokes: state.greasePencilStrokes || [],
       selectionSets: state.selectionSets || []
     },
     strandSelection: {

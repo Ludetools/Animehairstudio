@@ -947,7 +947,19 @@ export function blendEnvelopeCurves(firstCurve, secondCurve, amount, fallback, v
 export function curvePointRemovalPlan(pointCount, pointIndex, neighborRadius = 2) {
   const count = Math.max(0, Math.floor(Number(pointCount)));
   const index = Math.floor(Number(pointIndex));
-  if (count <= 2 || index <= 0 || index >= count) return null;
+  if (count <= 2 || index < 0 || index >= count) return null;
+
+  if (index === 0) {
+    return {
+      removedIndex: 0,
+      promotedRoot: true,
+      shortenedTip: false,
+      parameters: Array.from(
+        { length: count - 1 },
+        (_, outputIndex) => (outputIndex + 1) / (count - 1)
+      )
+    };
+  }
 
   const parameters = Array.from(
     { length: count - 1 },

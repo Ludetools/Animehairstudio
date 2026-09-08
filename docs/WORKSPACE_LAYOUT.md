@@ -1,0 +1,9 @@
+# Workspace layout contract
+
+- Open panels have no collapse button. Desktop panels collapse when an inward edge drag crosses below 140 logical pixels, before minimum-width clamping. Dragging back above the threshold reopens within the gesture; cancellation restores the original width and expanded state. Committed collapse remembers the pre-drag width for reopening. Only the small expand tabs remain visible. Keyboard users can press Enter on the resize separator to collapse.
+- Compact stacked panels use their left edges for the same inward-collapse gesture while retaining their fixed shared width; mobile retains stacked layout.
+- Widths are local UI preferences, not scene data: defaults 280/360, minimum 220/280, maximum 520 logical pixels. Missing, corrupt, or blocked storage falls back safely. Viewport offsets follow widths; available width limits the displayed width on smaller windows.
+- Drag an inner edge, use arrow keys on its focused separator (Shift for fine increments), or double-click/Home to reset. Pointer cancellation restores the starting width. UI zoom is accounted for. Resize does not select, transform, capture history, or change geometry.
+- Collapse is session-only; widths persist on commit. Both desktop panels can collapse independently. Tool settings, groups, mirrors, undo, save/load, presets and export remain unchanged.
+- Bottom status reuses authoritative placement hints and tooltip preference. It shows active tool and object selection count; component counts and topology remain in existing displays. No geometry is rebuilt to update status.
+- Verify normalization, zoom/direction, reset/cancel controller behavior, static wiring and full baseline. User-led review: resize both sides in Glass and Legacy, collapse/reopen, switch tools, check narrow-window docking and UI scale, and reopen to verify widths.

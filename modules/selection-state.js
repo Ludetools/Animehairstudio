@@ -11,9 +11,33 @@ export function screenBoundsOverlap(first, second) {
     && Number(first.bottom) >= Number(second.top);
 }
 
-function pointInsideScreenBounds(point, bounds) {
+export function pointInsideScreenBounds(point, bounds) {
+  if (!point || !bounds) return false;
   return point.x >= bounds.left && point.x <= bounds.right
     && point.y >= bounds.top && point.y <= bounds.bottom;
+}
+
+export function closestPointOnScreenSegment(point, segment) {
+  if (!point || !Array.isArray(segment) || segment.length !== 2 || !segment.every(Boolean)) return null;
+  const [start, end] = segment;
+  const dx = Number(end.x) - Number(start.x);
+  const dy = Number(end.y) - Number(start.y);
+  const lengthSquared = dx * dx + dy * dy;
+  const amount = lengthSquared > 1e-8
+    ? Math.max(0, Math.min(1, (
+        (Number(point.x) - Number(start.x)) * dx
+        + (Number(point.y) - Number(start.y)) * dy
+      ) / lengthSquared))
+    : 0;
+  const closest = {
+    x: Number(start.x) + dx * amount,
+    y: Number(start.y) + dy * amount
+  };
+  return {
+    amount,
+    point: closest,
+    distance: Math.hypot(Number(point.x) - closest.x, Number(point.y) - closest.y)
+  };
 }
 
 function screenCross(a, b, point) {
@@ -39,6 +63,21 @@ function screenSegmentsIntersect(a, b, c, d) {
   const cdB = screenCross(c, d, b);
   return ((abC <= 0 && abD >= 0) || (abC >= 0 && abD <= 0))
     && ((cdA <= 0 && cdB >= 0) || (cdA >= 0 && cdB <= 0));
+}
+
+export function segmentIntersectsScreenBounds(segment, bounds) {
+  if (!Array.isArray(segment) || segment.length !== 2 || !segment.every(Boolean) || !bounds) return false;
+  const [a, b] = segment;
+  if (pointInsideScreenBounds(a, bounds) || pointInsideScreenBounds(b, bounds)) return true;
+  const corners = [
+    { x: bounds.left, y: bounds.top },
+    { x: bounds.right, y: bounds.top },
+    { x: bounds.right, y: bounds.bottom },
+    { x: bounds.left, y: bounds.bottom }
+  ];
+  return corners.some((corner, index) => (
+    screenSegmentsIntersect(a, b, corner, corners[(index + 1) % corners.length])
+  ));
 }
 
 export function triangleIntersectsScreenBounds(triangle, bounds) {

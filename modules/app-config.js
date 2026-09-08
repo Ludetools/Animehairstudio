@@ -1,4 +1,4 @@
-export const APP_VERSION = "0.1.5";
+export const APP_VERSION = "1.0.0";
 
 export const SCALP_REGIONS = {
   bangs: { label: "Bangs Root", color: 0xef476f },
@@ -14,6 +14,7 @@ export const DEFAULT_HAIR_COLOR = "#2c223a";
 export const CURVE_LATTICE_FEATURE_ENABLED = true;
 export const GROUP_CURVE_FEATURE_ENABLED = true;
 export const DEFAULT_HAIR_MATERIAL_ID = "default-purple";
+export const DEFAULT_MESH_MATERIAL_ID = "default-mesh-grey";
 export const ROOT_SCALP_OFFSET_DISTANCE = 0.08;
 export const DEFAULT_HAIR_MATERIAL_SETTINGS = {
   color: DEFAULT_HAIR_COLOR,
@@ -23,6 +24,16 @@ export const DEFAULT_HAIR_MATERIAL_SETTINGS = {
   baseColorGradientStops: [
     { position: 0, color: DEFAULT_HAIR_COLOR },
     { position: 1, color: DEFAULT_HAIR_COLOR }
+  ]
+};
+export const DEFAULT_MESH_MATERIAL_SETTINGS = {
+  color: "#777982",
+  roughness: 1,
+  shader: "lambert",
+  baseColorGradientEnabled: false,
+  baseColorGradientStops: [
+    { position: 0, color: "#777982" },
+    { position: 1, color: "#777982" }
   ]
 };
 
@@ -61,6 +72,15 @@ export const ROUND_SWEEP_PROFILE = [
   { x: 0, z: 1, interpolation: "smooth" }, { x: -0.7, z: 0.7, interpolation: "smooth" },
   { x: -1, z: 0, interpolation: "smooth" }, { x: -0.7, z: -0.7, interpolation: "smooth" },
   { x: 0, z: -1, interpolation: "smooth" }, { x: 0.7, z: -0.7, interpolation: "smooth" }
+];
+export const SOFT_DOME_SWEEP_PROFILE = [
+  { x: 1, z: -0.10, interpolation: "smooth" },
+  { x: 0.85, z: 0.23, interpolation: "smooth" },
+  { x: 0, z: 0.39, interpolation: "smooth" },
+  { x: -0.85, z: 0.23, interpolation: "smooth" },
+  { x: -1, z: -0.10, interpolation: "smooth" },
+  { x: -0.77, z: -0.16, interpolation: "smooth" },
+  { x: 0.77, z: -0.16, interpolation: "smooth" }
 ];
 export const DEFAULT_TAPER_CURVE = [
   { position: 0, value: 0.3, interpolation: "smooth" },

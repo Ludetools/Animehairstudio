@@ -7,7 +7,8 @@ export function createPreferencesBackup({
   preferences,
   presets,
   shapePresets,
-  materialPresets
+  materialPresets,
+  curveLatticePresets
 }) {
   return {
     format: PREFERENCES_BACKUP_FORMAT,
@@ -26,6 +27,17 @@ export function createPreferencesBackup({
     },
     materialPresets: Array.isArray(materialPresets)
       ? materialPresets.map((preset) => ({ ...preset, value: { ...preset?.value } }))
+      : [],
+    curveLatticePresets: Array.isArray(curveLatticePresets)
+      ? curveLatticePresets.map((preset) => ({
+          ...preset,
+          value: {
+            ...preset?.value,
+            points: Array.isArray(preset?.value?.points)
+              ? preset.value.points.map((point) => ({ ...point }))
+              : []
+          }
+        }))
       : []
   };
 }
@@ -66,6 +78,17 @@ export function normalizePreferencesBackup(value) {
     },
     materialPresets: Array.isArray(value.materialPresets)
       ? value.materialPresets.map((preset) => ({ ...preset, value: { ...preset?.value } }))
+      : [],
+    curveLatticePresets: Array.isArray(value.curveLatticePresets)
+      ? value.curveLatticePresets.map((preset) => ({
+          ...preset,
+          value: {
+            ...preset?.value,
+            points: Array.isArray(preset?.value?.points)
+              ? preset.value.points.map((point) => ({ ...point }))
+              : []
+          }
+        }))
       : []
   };
 }

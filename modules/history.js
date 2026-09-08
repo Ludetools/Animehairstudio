@@ -22,6 +22,14 @@ export class BoundedHistory {
   clear() {
     this.#entries.length = 0;
   }
+
+  checkpoint() {
+    return [...this.#entries];
+  }
+
+  restoreCheckpoint(entries) {
+    this.#entries = entries.slice(-this.#limit);
+  }
 }
 
 export class RestoreRefreshRegistry {
@@ -41,4 +49,56 @@ export class RestoreRefreshRegistry {
   run(context) {
     this.#refreshers.forEach((refresh) => refresh(context));
   }
+}
+
+export function expandHistoryDependencyIds(snapshots, changedIds) {
+  const records = Array.isArray(snapshots)
+    ? snapshots.filter((snapshot) => snapshot?.id !== undefined && snapshot?.id !== null)
+    : [];
+  const knownIds = new Set(records.map((snapshot) => snapshot.id));
+  const linksById = new Map([...knownIds].map((id) => [id, new Set()]));
+  const clumpMembers = new Map();
+
+  const connect = (firstId, secondId) => {
+    if (
+      firstId === undefined || firstId === null
+      || secondId === undefined || secondId === null
+      || firstId === secondId
+      || !knownIds.has(firstId)
+      || !knownIds.has(secondId)
+    ) return;
+    linksById.get(firstId).add(secondId);
+    linksById.get(secondId).add(firstId);
+  };
+
+  records.forEach((snapshot) => {
+    connect(snapshot.id, snapshot.mirrorPartnerId);
+    connect(snapshot.id, snapshot.branchParentId);
+    if (snapshot.modelingMeshType === "auto-remesh") {
+      (snapshot.adaptiveRemeshSourceIds || []).forEach((sourceId) => {
+        connect(snapshot.id, sourceId);
+      });
+    }
+    if (snapshot.clumpId === undefined || snapshot.clumpId === null) return;
+    if (!clumpMembers.has(snapshot.clumpId)) clumpMembers.set(snapshot.clumpId, new Set());
+    clumpMembers.get(snapshot.clumpId).add(snapshot.id);
+  });
+
+  clumpMembers.forEach((memberIds) => {
+    const [firstId, ...otherIds] = memberIds;
+    otherIds.forEach((id) => connect(firstId, id));
+  });
+
+  const expandedIds = new Set(
+    [...(changedIds || [])].filter((id) => knownIds.has(id))
+  );
+  const pendingIds = [...expandedIds];
+  for (let index = 0; index < pendingIds.length; index += 1) {
+    linksById.get(pendingIds[index])?.forEach((linkedId) => {
+      if (expandedIds.has(linkedId)) return;
+      expandedIds.add(linkedId);
+      pendingIds.push(linkedId);
+    });
+  }
+  return expandedIds;
 }

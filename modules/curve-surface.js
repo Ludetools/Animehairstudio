@@ -257,7 +257,8 @@ export function buildConnectedCurveCardGrid(
     rows = DEFAULT_CURVE_SURFACE_ROWS,
     stripWidth = DEFAULT_CURVE_SURFACE_STRIP_WIDTH,
     side = { x: 1, y: 0, z: 0 },
-    controllerSides = null
+    controllerSides = null,
+    loft = false
   } = {}
 ) {
   const source = Array.isArray(controllerCurves)
@@ -268,13 +269,24 @@ export function buildConnectedCurveCardGrid(
   const direction = normalizedDirection(side, { x: 1, y: 0, z: 0 });
   const width = Math.max(0.001, Number(stripWidth) || DEFAULT_CURVE_SURFACE_STRIP_WIDTH);
   const controllers = source.map((curve, index) => (
-    index === 0
+    index === 0 || loft
       ? resampleCurveSurfaceLine(curve, rowCount)
       : orientCurveSurfaceLine(curve, source[0], rowCount)
   ));
   const sides = controllers.map((curve, controllerIndex) => curve.map((_, row) => (
     normalizedDirection(controllerSides?.[controllerIndex]?.[row] || direction, direction)
   )));
+  // A strand loft uses the authored roots/tips and outer controllers as its
+  // boundaries. Never reverse a controller or add exterior strip margins.
+  if (loft) {
+    return {
+      points: Array.from({ length: rowCount }, (_, row) => controllers.map(curve => ({ ...curve[row] }))).flat(),
+      columns: controllers.length,
+      rows: rowCount,
+      controllerCurves: controllers,
+      controllerSides: sides
+    };
+  }
   const surfaceColumns = [controllers[0].map((point, row) => offsetPoint(point, sides[0][row], -width))];
   for (let index = 0; index < controllers.length - 1; index += 1) {
     surfaceColumns.push(controllers[index]);

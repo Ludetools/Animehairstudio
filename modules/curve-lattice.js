@@ -99,3 +99,92 @@ export function curveLatticeLoopPointIndices(columns, rows, axis, loopIndex) {
   }
   return [];
 }
+
+function finitePointData(point) {
+  const x = Number(point?.x);
+  const y = Number(point?.y);
+  const z = Number(point?.z);
+  return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)
+    ? { x, y, z }
+    : null;
+}
+
+function pointDataCenter(points) {
+  const center = points.reduce((result, point) => ({
+    x: result.x + point.x,
+    y: result.y + point.y,
+    z: result.z + point.z
+  }), { x: 0, y: 0, z: 0 });
+  const divisor = Math.max(1, points.length);
+  return {
+    x: center.x / divisor,
+    y: center.y / divisor,
+    z: center.z / divisor
+  };
+}
+
+function stableCoordinate(value) {
+  const rounded = Number(value.toFixed(12));
+  return Math.abs(rounded) < 1e-12 ? 0 : rounded;
+}
+
+export function curveLatticePresetValue({ columns, rows, points } = {}) {
+  const columnCount = Math.max(2, Math.min(12, Math.round(Number(columns) || 3)));
+  const rowCount = Math.max(2, Math.min(12, Math.round(Number(rows) || 3)));
+  const normalizedPoints = Array.isArray(points) ? points.map(finitePointData) : [];
+  if (normalizedPoints.some((point) => !point) || normalizedPoints.length !== columnCount * rowCount) {
+    return null;
+  }
+  const center = pointDataCenter(normalizedPoints);
+  return {
+    columns: columnCount,
+    rows: rowCount,
+    points: normalizedPoints.map((point) => ({
+      x: stableCoordinate(point.x - center.x),
+      y: stableCoordinate(point.y - center.y),
+      z: stableCoordinate(point.z - center.z)
+    }))
+  };
+}
+
+export function curveLatticePresetPoints(value, targetPoints = []) {
+  const preset = curveLatticePresetValue(value);
+  if (!preset) return [];
+  const validTargets = Array.isArray(targetPoints)
+    ? targetPoints.map(finitePointData).filter(Boolean)
+    : [];
+  const center = validTargets.length ? pointDataCenter(validTargets) : { x: 0, y: 0, z: 0 };
+  return preset.points.map((point) => ({
+    x: stableCoordinate(point.x + center.x),
+    y: stableCoordinate(point.y + center.y),
+    z: stableCoordinate(point.z + center.z)
+  }));
+}
+
+export function curveLatticePresetMatches(value, columns, rows, points, epsilon = 0.0001) {
+  const preset = curveLatticePresetValue(value);
+  const current = curveLatticePresetValue({ columns, rows, points });
+  if (!preset || !current || preset.columns !== current.columns || preset.rows !== current.rows) return false;
+  return preset.points.every((point, index) => (
+    Math.abs(point.x - current.points[index].x) <= epsilon
+    && Math.abs(point.y - current.points[index].y) <= epsilon
+    && Math.abs(point.z - current.points[index].z) <= epsilon
+  ));
+}
+
+export function normalizeCurveLatticePresetLibrary(value) {
+  if (!Array.isArray(value)) return [];
+  const ids = new Set();
+  return value.flatMap((preset) => {
+    const id = typeof preset?.id === "string" ? preset.id.trim().slice(0, 100) : "";
+    const name = typeof preset?.name === "string" ? preset.name.trim().slice(0, 60) : "";
+    const normalizedValue = curveLatticePresetValue(preset?.value);
+    if (!id || !name || !normalizedValue || ids.has(id)) return [];
+    ids.add(id);
+    return [{ id, name, value: normalizedValue }];
+  });
+}
+
+export function removeCurveLatticePreset(library, id) {
+  return normalizeCurveLatticePresetLibrary(library).filter((preset) => preset.id !== id);
+}

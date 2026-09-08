@@ -69,6 +69,36 @@ export function resolveHairMaterialDefinition(definitions, materialId) {
   return definition ? normalizeHairMaterialDefinition(definition) : null;
 }
 
+export function defaultMaterialIdForGeometry(
+  geometryType,
+  { hairMaterialId, meshMaterialId, meshGeometryTypes = ["poly", "hair-shell"] }
+) {
+  return meshGeometryTypes.includes(geometryType) ? meshMaterialId : hairMaterialId;
+}
+
+export function ensureRequiredMaterialDefinitions(definitions, requiredDefinitions) {
+  const normalized = (Array.isArray(definitions) ? definitions : [])
+    .filter((material) => material && typeof material === "object")
+    .map((material) => normalizeHairMaterialDefinition({
+      ...material,
+      baseColorGradientStops: Array.isArray(material.baseColorGradientStops)
+        ? material.baseColorGradientStops.map((stop) => ({ ...stop }))
+        : material.baseColorGradientStops
+    }));
+  const ids = new Set(normalized.map((material) => material.id).filter(Boolean));
+  (Array.isArray(requiredDefinitions) ? requiredDefinitions : []).forEach((material) => {
+    if (!material || typeof material !== "object" || !material.id || ids.has(material.id)) return;
+    normalized.push(normalizeHairMaterialDefinition({
+      ...material,
+      baseColorGradientStops: Array.isArray(material.baseColorGradientStops)
+        ? material.baseColorGradientStops.map((stop) => ({ ...stop }))
+        : material.baseColorGradientStops
+    }));
+    ids.add(material.id);
+  });
+  return normalized;
+}
+
 export function hairMaterialUsageCounts(locks, definitions, defaultMaterialId) {
   const counts = new Map();
   (Array.isArray(locks) ? locks : []).forEach((lock) => {

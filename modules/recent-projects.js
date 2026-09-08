@@ -1,8 +1,9 @@
 export const MAX_RECENT_PROJECTS = 10;
 
 const DATABASE_NAME = "anime-hair-studio-recent-projects";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const STORE_NAME = "projects";
+const MENU_INDEX = "menuMetadata";
 
 export function recentProjectId(name) {
   return String(name || "")
@@ -58,10 +59,31 @@ function openRecentProjectsDatabase() {
     const request = api.open(DATABASE_NAME, DATABASE_VERSION);
     request.addEventListener("upgradeneeded", () => {
       const database = request.result;
-      if (!database.objectStoreNames.contains(STORE_NAME)) database.createObjectStore(STORE_NAME, { keyPath: "id" });
+      const store = database.objectStoreNames.contains(STORE_NAME)
+        ? request.transaction.objectStore(STORE_NAME)
+        : database.createObjectStore(STORE_NAME, { keyPath: "id" });
+      // A covering index lets the menu read keys without cloning project contents.
+      if (!store.indexNames.contains(MENU_INDEX)) {
+        store.createIndex(MENU_INDEX, ["updatedAt", "name", "id"]);
+      }
     });
     request.addEventListener("success", () => resolve(request.result), { once: true });
     request.addEventListener("error", () => reject(request.error || new Error("Could not open recent projects")), { once: true });
+  });
+}
+
+function readMenuMetadata(store) {
+  return new Promise((resolve, reject) => {
+    const entries = [];
+    const request = store.index(MENU_INDEX).openKeyCursor(null, "prev");
+    request.addEventListener("error", () => reject(request.error), { once: true });
+    request.addEventListener("success", () => {
+      const cursor = request.result;
+      if (!cursor) return resolve(entries);
+      const [updatedAt, name, id] = cursor.key;
+      entries.push({ id, name, updatedAt });
+      cursor.continue();
+    });
   });
 }
 
@@ -70,9 +92,23 @@ export async function listRecentProjects() {
   try {
     const transaction = database.transaction(STORE_NAME, "readonly");
     const completed = transactionComplete(transaction);
-    const entries = await requestResult(transaction.objectStore(STORE_NAME).getAll());
+    const entries = await readMenuMetadata(transaction.objectStore(STORE_NAME));
     await completed;
-    return normalizeRecentProjects(entries);
+    return entries.slice(0, MAX_RECENT_PROJECTS);
+  } finally {
+    database.close();
+  }
+}
+
+export async function readRecentProject(id) {
+  const database = await openRecentProjectsDatabase();
+  try {
+    const transaction = database.transaction(STORE_NAME, "readonly");
+    const completed = transactionComplete(transaction);
+    const entry = await requestResult(transaction.objectStore(STORE_NAME).get(id));
+    await completed;
+    if (!entry?.content) throw new Error("This recent project is no longer available");
+    return entry;
   } finally {
     database.close();
   }
@@ -90,9 +126,9 @@ export async function rememberRecentProject({ name, content, updatedAt = Date.no
 
     transaction = database.transaction(STORE_NAME, "readonly");
     completed = transactionComplete(transaction);
-    const entries = await requestResult(transaction.objectStore(STORE_NAME).getAll());
+    const entries = await readMenuMetadata(transaction.objectStore(STORE_NAME));
     await completed;
-    const keep = new Set(normalizeRecentProjects(entries).map((project) => project.id));
+    const keep = new Set(entries.slice(0, MAX_RECENT_PROJECTS).map((project) => project.id));
     const retired = entries.filter((project) => !keep.has(project.id));
     if (retired.length) {
       transaction = database.transaction(STORE_NAME, "readwrite");

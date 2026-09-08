@@ -24,6 +24,11 @@ export function proceduralAccessoryTaperScale(parentShape, t, offsetX, offsetZ) 
 export function proceduralAccessoryTemplateData(options = {}) {
   const count = Math.max(0, Math.min(24, Math.round(Number(options.count) || 0)));
   const radius = Math.max(0, Number(options.radius) || 0);
+  const tipRadius = options.tipRadius == null
+    ? radius
+    : Math.max(0, Number(options.tipRadius) || 0);
+  const rootRotation = (Number(options.rootRotation) || 0) * Math.PI / 180;
+  const tipRotation = (Number(options.tipRotation) || 0) * Math.PI / 180;
   const parentWidth = Math.max(0.001, Number(options.parentWidth) || 1);
   const accessoryWidth = Math.max(0.001, Number(options.accessoryWidth) || 0.32);
   const sampleCount = Math.max(2, Math.min(16, Math.round(Number(options.sampleCount) || 3)));
@@ -37,12 +42,26 @@ export function proceduralAccessoryTemplateData(options = {}) {
     strands: [
       { width: parentWidth, depth: parentWidth, points: longitudinalPoints() },
       ...Array.from({ length: count }, (_, index) => {
-        const angle = (index / count) * Math.PI * 2;
+        const baseAngle = (index / count) * Math.PI * 2;
+        const rootAngle = baseAngle + rootRotation;
+        const tipAngle = baseAngle + tipRotation;
         return {
           width: accessoryWidth,
           depth: accessoryWidth,
-          radialOffset: [Math.cos(angle) * radius, Math.sin(angle) * radius],
-          points: longitudinalPoints(Math.cos(angle) * radius, Math.sin(angle) * radius)
+          radialRootAngle: rootAngle,
+          radialTipAngle: tipAngle,
+          radialOffset: [Math.cos(rootAngle) * radius, Math.sin(rootAngle) * radius],
+          radialTipOffset: [Math.cos(tipAngle) * tipRadius, Math.sin(tipAngle) * tipRadius],
+          points: Array.from({ length: sampleCount }, (_, pointIndex) => {
+            const t = pointIndex / (sampleCount - 1);
+            const pointRadius = radius + (tipRadius - radius) * t;
+            const pointAngle = rootAngle + (tipAngle - rootAngle) * t;
+            return [
+              Math.cos(pointAngle) * pointRadius,
+              pointIndex === 0 ? 0 : -t,
+              Math.sin(pointAngle) * pointRadius
+            ];
+          })
         };
       })
     ]

@@ -15,7 +15,7 @@ export function hairFaceIndices(geometry) {
   const indexAttribute = geometry.getIndex();
   if (!indexAttribute) return [];
   const index = indexAttribute.array;
-  const quadFaces = geometry.userData.quadFaces;
+  const quadFaces = geometry.userData.renderQuadFaces || geometry.userData.quadFaces;
   if (Array.isArray(quadFaces) && quadFaces.length) {
     return quadFaces.map((face) => [...face]);
   }

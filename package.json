@@ -1,10 +1,15 @@
 {
   "name": "anime-hair-studio",
-  "version": "0.1.5",
+  "version": "1.0.0",
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "scripts": {
+    "lint": "eslint .",
     "check": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-project.ps1",
     "test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-project.ps1"
+  },
+  "devDependencies": {
+    "eslint": "9.39.1",
+    "globals": "16.5.0"
   }
 }
