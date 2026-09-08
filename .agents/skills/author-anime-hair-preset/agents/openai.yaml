@@ -1,4 +1,0 @@
-interface:
-  display_name: "Author Anime Hair Preset"
-  short_description: "Build and review reusable hairstyle presets"
-  default_prompt: "Use $author-anime-hair-preset to create or revise this Anime Hair Studio hairstyle preset from the supplied references."

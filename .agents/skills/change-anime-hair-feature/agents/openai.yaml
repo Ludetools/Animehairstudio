@@ -1,4 +1,0 @@
-interface:
-  display_name: "Change Anime Hair Feature"
-  short_description: "Safely change Anime Hair Studio features"
-  default_prompt: "Use $change-anime-hair-feature to implement this Anime Hair Studio change completely and verify every affected path."

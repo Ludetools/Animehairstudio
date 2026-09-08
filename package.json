@@ -4,12 +4,6 @@
   "license": "SEE LICENSE IN LICENSE",
   "private": true,
   "scripts": {
-    "lint": "eslint .",
-    "check": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-project.ps1",
-    "test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/verify-project.ps1"
-  },
-  "devDependencies": {
-    "eslint": "9.39.1",
-    "globals": "16.5.0"
+    "start": "node server.js"
   }
 }
