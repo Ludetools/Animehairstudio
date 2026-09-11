@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Hair Studio</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=20260830-2" />
-  <link rel="stylesheet" href="./styles.css?v=20260911-2" />
+  <link rel="stylesheet" href="./styles.css?v=20260911-3" />
   </head>
   <body>
     <section id="startupSplash" aria-label="Anime Hair Studio loading" aria-busy="true">
@@ -1245,6 +1245,7 @@
             <input id="pullCollision" type="checkbox" checked />
           </label>
           <label id="scaleSensitivitySetting" class="topology-control hidden" title="Adjust how strongly the scale gizmo responds to pointer movement.">Scale Sensitivity <input id="scaleSensitivity" type="range" min="0.05" max="1" step="0.05" value="0.3" /><output id="scaleSensitivityValue" class="slider-value">0.30</output></label>
+          <label id="meshSharedScalePivotSetting" class="topology-control hidden" title="Scale selected meshes together around their combined bounds centre. Does not change permanent object pivots.">Shared Selection Pivot <input id="meshSharedScalePivot" type="checkbox" /></label>
           <label id="viewPlaneMoveSetting" class="toggle-row" for="viewPlaneMove" title="Drag curve points freely on the 2D plane that best matches the current camera view.">
             <span>Contextual 2D Free Translation</span>
             <input id="viewPlaneMove" type="checkbox" />
@@ -3360,6 +3361,8 @@
           </div>
         </div>
         <label class="dialog-check"><input id="editableMeshImportParts" type="checkbox" /> Import as Multiple Parts</label>
+        <label class="dialog-check" title="Uniformly fit the complete import to approximately head size. Import Scale is applied afterward."><input id="editableMeshImportFitHead" type="checkbox" checked /> Fit to Head Size</label>
+        <label class="dialog-check" title="Uncheck to preserve the file’s original position. All parts share one offset; size and rotation are unchanged."><input id="editableMeshImportCenter" type="checkbox" checked /> Center at Origin</label>
         <p class="editable-mesh-import-note">Separate disconnected pieces into editable meshes. USDA converts to meters / Y-up; OBJ and FBX keep their loader units.</p>
         <p id="editableMeshImportStatus" role="status"></p>
         <div class="dialog-actions">
@@ -3378,7 +3381,19 @@
         <input id="meshToStrandPoints" type="range" min="4" max="32" step="1" value="8" />
       </div>
       <div class="mesh-to-strand-options">
+        <div class="section-head"><span>Topology</span></div>
+        <div class="mesh-to-strand-control-row">
+          <label for="meshToStrandAlong">Along Curve</label>
+          <output id="meshToStrandAlongValue" for="meshToStrandAlong">26</output>
+          <input id="meshToStrandAlong" type="range" min="4" max="256" step="1" value="26" />
+        </div>
+        <div class="mesh-to-strand-control-row" title="Radial sampling around the profile. Sharp profile corners are preserved and may require extra edges.">
+          <label for="meshToStrandRadial">Radial</label>
+          <output id="meshToStrandRadialValue" for="meshToStrandRadial">10</output>
+          <input id="meshToStrandRadial" type="range" min="4" max="24" step="1" value="10" />
+        </div>
         <label><input id="meshToStrandFlip" type="checkbox" /> Flip Root / Tip</label>
+        <label title="Automatically estimated from open edges and cross-section thinness. Override if needed."><input id="meshToStrandHairCard" type="checkbox" /> Hair Card</label>
         <label><input id="meshToStrandHide" type="checkbox" checked /> Hide Source Mesh</label>
       </div>
       <p id="meshToStrandStatus" role="status"></p>
@@ -3519,6 +3534,6 @@
       <button id="referenceCurveConfirm" type="button" disabled>Create Strand</button>
     </div>
   </dialog>
-    <script id="ahsMainModule" type="module" src="./app.js?v=20260911-8"></script>
+    <script id="ahsMainModule" type="module" src="./app.js?v=20260911-14"></script>
   </body>
 </html>

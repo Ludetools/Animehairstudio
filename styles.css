@@ -8931,7 +8931,7 @@ input[type="range"] {
   margin: 14px 0 10px;
 }
 
-#meshToStrandPointCount {
+#meshToStrandDialog output {
   text-align: center;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
@@ -8953,6 +8953,11 @@ input[type="range"] {
   display: grid;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+#meshToStrandDialog .mesh-to-strand-options .mesh-to-strand-control-row {
+  margin: 0;
+  grid-template-columns: 80px 36px minmax(64px, 1fr);
 }
 
 #meshToStrandDialog .mesh-to-strand-options label {

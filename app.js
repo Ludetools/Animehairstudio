@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { accentIconImages } from './modules/accent-icons.js';
 import { splitMeshParts } from './modules/mesh-parts.js';
-import { parseEditableOBJ, parseEditableUSDA, scaleImportedMeshes, validateImportedMeshes } from './modules/editable-mesh-import.js';
-import { reconstructStrandFromMesh } from './modules/mesh-to-strand.js?v=20260911-1';
+import { parseEditableOBJ, parseEditableUSDA, scaleImportedMeshes, centerImportedMeshes, fitImportedMeshesToSize, validateImportedMeshes } from './modules/editable-mesh-import.js?v=20260911-2';
+import { reconstructStrandFromMesh } from './modules/mesh-to-strand.js?v=20260911-2';
 import { bakeStrandGeometry, cloneMeshBake, mirrorMeshBake, meshBakeMatches, invertMeshFaces } from './modules/strand-mesh-bake.js?v=20260910-1';
 import { accessoryStrandPoints } from './modules/accessory-strand.js?v=20260908-1';
 import { latticeOffsetNormals } from './modules/lattice-offset.js';
@@ -3300,6 +3300,7 @@ let cameraSmoothingStrength = readStoredPreference(window, CAMERA_SMOOTHING_STRE
   normalize: normalizeCameraSmoothingStrength
 });
 let scaleSensitivity = 0.3;
+let meshSharedScalePivot = false;
 let toolTipsEnabled = readStoredBooleanPreference(window, TOOL_TIPS_PREFERENCE_KEY, true);
 let compactToolButtonsEnabled = readStoredBooleanPreference(window, COMPACT_TOOL_BUTTONS_PREFERENCE_KEY, false);
 let sidePanelStyle = readStoredPreference(window, SIDE_PANEL_STYLE_PREFERENCE_KEY, {
@@ -4350,6 +4351,8 @@ const pullRigidityValue = document.querySelector("#pullRigidityValue");
 const pullCollisionSetting = document.querySelector("#pullCollisionSetting");
 const pullCollisionInput = document.querySelector("#pullCollision");
 const scaleSensitivitySetting = document.querySelector("#scaleSensitivitySetting");
+const meshSharedScalePivotSetting = document.querySelector('#meshSharedScalePivotSetting');
+const meshSharedScalePivotInput = document.querySelector('#meshSharedScalePivot');
 const scaleSensitivityInput = document.querySelector("#scaleSensitivity");
 const scaleSensitivityValue = document.querySelector("#scaleSensitivityValue");
 const placeStrandToolPanel = document.querySelector("#placeStrandToolPanel");
@@ -15681,6 +15684,15 @@ function strandObjectTransformQuaternion(lock) {
   return curveFrameAtPoint(lock, index)?.quaternion?.clone() || new THREE.Quaternion();
 }
 
+function selectedMeshScalePivot() {
+  if (!meshSharedScalePivot || activeTool !== 'scale' || viewportEditMode !== 'mesh' || componentEditModeActive()) return null;
+  const selected = selectedLocksInOrder();
+  if (selected.length < 2 || selected.some(lock => !isModelingMesh(lock) || lock.locked || !lock.mesh?.visible)) return null;
+  const bounds = new THREE.Box3();
+  selected.forEach(lock => bounds.expandByObject(lock.mesh, true));
+  return bounds.isEmpty() ? null : bounds.getCenter(new THREE.Vector3());
+}
+
 function attachStrandObjectTransform() {
   const lock = (strandWorkspaceActive() || viewportEditMode === "mesh") ? getSelectedLock() : null;
   if (
@@ -15690,7 +15702,7 @@ function attachStrandObjectTransform() {
     || !["move", "rotate", "scale"].includes(activeTool)
     || transformDragging
   ) return false;
-  const root = strandObjectRoot(lock);
+  const root = selectedMeshScalePivot() || strandObjectRoot(lock);
   if (!root) return false;
   strandObjectTransformHandle.position.copy(root);
   strandObjectTransformHandle.quaternion.copy(
@@ -16007,7 +16019,7 @@ function beginStrandObjectTransform(handle) {
   const targets = selectedTargets.filter((lock) => (
     !lock.branchParentId || !selectedTargetIds.has(lock.branchParentId)
   ));
-  const sharedClumpPivot = clumpViewportSelection ? strandObjectRoot(activeLock)?.clone() : null;
+  const sharedClumpPivot = selectedMeshScalePivot() || (clumpViewportSelection ? strandObjectRoot(activeLock)?.clone() : null);
   const previewLocks = new Set(targets);
   targets.forEach((lock) => {
     branchChildrenFor(lock).forEach((child) => previewLocks.add(child));
@@ -40217,6 +40229,7 @@ function updateAttributeEditorMode() {
   pullRigiditySetting.classList.toggle("hidden", activeTool !== "move" || !pullMoveEnabled);
   pullCollisionSetting.classList.toggle("hidden", activeTool !== "move" || !pullMoveEnabled);
   scaleSensitivitySetting.classList.toggle("hidden", activeTool !== "scale");
+  meshSharedScalePivotSetting.classList.toggle('hidden', activeTool !== 'scale' || viewportEditMode !== 'mesh' || componentEditModeActive());
   viewPlaneMoveSetting.classList.toggle("hidden", activeTool !== "move");
   viewPlaneMoveSnappedSetting.classList.toggle("hidden", activeTool !== "move");
   syncMoveCurveControls();
@@ -43114,6 +43127,8 @@ function openEditableMeshImport() {
   document.querySelector('#editableMeshImportFile').value='';
   document.querySelector('#editableMeshImportScale').value='1';
   document.querySelector('#editableMeshImportParts').checked=false;
+  document.querySelector('#editableMeshImportCenter').checked=true;
+  document.querySelector('#editableMeshImportFitHead').checked=true;
   document.querySelector('#editableMeshImportStatus').textContent='Static geometry only. Materials, textures, rigs and animation are not imported. USDA subdivision imports the control cage.';
   document.querySelector('#confirmEditableMeshImport').disabled=false;
   dialog.showModal();
@@ -43195,17 +43210,32 @@ async function importEditableMeshFile() {
     const extension=file.name.split('.').at(-1).toLowerCase();
     const scale=Number(document.querySelector('#editableMeshImportScale').value);
     const separate=document.querySelector('#editableMeshImportParts').checked;
+    const centerAtOrigin=document.querySelector('#editableMeshImportCenter').checked;
+    const fitToHead=document.querySelector('#editableMeshImportFitHead').checked;
     let data;
     if(extension==='fbx')data=await readEditableFBX(file);
     else if(extension==='obj')data=parseEditableOBJ(await file.text());
     else if(extension==='usda')data=parseEditableUSDA(await file.text());
     else throw Error('Supported formats are OBJ, text USDA and FBX.');
     if(generation!==editableMeshImportGeneration)return false;
+    if(fitToHead){
+      let headSize=GUIDE_HEAD_TARGET_HEIGHT;
+      if(guideModel && !guideModel.userData?.fullBodyReference){
+        const size=guideHeadBounds(guideModel).getSize(new THREE.Vector3());
+        const extent=Math.max(size.x,size.y,size.z);
+        if(Number.isFinite(extent)&&extent>0)headSize=extent;
+      }
+      fitImportedMeshesToSize(data,headSize);
+    }
     scaleImportedMeshes(data,scale);
+    if(centerAtOrigin)centerImportedMeshes(data);
     if(separate)data=data.flatMap(splitMeshParts);
     // Preflight actual render construction before touching authored scene/history.
     for(const mesh of data){const draft=addLock('front',{geometryType:'poly',points:mesh.points.map(dataToVector),polyFaces:mesh.faces,meshBake:mesh.meshBake,rootAttachmentEnabled:false},{transient:true});draft.mesh.geometry.dispose();draft.mesh.material.dispose();}
-    commitEditableMeshImport(data);
+    const imported=commitEditableMeshImport(data);
+    const bounds=new THREE.Box3();
+    imported.forEach(lock=>bounds.expandByObject(lock.mesh,true));
+    if(!bounds.isEmpty())frameViewportBounds(bounds);
     document.querySelector('#editableMeshImportDialog').close();
     return true;
   } catch(error){if(generation===editableMeshImportGeneration)status.textContent=`Could not import mesh: ${error.message}`;return false;}
@@ -43298,6 +43328,15 @@ function updateMeshToStrandPreview() {
         flip:document.querySelector('#meshToStrandFlip').checked
       });
     } finally { geometry.dispose(); }
+    if (!session.topology) session.topology = {radialSegments:fit.radialSegments, lengthSegments:fit.lengthSegments};
+    if (!session.hairCardDetected) {
+      document.querySelector('#meshToStrandHairCard').checked = fit.hairCard;
+      session.hairCardDetected = true;
+    }
+    for (const [key,id] of [['lengthSegments','meshToStrandAlong'],['radialSegments','meshToStrandRadial']]) {
+      document.getElementById(id).value = session.topology[key];
+      document.getElementById(id+'Value').value = session.topology[key];
+    }
     session.data = {
       geometryType:'strand', points:fit.points.map(dataToVector), pointSurfaceNormals:fit.pointSurfaceNormals.map(dataToVector),
       width:fit.width, depth:fit.depth, taperCurve:fit.taperCurve, depthCurve:fit.depthCurve,
@@ -43306,8 +43345,9 @@ function updateMeshToStrandPreview() {
       sweepProfile:fit.sweepProfile || Array.from({length:12},(_,i)=>({x:Math.cos(i*Math.PI/6),z:Math.sin(i*Math.PI/6)})),
       surfaceNormalInfluence:1, rootAttachmentEnabled:false, rootScalpOffset:0, layerOffsetApplied:0,
       strandRotation:0, twist:0, twistCurve:[{position:0,value:0},{position:1,value:0}],
-      widthScale:1, depthScale:1, profileOffset:0, curlEnabled:false, strandSplitEnabled:false, hairCard:false,
-      radialSegments:fit.radialSegments, lengthSegments:fit.lengthSegments, dynamicDensity:false,
+      widthScale:1, depthScale:1, profileOffset:0, curlEnabled:false, strandSplitEnabled:false,
+      hairCard:document.querySelector('#meshToStrandHairCard').checked,
+      radialSegments:session.topology.radialSegments, lengthSegments:session.topology.lengthSegments, dynamicDensity:false,
       materialId:source.materialId, scalpRegion:source.scalpRegion, hairLayer:source.hairLayer
     };
     const draft = addLock('front',session.data,{transient:true});
@@ -43336,6 +43376,7 @@ function openMeshToStrand() {
   meshToStrandSession={sourceId:source.id,preview:null,data:null};
   document.querySelector('#meshToStrandPoints').value=8;
   document.querySelector('#meshToStrandFlip').checked=false;
+  document.querySelector('#meshToStrandHairCard').checked=false;
   document.querySelector('#meshToStrandHide').checked=true;
   document.querySelector('#meshToStrandDialog').show();
   updateMeshToStrandPreview();
@@ -49652,6 +49693,14 @@ pullCollisionInput.addEventListener("change", () => {
 scaleSensitivityInput.addEventListener("input", () => {
   setScaleSensitivity(scaleSensitivityInput.value);
 });
+meshSharedScalePivotInput.addEventListener('change', () => {
+  if (transformDragging || activeStrandObjectTransform) {
+    meshSharedScalePivotInput.checked = meshSharedScalePivot;
+    return;
+  }
+  meshSharedScalePivot = meshSharedScalePivotInput.checked;
+  attachStrandObjectTransform();
+});
 placeStrandScalpOffsetInput.addEventListener("input", () => {
   placeStrandScalpOffsetValue.textContent = Number(placeStrandScalpOffsetInput.value).toFixed(2);
 });
@@ -51886,7 +51935,15 @@ document.querySelector('#cancelEditableMeshImport').addEventListener('click',()=
 document.querySelector('#editableMeshImportDialog').addEventListener('cancel',()=>{editableMeshImportGeneration++;});
 document.querySelector('#editableMeshImportDialog').addEventListener('close',()=>{editableMeshImportGeneration++;});
 document.querySelector('#meshToStrandPoints').addEventListener('input',updateMeshToStrandPreview);
+for (const [key,id,min,max] of [['lengthSegments','meshToStrandAlong',4,256],['radialSegments','meshToStrandRadial',4,24]]) {
+  document.getElementById(id).addEventListener('input',event=>{
+    if (!meshToStrandSession?.topology) return;
+    meshToStrandSession.topology[key] = Math.max(min,Math.min(max,Math.round(Number(event.target.value)||min)));
+    updateMeshToStrandPreview();
+  });
+}
 document.querySelector('#meshToStrandFlip').addEventListener('change',updateMeshToStrandPreview);
+document.querySelector('#meshToStrandHairCard').addEventListener('change',updateMeshToStrandPreview);
 document.querySelector('#confirmMeshToStrand').addEventListener('click',confirmMeshToStrand);
 document.querySelector('#cancelMeshToStrand').addEventListener('click',cancelMeshToStrand);
 document.querySelector('#meshToStrandDialog').addEventListener('close',()=>{clearMeshToStrandPreview();meshToStrandSession=null;});

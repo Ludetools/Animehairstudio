@@ -161,3 +161,36 @@ export function scaleImportedMeshes(meshes,scale){
  for(const mesh of meshes){mesh.points.forEach(p=>{p.x*=scale;p.y*=scale;p.z*=scale;});if(mesh.meshBake)mesh.meshBake.points=mesh.points.map(p=>({...p}));}
  return validateImportedMeshes(meshes);
 }
+
+// Translate the complete import as one assembly, preserving part offsets.
+export function centerImportedMeshes(meshes){
+ validateImportedMeshes(meshes);
+ const low={x:Infinity,y:Infinity,z:Infinity},high={x:-Infinity,y:-Infinity,z:-Infinity};
+ for(const mesh of meshes)for(const p of mesh.points)for(const axis of ['x','y','z']){
+  low[axis]=Math.min(low[axis],p[axis]);high[axis]=Math.max(high[axis],p[axis]);
+ }
+ const center=Object.fromEntries(['x','y','z'].map(axis=>[axis,low[axis]/2+high[axis]/2]));
+ for(const mesh of meshes){
+  mesh.points=mesh.points.map(p=>({...p,x:p.x-center.x,y:p.y-center.y,z:p.z-center.z}));
+  if(mesh.meshBake)mesh.meshBake.points=mesh.points.map(p=>({...p}));
+ }
+ return validateImportedMeshes(meshes);
+}
+
+export function fitImportedMeshesToSize(meshes,targetSize){
+ validateImportedMeshes(meshes);
+ if(!Number.isFinite(targetSize)||targetSize<=0)throw Error('Invalid target mesh size.');
+ const low={x:Infinity,y:Infinity,z:Infinity},high={x:-Infinity,y:-Infinity,z:-Infinity};
+ for(const mesh of meshes)for(const p of mesh.points)for(const axis of ['x','y','z']){
+  low[axis]=Math.min(low[axis],p[axis]);high[axis]=Math.max(high[axis],p[axis]);
+ }
+ const size=Math.max(high.x-low.x,high.y-low.y,high.z-low.z);
+ if(!Number.isFinite(size)||size<=0)throw Error('Mesh has no usable size.');
+ const factor=targetSize/size;
+ const center=Object.fromEntries(['x','y','z'].map(axis=>[axis,low[axis]/2+high[axis]/2]));
+ for(const mesh of meshes){
+  mesh.points=mesh.points.map(p=>Object.fromEntries(['x','y','z'].map(axis=>[axis,center[axis]+(p[axis]-center[axis])*factor])));
+  if(mesh.meshBake)mesh.meshBake.points=mesh.points.map(p=>({...p}));
+ }
+ return validateImportedMeshes(meshes);
+}
