@@ -1,4 +1,10 @@
 import * as THREE from "three";
+import { accentIconImages } from './modules/accent-icons.js';
+import { splitMeshParts } from './modules/mesh-parts.js';
+import { parseEditableOBJ, parseEditableUSDA, scaleImportedMeshes, validateImportedMeshes } from './modules/editable-mesh-import.js';
+import { reconstructStrandFromMesh } from './modules/mesh-to-strand.js?v=20260910-2';
+import { bakeStrandGeometry, cloneMeshBake, mirrorMeshBake, meshBakeMatches, invertMeshFaces } from './modules/strand-mesh-bake.js?v=20260910-1';
+import { accessoryStrandPoints } from './modules/accessory-strand.js?v=20260908-1';
 import { latticeOffsetNormals } from './modules/lattice-offset.js';
 import { chamferMeshEdges } from './modules/mesh-chamfer.js?v=20260907-4';
 import { triangulatePolygon } from './modules/polygon-triangulation.js';
@@ -7,6 +13,7 @@ import { resizeStrandLattice } from './modules/strand-lattice-resize.js?v=202609
 import { orderStrandLatticeCurves, curveSurfacePointVisible } from './modules/strand-lattice-order.js?v=20260907-1';
 import { flippedCurveNormalIndices, rebuiltCurveNormals } from './modules/curve-normal-repair.js?v=20260907-2';
 let meshBackfaceDebugEnabled = false;
+let showBackfacesEnabled = false;
 import { strandBundleTemplate, ponytailBundleRecipe } from './modules/strand-bundle.js?v=20260907-7';
 import { bundlePreviewPaths } from './modules/bundle-preview.js?v=20260907-1';
 import { mountStrandBundleEditor } from './modules/strand-bundle-editor.js?v=20260907-7';
@@ -303,7 +310,7 @@ import {
   TAPER_VALUE_MAX,
   TWIST_CURVE_DISPLAY_RANGE_DEFAULT,
   TWIST_CURVE_VALUE_MAX
-} from "./modules/app-config.js?v=20260908-1";
+} from "./modules/app-config.js?v=20260911-1";
 import {
   BoundedHistory,
   expandHistoryDependencyIds,
@@ -423,9 +430,9 @@ import {
   mirroredComponentVertexIndices
 } from "./modules/mesh-component-visuals.js?v=20260904-1";
 import {
-  buildSweep as buildAutoRemeshSweep,
   ensureOutwardWinding as ensureAutoRemeshOutwardWinding
 } from "./modules/strand-remesh.js?v=20260902-1";
+import { buildSweep as buildAutoRemeshSweep } from "./modules/strand-remesh-source.js?v=20260908-1";
 import {
   buildHairShellExtrusionPreviewTopology,
   buildHairShellRegionExtrusionPreviewTopology,
@@ -480,9 +487,8 @@ function saveLanguage(language) {
 const RADIAL_MENUS_PREFERENCE_KEY = "anime-hair-studio-radial-menus";
 const MULTI_CAMERA_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-multi-camera";
 const FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-floating-tool-settings";
-const HOTKEY_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-hotkey-tool-settings";
-const HOTKEY_TOOL_SETTINGS_KEEP_MAIN_PREFERENCE_KEY = "anime-hair-studio-hotkey-tool-settings-keep-main";
 const PROCEDURAL_DRAW_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-procedural-draw";
+const ACCESSORY_STRAND_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-accessory-strand";
 const CROWN_GROW_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-crown-grow";
 const SHOW_DEV_TEST_FEATURES_PREFERENCE_KEY = "anime-hair-studio-show-dev-test-features";
 const COMPOUND_STRAND_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-compound-strand";
@@ -498,6 +504,8 @@ const TOOL_TIPS_PREFERENCE_KEY = "anime-hair-studio-tool-tips";
 const COMPACT_TOOL_BUTTONS_PREFERENCE_KEY = "anime-hair-studio-compact-tool-buttons";
 const SIDE_PANEL_STYLE_PREFERENCE_KEY = "anime-hair-studio-floating-side-panels";
 const GLASS_PANEL_COLOR_PREFERENCE_KEY = "anime-hair-studio-glass-panel-color";
+const ACCENT_COLOR_PREFERENCE_KEY = "anime-hair-studio-accent-color";
+const DEFAULT_ACCENT_COLOR = '#63c7ff';
 const LEGACY_DEFAULT_GLASS_PANEL_COLOR = "#0b0a0e";
 const DEFAULT_GLASS_PANEL_COLOR = "#19181d";
 const VIEWPORT_STATISTICS_PREFERENCE_KEY = "anime-hair-studio-viewport-statistics";
@@ -554,6 +562,11 @@ function normalizeViewportBackgroundColor(value) {
 function normalizeGlassPanelColor(value) {
   const color = String(value || "").trim().toLowerCase();
   return /^#[0-9a-f]{6}$/.test(color) ? color : DEFAULT_GLASS_PANEL_COLOR;
+}
+
+function normalizeAccentColor(value) {
+  const color = String(value || '').trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(color) ? color : DEFAULT_ACCENT_COLOR;
 }
 
 function normalizeSideNamingPerspective(value) {
@@ -672,7 +685,7 @@ function setupEditableSliderControls() {
 }
 
 setupEditableSliderControls();
-const attributeSliderRanges = [...document.querySelectorAll('.tool-panel .attribute-editor-content input[type="range"]')];
+const uiSliderRanges = [...document.querySelectorAll('input[type="range"]')];
 let lastSliderFillSync = -Infinity;
 
 const viewport = document.querySelector("#viewport");
@@ -3106,6 +3119,7 @@ let referenceScaleDrag = null;
 let referenceOverlayDrag = null;
 let referenceCropDrag = null;
 let activeTool = "select";
+let accessoryStrandDrag = null;
 let viewportSelectionMode = "component";
 const MESH_EDIT_MODES = ["object", "curve", "vert", "edge", "face"];
 let meshEditMode = "object";
@@ -3233,16 +3247,6 @@ let floatingToolSettingsExperimentalEnabled = readStoredBooleanPreference(
   FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
   false
 );
-let hotkeyToolSettingsExperimentalEnabled = readStoredBooleanPreference(
-  window,
-  HOTKEY_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
-  false
-);
-let hotkeyToolSettingsKeepMain = readStoredBooleanPreference(
-  window,
-  HOTKEY_TOOL_SETTINGS_KEEP_MAIN_PREFERENCE_KEY,
-  true
-);
 let hotkeyToolSettingsHoldActive = false;
 let proceduralDrawExperimentalEnabled = readStoredBooleanPreference(
   window,
@@ -3279,6 +3283,7 @@ let silhouetteVolumeExperimentalEnabled = readStoredBooleanPreference(
   SILHOUETTE_VOLUME_EXPERIMENTAL_PREFERENCE_KEY,
   false
 );
+let accessoryStrandExperimentalEnabled = readStoredBooleanPreference(window, ACCESSORY_STRAND_EXPERIMENTAL_PREFERENCE_KEY, false);
 let scalpDrawExperimentalEnabled = readStoredBooleanPreference(
   window,
   SCALP_DRAW_EXPERIMENTAL_PREFERENCE_KEY,
@@ -3305,6 +3310,7 @@ let glassPanelColor = readStoredPreference(window, GLASS_PANEL_COLOR_PREFERENCE_
   fallback: DEFAULT_GLASS_PANEL_COLOR,
   normalize: normalizeGlassPanelColor
 });
+let accentColor = readStoredPreference(window, ACCENT_COLOR_PREFERENCE_KEY, { fallback: DEFAULT_ACCENT_COLOR, normalize: normalizeAccentColor });
 if (glassPanelColor === LEGACY_DEFAULT_GLASS_PANEL_COLOR) glassPanelColor = DEFAULT_GLASS_PANEL_COLOR;
 let viewportStatisticsEnabled = readStoredBooleanPreference(window, VIEWPORT_STATISTICS_PREFERENCE_KEY, true);
 let twistCurveAllStrandsPreviewEnabled = readStoredBooleanPreference(
@@ -3649,10 +3655,9 @@ const preferencePanels = [...document.querySelectorAll("[data-preference-panel]"
 const radialMenusPreferenceInput = document.querySelector("#radialMenusPreference");
 const multiCameraExperimentalPreferenceInput = document.querySelector("#multiCameraExperimentalPreference");
 const floatingToolSettingsExperimentalPreferenceInput = document.querySelector("#floatingToolSettingsExperimentalPreference");
-const hotkeyToolSettingsExperimentalPreferenceInput = document.querySelector("#hotkeyToolSettingsExperimentalPreference");
-const hotkeyToolSettingsKeepMainPreferenceInput = document.querySelector("#hotkeyToolSettingsKeepMainPreference");
-const hotkeyToolSettingsKeepMainPreferenceRow = document.querySelector("#hotkeyToolSettingsKeepMainPreferenceRow");
 const proceduralDrawExperimentalPreferenceInput = document.querySelector("#proceduralDrawExperimentalPreference");
+const accessoryStrandExperimentalPreferenceInput = document.querySelector("#accessoryStrandExperimentalPreference");
+const accessoryStrandToolButton = document.querySelector('[data-tool="add-accessory"]');
 const crownGrowExperimentalPreferenceInput = document.querySelector("#crownGrowExperimentalPreference");
 const showDevTestFeaturesPreferenceInput = document.querySelector("#showDevTestFeaturesPreference");
 const devTestFeaturePreferenceRows = [...document.querySelectorAll("[data-dev-test-feature]")];
@@ -4149,6 +4154,8 @@ const redoButton = document.querySelector("#redoAction");
 const deleteSelectionAction = document.querySelector("#deleteSelectionAction");
 const openRebuildCurveButton = document.querySelector("#openRebuildCurve");
 const openAutoRemeshStrandsButton = document.querySelector("#openAutoRemeshStrands");
+let meshToStrandSession = null;
+let editableMeshImportGeneration = 0;
 const createCompoundStrandButton = document.querySelector("#createCompoundStrand");
 const createHairShellButton = document.querySelector("#createHairShell");
 const createArcHairSurfaceButton = document.querySelector("#createArcHairSurface");
@@ -4947,6 +4954,7 @@ const silhouetteVolumeToolButton = document.querySelector("#silhouetteVolumeTool
 const scalpDrawToolButton = document.querySelector("#scalpDrawToolButton");
 const RETIRED_CURVE_LATTICE_SURFACE_TOOLS = new Set(["surface", "surface-loft"]);
 const toolModes = {
+  "add-accessory": "translate",
   select: "translate",
   move: "translate",
   rotate: "rotate",
@@ -10059,6 +10067,8 @@ function setMeshEditMode(mode) {
 }
 
 function setViewportEditMode(mode, options = {}) {
+  cancelMeshToStrand();
+  finishAccessoryStrand(null, true);
   cancelMeshBevelPreview();
   clearCurvePointTopologyCursor();
   const nextMode = ["strand", "brush", "preset", "guide", "reference", "mesh"].includes(mode) ? mode : "strand";
@@ -10451,12 +10461,14 @@ function createReferenceOutlinerOpacityControl(reference) {
   input.max = "1";
   input.step = "0.01";
   input.value = String(reference.opacity);
+  syncSliderFill(input);
   input.setAttribute("aria-label", `Opacity for ${reference.name}`);
   const value = document.createElement("output");
   value.textContent = `${Math.round(reference.opacity * 100)}%`;
   bindUndoCapture(input);
   input.addEventListener("input", () => {
     reference.opacity = THREE.MathUtils.clamp(Number(input.value), 0.05, 1);
+    syncSliderFill(input);
     value.textContent = `${Math.round(reference.opacity * 100)}%`;
     applyReferenceImageRuntime(reference);
     if (reference.id === selectedReferenceImageId) {
@@ -14446,6 +14458,10 @@ function updateGuideControlsVisibility() {
 }
 
 function updateViewportToolVisibility() {
+  if (activeTool === "add-accessory" && !strandWorkspaceActive()) {
+    setActiveTool("select");
+    return;
+  }
   const guideMode = viewportEditMode === "guide";
   const referenceMode = viewportEditMode === "reference";
   const meshMode = viewportEditMode === "mesh";
@@ -14748,6 +14764,8 @@ function setSculptBrushShiftSmoothHeld(held) {
 }
 
 function setActiveTool(tool) {
+  if (tool !== activeTool) finishAccessoryStrand(null, true);
+  if (tool === "add-accessory" && (!strandWorkspaceActive() || !showDevTestFeatures || !accessoryStrandExperimentalEnabled)) tool = "select";
   cancelMeshBevelPreview();
   clearCurvePointTopologyCursor();
   const previousTool = activeTool;
@@ -14899,7 +14917,7 @@ function setActiveTool(tool) {
     if (guide.loopLinesGroup) guide.loopLinesGroup.visible = visible;
     if (!capsuleGuideEditing) updateCapsuleGuideHandleColors(guide);
   });
-  if (!["relax", "curve-sharpness", "place", "draw", "radial-draw", "procedural-draw", "poly", "loop-cut", "braid", "panel", "surface-loft", "curve-surface", "silhouette-volume", "scalp-draw", "draw-capsule-guide", "standard-extrude", "grease-pencil", "reference-shape"].includes(tool) && !sculptBrushToolActive(tool)) configureTransformControls(tool);
+  if (!["add-accessory", "relax", "curve-sharpness", "place", "draw", "radial-draw", "procedural-draw", "poly", "loop-cut", "braid", "panel", "surface-loft", "curve-surface", "silhouette-volume", "scalp-draw", "draw-capsule-guide", "standard-extrude", "grease-pencil", "reference-shape"].includes(tool) && !sculptBrushToolActive(tool)) configureTransformControls(tool);
   if (["move", "scale"].includes(tool) && selectedReferenceImage()?.type === "plane") {
     attachReferenceImageTransform();
   }
@@ -15232,6 +15250,10 @@ function updateInteractionLocks() {
   const branchMoveDisabled = branchMoveGizmoDisabled();
   transformControls.enabled = !toolRadialGesture && !strandRadialGesture && !duplicatePlacement && !referenceOverlayDrag && !referenceCropDrag && !altOrbitDrag && !greasePencilGesture && !sculptMoveStroke && !proportionalSizeEdit && !proportionalHotkeyPress && !brushSizeDrag && !strandWidthEdgeDrag && !scalpBuilderStroke && !viewSnapDrag && !viewPlaneMoveDrag && !standardExtrudeDrag && !drawStrandStroke && !capsuleGuideDrawStroke && !polyBrushStroke && !loftStrokeActive && !curveSurfaceStrokeActive && !silhouetteVolumeStrokeActive && !silhouetteVolumeHandleActive && !scalpDrawStrokeActive && !panelSplitDrag && !capsuleGuideLoopDrag && !taperMeshPointDrag && !branchMoveDisabled;
   setBranchMoveGizmoVisual(branchMoveDisabled);
+  if (accessoryStrandDrag) {
+    controls.enabled = false;
+    transformControls.enabled = false;
+  }
 }
 
 function branchMoveGizmoDisabled() {
@@ -19330,7 +19352,41 @@ function createHairCardGeometry(lock, curve, profilePoints) {
   return geometry;
 }
 
+function createBakedPolyGeometry(lock) {
+  const bake=lock.meshBake;
+  if (!meshBakeMatches(lock.polyFaces,bake)) return null;
+  const geometry=new THREE.BufferGeometry(), positions=[], uvs=[], colors=[], normals=[], tangents=[];
+  const faces=[], indices=[], triangleQuadIds=[];
+  const unchanged=lock.points.length===bake.points.length && lock.points.every((p,i)=>
+    Math.abs(p.x-bake.points[i].x)+Math.abs(p.y-bake.points[i].y)+Math.abs(p.z-bake.points[i].z)<1e-8);
+  lock.polyFaces.forEach((face,fi)=>{
+    const render=[];
+    face.forEach((index,ci)=>{
+      const p=lock.points[index], attributes=bake.corners[fi][ci];
+      render.push(positions.length/3);positions.push(p.x,p.y,p.z);
+      uvs.push(...(attributes.uv||[0,0]));colors.push(...(attributes.color||[1,1,1]));
+      normals.push(...(attributes.normal||[0,1,0]));tangents.push(...(attributes.tangent||[1,0,0,1]));
+    });
+    faces.push(render);
+    for(const triangle of triangulatePolygon(lock.points,face)){
+      indices.push(...triangle.map(i=>render[face.indexOf(i)]));triangleQuadIds.push(fi);
+    }
+  });
+  for(const [name,values,size] of [['position',positions,3],['uv',uvs,2],['color',colors,3],['normal',normals,3],['tangent',tangents,4]]){
+    geometry.setAttribute(name,new THREE.Float32BufferAttribute(values,size));
+  }
+  geometry.setIndex(indices);
+  geometry.userData.quadFaces=lock.polyFaces.map(f=>[...f]);
+  geometry.userData.renderQuadFaces=faces;geometry.userData.triangleQuadIds=triangleQuadIds;
+  geometry.userData.openSurface=bake.openSurface;
+  if(!unchanged || bake.corners.some(face=>face.some(corner=>!corner.normal))) geometry.computeVertexNormals();
+  geometry.computeBoundingBox();geometry.computeBoundingSphere();
+  return geometry;
+}
+
 function createPolyGeometry(lock) {
+  const baked=lock.meshBake && createBakedPolyGeometry(lock);
+  if(baked) return baked;
   const buffers = polyMeshBuffers(lock.points, lock.polyFaces, {
     allowTriangles: true
   });
@@ -20222,6 +20278,7 @@ function createBaseHairGeometry(lock) {
   branchChildrenFor(lock).forEach((child) => {
     if (
       child.proceduralBranch
+      || child.accessoryStrand
       || child.geometryType !== "strand"
       || child.hairCard
       || child.strandSplitEnabled
@@ -20583,13 +20640,27 @@ function createStrandSelectionOutline(geometry) {
 }
 
 function strandUsesDoubleSidedMaterial(lock) {
-  return lock?.geometryType === "braid"
+  return showBackfacesEnabled || lock?.geometryType === "braid"
     || lock?.hairShellPrimitive === "arc"
     || Boolean(lock?.hairCard)
     || (
       lock?.geometryType === "curve-surface"
       && Boolean(lock?.curveSurfaceCompoundProfile)
     );
+}
+
+function setShowBackfacesEnabled(enabled) {
+  showBackfacesEnabled = Boolean(enabled);
+  locks.forEach(lock => {
+    const side = strandUsesDoubleSidedMaterial(lock) ? THREE.DoubleSide : THREE.FrontSide;
+    [lock.mesh?.material, lock.uvCheckerMaterial, lock.uvCheckerOriginalMaterial].flat().filter(Boolean).forEach(material => {
+      material.side = side;
+      material.needsUpdate = true;
+    });
+  });
+  document.querySelector('#toggleShowBackfaces').setAttribute('aria-pressed', String(showBackfacesEnabled));
+  document.querySelector('#showBackfacesMenuState').textContent = showBackfacesEnabled ? 'On' : 'Off';
+  requestShadowMapRefresh();
 }
 
 function applyMaterialDefinitionToLock(lock) {
@@ -24224,6 +24295,7 @@ function createMirrorPartner(lock, options = {}) {
     curvePointBevelRemoveApex: Boolean(lock.curvePointBevelRemoveApex),
     curvePointBevelApexFlow: THREE.MathUtils.clamp(Number(lock.curvePointBevelApexFlow ?? 1), 0, 1),
     polyFaces: lock.polyFaces?.map((face) => [...face].reverse()) || null,
+    meshBake: mirrorMeshBake(lock.meshBake),
     polyFaceSmoothingGroups: lock.polyFaceSmoothingGroups ? [...lock.polyFaceSmoothingGroups] : null,
     hairShellBasePoints: lock.hairShellBasePoints?.map(mirroredVector) || null,
     hairShellBaseFaces: lock.hairShellBaseFaces?.map((face) => [...face].reverse()) || null,
@@ -24466,6 +24538,7 @@ function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), optio
   partner.twistDensity = Number(lock.twistDensity ?? 0);
   partner.points = lock.points.map(mirroredVector);
   partner.polyFaces = lock.polyFaces?.map((face) => [...face].reverse()) || [];
+  partner.meshBake = mirrorMeshBake(lock.meshBake);
   partner.polyFaceSmoothingGroups = lock.polyFaceSmoothingGroups
     ? [...lock.polyFaceSmoothingGroups]
     : [];
@@ -24499,6 +24572,7 @@ function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), optio
   const branchParent = locks.find((item) => item.id === lock.branchParentId);
   partner.branchParentId = branchParent ? (mirrorPartnerFor(branchParent)?.id || null) : null;
   partner.branchParentParameter = THREE.MathUtils.clamp(Number(lock.branchParentParameter ?? 0), 0, 1);
+  partner.accessoryStrand = Boolean(lock.accessoryStrand);
   partner.branchLocalPoints = lock.branchLocalPoints?.map((point) => new THREE.Vector3(-point.x, point.y, point.z)) || null;
   partner.branchLocalSurfaceNormals = lock.branchLocalSurfaceNormals?.map((normal) => (
     normal ? new THREE.Vector3(-normal.x, normal.y, normal.z) : null
@@ -24691,6 +24765,7 @@ function snapshotState() {
       baseWidth: lock.baseWidth,
       geometryType: lock.geometryType || "strand",
       modelingMeshType: lock.modelingMeshType || null,
+      meshBake: cloneMeshBake(lock.meshBake),
       meshPrimitiveType: lock.modelingMeshType === "primitive" ? lock.meshPrimitiveType : null,
       meshPrimitiveSettings: lock.modelingMeshType === "primitive"
         ? normalizeMeshPrimitiveSettings(lock.meshPrimitiveType, lock.meshPrimitiveSettings)
@@ -24907,6 +24982,7 @@ function snapshotState() {
       clumpShapeCurveInheritance: Boolean(lock.clumpShapeCurveInheritance),
       branchParentId: lock.branchParentId || null,
       branchParentParameter: THREE.MathUtils.clamp(Number(lock.branchParentParameter ?? 0), 0, 1),
+      accessoryStrand: Boolean(lock.accessoryStrand),
       branchLocalPoints: lock.branchLocalPoints?.map(vectorToData) || null,
       branchLocalSurfaceNormals: lock.branchLocalSurfaceNormals?.map((normal) => normal ? vectorToData(normal) : null) || null,
       rootSurfacePoint: lock.rootSurfacePoint ? vectorToData(lock.rootSurfacePoint) : null,
@@ -25932,6 +26008,7 @@ function downloadPreferencesAndPresets() {
       compactToolButtons: compactToolButtonsEnabled,
       sidePanelStyle,
       glassPanelColor,
+      accentColor,
       viewportStatistics: viewportStatisticsEnabled,
       twistCurveAllStrandsPreview: twistCurveAllStrandsPreviewEnabled,
       layerColorShifts: layerColorShiftsEnabled,
@@ -25944,11 +26021,10 @@ function downloadPreferencesAndPresets() {
       radialMenus: radialMenusEnabled,
       multiCameraExperimental: multiCameraExperimentalEnabled,
       floatingToolSettingsExperimental: floatingToolSettingsExperimentalEnabled,
-      hotkeyToolSettingsExperimental: hotkeyToolSettingsExperimentalEnabled,
-      hotkeyToolSettingsKeepMain,
       showDevTestFeatures,
       curvy: curvy.enabled,
       proceduralDrawExperimental: proceduralDrawExperimentalEnabled,
+      accessoryStrandExperimental: accessoryStrandExperimentalEnabled,
       crownGrowExperimental: crownGrowExperimentalEnabled,
       compoundStrandExperimental: compoundStrandExperimentalEnabled,
       hairShellExperimental: hairShellExperimentalEnabled,
@@ -25994,6 +26070,7 @@ async function loadPreferencesAndPresets(file) {
   if (preferences.glassPanelColor != null) {
     setGlassPanelColor(preferences.glassPanelColor);
   }
+  if (preferences.accentColor != null) setAccentColor(preferences.accentColor);
   setViewportStatisticsEnabled(importedBooleanPreference(preferences.viewportStatistics, viewportStatisticsEnabled));
   setTwistCurveAllStrandsPreviewEnabled(importedBooleanPreference(
     preferences.twistCurveAllStrandsPreview,
@@ -26025,14 +26102,6 @@ async function loadPreferencesAndPresets(file) {
     preferences.floatingToolSettingsExperimental,
     floatingToolSettingsExperimentalEnabled
   ));
-  setHotkeyToolSettingsKeepMain(importedBooleanPreference(
-    preferences.hotkeyToolSettingsKeepMain,
-    hotkeyToolSettingsKeepMain
-  ));
-  setHotkeyToolSettingsExperimentalEnabled(importedBooleanPreference(
-    preferences.hotkeyToolSettingsExperimental,
-    hotkeyToolSettingsExperimentalEnabled
-  ));
   setShowDevTestFeatures(importedBooleanPreference(
     preferences.showDevTestFeatures,
     showDevTestFeatures
@@ -26062,6 +26131,7 @@ async function loadPreferencesAndPresets(file) {
     preferences.silhouetteVolumeExperimental,
     silhouetteVolumeExperimentalEnabled
   ));
+  setAccessoryStrandExperimentalEnabled(importedBooleanPreference(preferences.accessoryStrandExperimental, accessoryStrandExperimentalEnabled));
   setScalpDrawExperimentalEnabled(importedBooleanPreference(
     preferences.scalpDrawExperimental,
     scalpDrawExperimentalEnabled
@@ -26099,10 +26169,9 @@ async function loadPreferencesAndPresets(file) {
     radialMenusEnabled,
     multiCameraExperimentalEnabled,
     floatingToolSettingsExperimentalEnabled,
-    hotkeyToolSettingsExperimentalEnabled,
-    hotkeyToolSettingsKeepMain,
     showDevTestFeatures,
     proceduralDrawExperimentalEnabled,
+    accessoryStrandExperimentalEnabled,
     crownGrowExperimentalEnabled,
     compoundStrandExperimentalEnabled,
     hairShellExperimentalEnabled,
@@ -26119,6 +26188,7 @@ async function loadPreferencesAndPresets(file) {
     compactToolButtonsEnabled,
     sidePanelStyle,
     glassPanelColor,
+    accentColor,
     viewportStatisticsEnabled,
     twistCurveAllStrandsPreviewEnabled,
     layerColorShiftsEnabled,
@@ -27138,6 +27208,7 @@ function restoreState(state, {
   preserveLiveSurfaces = false,
   currentHistoryState = null
 } = {}) {
+  cancelMeshToStrand();
   inputEditSession.finish();
   const isolationIdsToRestore = preserveIsolation && isolatedStrandIds
     ? [...isolatedStrandIds]
@@ -27207,6 +27278,7 @@ function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachmen
   const curveSurfaceRows = Math.max(2, Math.round(Number(snapshot.curveSurfaceRows) || DEFAULT_CURVE_SURFACE_ROWS));
   const lock = {
     ...snapshot,
+    meshBake: cloneMeshBake(snapshot.meshBake),
     materialId: snapshot.materialId || defaultMaterialIdForLockData(snapshot),
     locked: Boolean(snapshot.locked),
     objectTransform: restoredObjectTransform(snapshot, {
@@ -27481,6 +27553,7 @@ function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachmen
     clumpShapeCurveInheritance: Boolean(snapshot.clumpShapeCurveInheritance),
     branchParentId: snapshot.branchParentId || null,
     branchParentParameter: THREE.MathUtils.clamp(Number(snapshot.branchParentParameter ?? 0), 0, 1),
+    accessoryStrand: Boolean(snapshot.accessoryStrand),
     branchLocalPoints: snapshot.branchLocalPoints?.map(dataToVector) || null,
     branchLocalSurfaceNormals: snapshot.branchLocalSurfaceNormals?.map((normal) => normal ? dataToVector(normal) : null) || null,
     rootSurfacePoint: snapshot.rootSurfacePoint ? dataToVector(snapshot.rootSurfacePoint) : null,
@@ -31439,6 +31512,44 @@ function selectedMeshComponentDeleteContext() {
   };
 }
 
+function meshInvertFacesContext() {
+  if (viewportEditMode !== 'mesh' || !['object', 'face'].includes(meshEditMode)) return null;
+  const lock = getSelectedLock();
+  if (!isModelingMesh(lock) || lock.locked || !['poly', 'hair-shell'].includes(lock.geometryType) || !meshTopologyOperationAllowed(lock)) return null;
+  const { points, faces } = meshOperationTopology(lock);
+  let indices;
+  if (meshEditMode === 'object') indices = faces.map((_, i) => i);
+  else {
+    const component = selectedMeshComponentDeleteContext();
+    if (!component?.enabled) return null;
+    indices = lock.geometryType === 'poly' ? component.component.faceIndices : selectedHairShellFaceIndices(lock);
+    if (mirrorXEditing) indices = [...indices, ...mirroredComponentFaceIndices(points, faces, indices)];
+  }
+  indices = [...new Set(indices)].filter(i => Number.isInteger(i) && faces[i]);
+  return indices.length ? { lock, faces, indices } : null;
+}
+
+function invertSelectedMeshFaces() {
+  const context = meshInvertFacesContext();
+  if (!context) return false;
+  const { lock, faces, indices } = context;
+  const result = invertMeshFaces(faces, lock.meshBake, indices);
+  pushUndoState();
+  if (lock.geometryType === 'hair-shell') {
+    lock.hairShellBaseFaces = result.faces;
+    lock.hairShellTopologyEdited = true;
+    rebuildHairShell(lock);
+  } else {
+    lock.polyFaces = result.faces;
+    lock.meshBake = result.meshBake;
+    refreshPolyMesh(lock);
+    refreshPolyMeshComponentSelection(lock);
+  }
+  syncActiveMirror(lock);
+  requestShadowMapRefresh();
+  return true;
+}
+
 function remapHairShellExtrusionsAfterTopologyDelete(lock, previousPoints, previousFaces) {
   const previousIndexByPoint = new Map(previousPoints.map((point, index) => [point, index]));
   const previousFaceByKey = new Map(previousFaces.map((face, index) => [polyFaceKey(face), index]));
@@ -33083,7 +33194,131 @@ function ensureBranchParentNormalField(parent) {
   parent.surfaceNormalInfluence = 1;
 }
 
-function branchParentFrame(parent, parameter) {
+function accessoryPointerRay(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.set((event.clientX - rect.left) / rect.width * 2 - 1,
+    -(event.clientY - rect.top) / rect.height * 2 + 1);
+  raycaster.setFromCamera(pointer, camera);
+}
+
+function refreshAccessoryStrandPreview() {
+  const drag = accessoryStrandDrag;
+  if (!drag) return;
+  const parent = drag.parent;
+  const curve = strandBaseCurve(parent);
+  const frame = branchParentFrame(parent, drag.start, true);
+  const points = accessoryStrandPoints({
+    sample: t => curve.getPoint(t), root: drag.root, start: drag.start, lift: drag.lift
+  }).map(dataToVector);
+  const taper = [{ position: 0, value: 0.6 }, { position: 0.25, value: 1 }, { position: 1, value: 0 }];
+  drag.settings = {
+    points, width: Math.max(0.006, (parent.baseWidth || parent.width) * 0.12),
+    depth: Math.max(0.004, parent.depth * 0.12), widthScale: 1, depthScale: 1,
+    length: new THREE.CatmullRomCurve3(points).getLength(),
+    materialId: parent.materialId, scalpRegion: parent.scalpRegion, hairLayer: parent.hairLayer,
+    sweepProfile: parent.sweepProfile, taperCurve: taper, depthCurve: taper,
+    taperCurveSecondary: taper, depthCurveSecondary: taper,
+    asymmetricWidthCurve: false, asymmetricDepthCurve: false,
+    rootAttachmentEnabled: false, rootScalpOffset: 0, layerOffsetApplied: 0,
+    pointSurfaceNormals: points.map(() => frame.z.clone()), surfaceNormalInfluence: 1,
+    strandRotation: 0, twist: 0, geometryType: "strand", lengthSegments: 24,
+    x: points[0].x, y: points[0].y, z: points[0].z
+  };
+  if (!drag.preview) {
+    drag.preview = addLock("front", drag.settings, { transient: true, id: "accessory-preview" });
+    hairGroup.add(drag.preview.mesh);
+  } else {
+    const preview = drag.preview;
+    preview.points = points;
+    preview.pointSurfaceNormals = drag.settings.pointSurfaceNormals;
+    preview.mesh.geometry.dispose();
+    preview.mesh.geometry = createHairGeometry(preview);
+  }
+}
+
+function beginAccessoryStrand(event) {
+  if (activeTool !== "add-accessory" || !showDevTestFeatures || !accessoryStrandExperimentalEnabled || !strandWorkspaceActive() || event.button !== 0
+    || event.altKey || accessoryStrandDrag || scalpBuilderEditing || capsuleGuideEditing) return;
+  // Empty space must not fall through to selection or an unrelated drawing tool.
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  accessoryPointerRay(event);
+  const candidates = locks.filter(lock => lock.geometryType === "strand" && !lock.locked
+    && lock.mesh?.visible && !lock.proceduralParentHidden && !lock.liveSurfaceGuide);
+  const hit = raycaster.intersectObjects(candidates.map(lock => lock.mesh), false)[0];
+  if (!hit) return;
+  const parent = candidates.find(lock => lock.mesh === hit.object);
+  const root = hit.point.clone();
+  const start = Math.min(0.95, closestStrandCurveParameter(parent, root));
+  const frame = branchParentFrame(parent, start, true);
+  accessoryStrandDrag = {
+    pointerId: event.pointerId, parent, root, start,
+    lift: frame.z.clone().multiplyScalar(Math.max(0.04, parent.width * 0.4)),
+    plane: new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), root),
+    preview: null, settings: null
+  };
+  renderer.domElement.setPointerCapture(event.pointerId);
+  updateInteractionLocks();
+  refreshAccessoryStrandPreview();
+}
+
+function moveAccessoryStrand(event) {
+  const drag = accessoryStrandDrag;
+  if (!drag || drag.pointerId !== event.pointerId) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  accessoryPointerRay(event);
+  const hit = raycaster.intersectObject(drag.parent.mesh, false)[0];
+  if (hit) {
+    drag.root.copy(hit.point);
+    drag.start = Math.min(0.95, closestStrandCurveParameter(drag.parent, drag.root));
+    drag.plane.constant = -drag.plane.normal.dot(drag.root);
+    drag.lift = branchParentFrame(drag.parent, drag.start, true).z
+      .multiplyScalar(Math.max(0.04, drag.parent.width * 0.4));
+  } else {
+    const target = raycaster.ray.intersectPlane(drag.plane, new THREE.Vector3());
+    if (target) drag.lift.copy(target).sub(drag.root);
+  }
+  refreshAccessoryStrandPreview();
+}
+
+function finishAccessoryStrand(event, cancel = false) {
+  const drag = accessoryStrandDrag;
+  if (!drag || (event?.pointerId != null && event.pointerId !== drag.pointerId)) return false;
+  accessoryStrandDrag = null;
+  if (drag.preview) {
+    drag.preview.mesh.removeFromParent();
+    drag.preview.mesh.geometry.dispose();
+    drag.preview.mesh.material.dispose();
+  }
+  if (renderer.domElement.hasPointerCapture(drag.pointerId)) renderer.domElement.releasePointerCapture(drag.pointerId);
+  if (!cancel && drag.settings && strandWorkspaceActive() && locks.includes(drag.parent)) {
+    pushUndoState();
+    const lock = addLock("front", drag.settings);
+    lock.name = `${drag.parent.name} Accessory`;
+    lock.accessoryStrand = true;
+    lock.branchParentId = drag.parent.id;
+    lock.branchParentParameter = drag.start;
+    captureBranchLocalState(lock);
+    createMirrorPartnerForNewLock(lock);
+    renderLockList();
+  }
+  updateInteractionLocks();
+  event?.preventDefault();
+  event?.stopImmediatePropagation();
+  return true;
+}
+
+function branchParentFrame(parent, parameter, continuous = false) {
+  if (continuous) {
+    const t = THREE.MathUtils.clamp(Number(parameter) || 0, 0, 1);
+    const curve = strandBaseCurve(parent);
+    const frame = transportedStrandFrameAt(parent, curve, t, {
+      twistAt: (position) => controlPointRotationAt(parent, position)
+    });
+    frame.point = curve.getPoint(t);
+    return frame;
+  }
   const pointIndex = THREE.MathUtils.clamp(
     Math.round(THREE.MathUtils.clamp(Number(parameter ?? 0), 0, 1) * Math.max(0, parent.points.length - 1)),
     0,
@@ -33107,11 +33342,11 @@ function branchWorldVector(vector, frame) {
 function captureBranchLocalState(lock) {
   const parent = locks.find((item) => item.id === lock?.branchParentId);
   if (!parent || !lock?.points?.length) return false;
-  const frame = branchParentFrame(parent, lock.branchParentParameter);
-  lock.points[0].copy(frame.point);
+  const frame = branchParentFrame(parent, lock.branchParentParameter, lock.accessoryStrand);
+  if (!lock.accessoryStrand) lock.points[0].copy(frame.point);
   const childNormals = stableBranchBaseNormals(lock);
   lock.branchLocalPoints = lock.points.map((point, index) => (
-    index === 0
+    index === 0 && !lock.accessoryStrand
       ? new THREE.Vector3()
       : branchLocalVector(point.clone().sub(frame.point), frame)
   ));
@@ -33125,7 +33360,10 @@ function captureBranchLocalState(lock) {
 function enforceBranchRootPosition(lock) {
   const parent = locks.find((item) => item.id === lock?.branchParentId);
   if (!parent || !lock?.points?.length) return null;
-  const frame = branchParentFrame(parent, lock.branchParentParameter);
+  const frame = branchParentFrame(parent, lock.branchParentParameter, lock.accessoryStrand);
+  if (lock.accessoryStrand && lock.branchLocalPoints?.[0]) {
+    frame.point.add(branchWorldVector(lock.branchLocalPoints[0], frame));
+  }
   lock.points[0].copy(frame.point);
   if (lock.groupLatticeBasePoints?.[0]) lock.groupLatticeBasePoints[0].copy(frame.point);
   lock.rootSurfacePoint = frame.point.clone();
@@ -33161,6 +33399,7 @@ function detachBranch(lock) {
   if (!lock) return;
   delete lock.branchParentId;
   delete lock.branchParentParameter;
+  delete lock.accessoryStrand;
   delete lock.branchLocalPoints;
   delete lock.branchLocalSurfaceNormals;
   delete lock.proceduralBranch;
@@ -33176,7 +33415,7 @@ function updateBranchChildren(parent) {
       if (!child.branchLocalPoints?.length || !child.branchLocalSurfaceNormals?.length) {
         captureBranchLocalState(child);
       }
-      const frame = branchParentFrame(parent, child.branchParentParameter);
+      const frame = branchParentFrame(parent, child.branchParentParameter, child.accessoryStrand);
       child.pointSurfaceNormals ||= [];
       child.points.forEach((point, index) => {
         const local = child.branchLocalPoints?.[index] || child.branchLocalPoints?.at(-1) || new THREE.Vector3();
@@ -33187,6 +33426,7 @@ function updateBranchChildren(parent) {
         }
       });
       const start = THREE.MathUtils.clamp(Number(child.branchParentParameter ?? 0), 0, 1);
+      if (!child.accessoryStrand) {
       child.taperCurve = remapEnvelopeCurveRange(parent.taperCurve, start, 1);
       child.depthCurve = remapEnvelopeCurveRange(parent.depthCurve, start, 1);
       child.taperCurveSecondary = remapEnvelopeCurveRange(parent.taperCurveSecondary || parent.taperCurve, start, 1);
@@ -33194,6 +33434,7 @@ function updateBranchChildren(parent) {
       child.asymmetricWidthCurve = Boolean(parent.asymmetricWidthCurve);
       child.asymmetricDepthCurve = Boolean(parent.asymmetricDepthCurve);
       child.centerAsymmetricProfile = Boolean(parent.centerAsymmetricProfile);
+      }
       child.surfaceNormalInfluence = 1;
       child.rootSurfacePoint = frame.point.clone();
       child.rootSurfaceNormal = frame.z.clone();
@@ -36228,6 +36469,7 @@ function finishPlacementFlow(options = {}) {
 function updatePlacementStatus() {
   if (!placementStatus) return;
   let message = activeTool === "select" ? "Select an object in the viewport or outliner to edit it." : "";
+  if (activeTool === "add-accessory") message = "Accessory strand: drag over a strand to position the root, then away to bend the flyaway. Release to add; Esc cancels.";
   if (duplicatePlacement?.procedural) {
     const blend = Math.round((duplicatePlacement.procedural.blendAmount ?? 0) * 100);
     const [firstName, secondName] = duplicatePlacement.procedural.sourceNames;
@@ -39194,6 +39436,7 @@ function refreshStrandSelectionConsumers({
   updateTopology = false,
   syncActiveInputs = false
 } = {}) {
+  if(meshToStrandSession && meshToStrandSource()?.id !== meshToStrandSession.sourceId) cancelMeshToStrand();
   const lock = getSelectedLock();
   if (lock?.adaptiveRemesh && !componentEditModeActive()) {
     setViewportSelectionMode("component");
@@ -39772,6 +40015,16 @@ function syncProceduralBrushToolSettingVisibility() {
   drawAutoShowScalpInput.closest(".toggle-row")?.classList.toggle("hidden", placingSavedPattern);
 }
 
+function syncSelectedObjectPanel(lock) {
+  const mesh=Boolean(lock && isModelingMesh(lock));
+  selectedStrandPanel.classList.toggle('hidden',!lock);
+  selectedStrandPanel.querySelector('.point-status').classList.toggle('hidden',mesh);
+  const label=mesh?'mesh':'strand';
+  const deleteButton=document.querySelector('#deleteLock');
+  deleteButton.title=`Delete selected ${label}`;
+  deleteButton.setAttribute('aria-label',deleteButton.title);
+}
+
 function updateAttributeEditorMode() {
   const activeLock = getSelectedLock();
   document.querySelector("#strandEmptyState").classList.toggle("hidden", !(
@@ -39820,7 +40073,7 @@ function updateAttributeEditorMode() {
   guidePanel.classList.toggle("hidden", !editingLegacyGuide);
   guidePanel.hidden = !editingLegacyGuide;
   guidePanel.setAttribute("aria-hidden", String(!editingLegacyGuide));
-  selectedStrandPanel.classList.toggle("hidden", !editingStrand || Boolean(selectedPoly));
+  syncSelectedObjectPanel(activeLock);
   if (!editingStrand) clumpGuidePanel.classList.add("hidden");
   hairMaterialPanel.classList.remove("hidden");
   strandTopologyPanel.classList.toggle("hidden", editingLattice || !editingStrand || Boolean(selectedPanel) || Boolean(selectedPoly) || Boolean(selectedArcHairSurface));
@@ -40720,7 +40973,8 @@ function syncMultiStrandInputs(primary = getSelectedLock()) {
   const selectedCount = selectedLocksInOrder().length;
   const compatibleCount = selection.length;
   const multiple = selectedCount > 1;
-  selectedStrandTitle.textContent = multiple ? "Selected Strands" : "Selected Strand";
+  const objectLabel=isModelingMesh(primary)?'Mesh':'Strand';
+  selectedStrandTitle.textContent = `Selected ${objectLabel}${multiple?(objectLabel==='Mesh'?'es':'s'):''}`;
   selectedStrandSelectionSummary.classList.toggle("hidden", !multiple);
   selectedStrandSelectionSummary.textContent = multiple
     ? compatibleCount === selectedCount
@@ -40728,7 +40982,7 @@ function syncMultiStrandInputs(primary = getSelectedLock()) {
       : `Editing ${compatibleCount} compatible ${strandEditFamily(primary)} items out of ${selectedCount} selected.`
     : "";
   inputs.name.disabled = multiple;
-  inputs.name.placeholder = multiple ? "Multiple strands selected" : "";
+  inputs.name.placeholder = multiple ? `Multiple ${objectLabel.toLowerCase()}${objectLabel==='Mesh'?'es':'s'} selected` : "";
   if (!selection.length) return;
 
   const values = (read) => selection.map(read);
@@ -42692,6 +42946,12 @@ function transformedAutoRemeshSweep(lock) {
     frame.z = z.toArray();
     frame.width *= widthScale;
     frame.depth *= depthScale;
+    for (const key of ['widthPositive', 'widthNegative', 'centerX']) {
+      if (Number.isFinite(frame[key])) frame[key] *= widthScale;
+    }
+    for (const key of ['depthPositive', 'depthNegative', 'centerZ']) {
+      if (Number.isFinite(frame[key])) frame[key] *= depthScale;
+    }
   });
   return sweep;
 }
@@ -42846,6 +43106,259 @@ function tryConfirmAutoRemeshStrands() {
     autoRemeshStatus.textContent = `Could not confirm remesh: ${error?.message || "Unknown error"}`;
     return false;
   }
+}
+
+function openEditableMeshImport() {
+  const dialog=document.querySelector('#editableMeshImportDialog');
+  editableMeshImportGeneration++;
+  document.querySelector('#editableMeshImportFile').value='';
+  document.querySelector('#editableMeshImportScale').value='1';
+  document.querySelector('#editableMeshImportParts').checked=false;
+  document.querySelector('#editableMeshImportStatus').textContent='Static geometry only. Materials, textures, rigs and animation are not imported. USDA subdivision imports the control cage.';
+  document.querySelector('#confirmEditableMeshImport').disabled=false;
+  dialog.showModal();
+}
+
+async function readEditableFBX(file) {
+  const {FBXLoader}=await import('three/addons/loaders/FBXLoader.js');
+  const manager=new THREE.LoadingManager();
+  // Do not fetch arbitrary texture paths embedded in a model selected for geometry import.
+  manager.setURLModifier(()=> 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==');
+  const model=new FBXLoader(manager).parse(await file.arrayBuffer(),'');
+  const meshes=[];
+  try {
+    model.updateMatrixWorld(true);
+    model.traverse(object=>{
+      if(!object.isMesh)return;
+      const geometry=object.geometry.clone();
+      try {
+        geometry.applyMatrix4(object.matrixWorld);
+        const index=geometry.index,faces=[];
+        for(let i=0;i+2<(index?.count??geometry.getAttribute('position').count);i+=3){
+          const face=[0,1,2].map(k=>index?index.getX(i+k):i+k);
+          if(object.matrixWorld.determinant()<0)face.reverse();faces.push(face);
+        }
+        meshes.push({name:object.name||file.name,...bakeStrandGeometry(geometry,faces)});
+      } finally {geometry.dispose();}
+    });
+  } finally {
+    const geometries=new Set(),materials=new Set(),textures=new Set();
+    model.traverse(object=>{if(object.geometry)geometries.add(object.geometry);for(const material of (Array.isArray(object.material)?object.material:[object.material]).filter(Boolean))materials.add(material);});
+    for(const material of materials)for(const value of Object.values(material))if(value?.isTexture)textures.add(value);
+    geometries.forEach(g=>g.dispose());materials.forEach(m=>m.dispose());textures.forEach(t=>t.dispose());
+  }
+  return validateImportedMeshes(meshes);
+}
+
+function splitEditableMeshIntoParts(source) {
+  if(!locks.includes(source)||source.locked||!isModelingMesh(source))return false;
+  let parts;
+  const geometry=source.mesh.geometry.clone();
+  try {
+    source.mesh.updateWorldMatrix(true,false);geometry.applyMatrix4(source.mesh.matrixWorld);
+    const faces=hairFaceIndices(geometry);
+    if(source.mesh.matrixWorld.determinant()<0)faces.forEach(face=>face.reverse());
+    parts=splitMeshParts({name:source.name,...bakeStrandGeometry(geometry,faces)});
+  } catch(error){window.alert(`Could not split mesh: ${error.message}`);return false;}
+  finally {geometry.dispose();}
+  if(parts.length<2){window.alert('This mesh is already one connected part.');return false;}
+  commitEditableMeshImport(parts,{source});return true;
+}
+
+function commitEditableMeshImport(meshes, {source=null} = {}) {
+  validateImportedMeshes(meshes);
+  pushUndoState();
+  const results=meshes.map(data=>{
+    const lock=addLock('front',{
+      geometryType:'poly',modelingMeshType:'imported-mesh',points:data.points.map(dataToVector),
+      polyFaces:data.faces,meshBake:data.meshBake,scalpRegion:source?.scalpRegion||'unassigned',
+      materialId:source?.materialId,hairLayer:source?.hairLayer,outlinerVisible:source?.outlinerVisible!==false,
+      rootAttachmentEnabled:false,layerOffsetApplied:0,width:1,depth:1
+    },{deferUi:true});
+    lock.name=nextMeshPrimitiveName(data.name||'Imported Mesh');return lock;
+  });
+  if(source)deleteLocks([source]);
+  setViewportEditMode('mesh');setViewportSelectionMode('object');setActiveTool('select');
+  selectLock(results[0].id,{selectedIds:results.map(lock=>lock.id),individualClumpMember:true});
+  renderMeshOutliner();renderLockList();updateCount();requestShadowMapRefresh();
+  return results;
+}
+
+async function importEditableMeshFile() {
+  const file=document.querySelector('#editableMeshImportFile').files[0];
+  const status=document.querySelector('#editableMeshImportStatus'),button=document.querySelector('#confirmEditableMeshImport');
+  if(!file){status.textContent='Choose an OBJ, USDA or FBX file first.';return false;}
+  const generation=++editableMeshImportGeneration;
+  button.disabled=true;status.textContent='Reading mesh…';
+  try {
+    if(file.size>50*1024*1024)throw Error('Choose a mesh file smaller than 50 MiB.');
+    const extension=file.name.split('.').at(-1).toLowerCase();
+    const scale=Number(document.querySelector('#editableMeshImportScale').value);
+    const separate=document.querySelector('#editableMeshImportParts').checked;
+    let data;
+    if(extension==='fbx')data=await readEditableFBX(file);
+    else if(extension==='obj')data=parseEditableOBJ(await file.text());
+    else if(extension==='usda')data=parseEditableUSDA(await file.text());
+    else throw Error('Supported formats are OBJ, text USDA and FBX.');
+    if(generation!==editableMeshImportGeneration)return false;
+    scaleImportedMeshes(data,scale);
+    if(separate)data=data.flatMap(splitMeshParts);
+    // Preflight actual render construction before touching authored scene/history.
+    for(const mesh of data){const draft=addLock('front',{geometryType:'poly',points:mesh.points.map(dataToVector),polyFaces:mesh.faces,meshBake:mesh.meshBake,rootAttachmentEnabled:false},{transient:true});draft.mesh.geometry.dispose();draft.mesh.material.dispose();}
+    commitEditableMeshImport(data);
+    document.querySelector('#editableMeshImportDialog').close();
+    return true;
+  } catch(error){if(generation===editableMeshImportGeneration)status.textContent=`Could not import mesh: ${error.message}`;return false;}
+  finally {if(generation===editableMeshImportGeneration)button.disabled=false;}
+}
+
+function meshToStrandSource() {
+  const selected = selectedLocksInOrder();
+  return viewportEditMode === 'mesh' && selected.length === 1 && isModelingMesh(selected[0])
+    && !selected[0].locked && selected[0].mesh?.visible ? selected[0] : null;
+}
+
+function clearMeshToStrandPreview() {
+  const preview = meshToStrandSession?.preview;
+  if (!preview) return;
+  scene.remove(preview);
+  preview.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
+  meshToStrandSession.preview = null;
+}
+
+function cancelMeshToStrand() {
+  if(!meshToStrandSession) return;
+  clearMeshToStrandPreview();
+  meshToStrandSession=null;
+  document.querySelector('#meshToStrandDialog').close();
+}
+
+function updateMeshToStrandPreview() {
+  const session = meshToStrandSession;
+  if (!session) return false;
+  document.querySelector('#meshToStrandPointCount').value=document.querySelector('#meshToStrandPoints').value;
+  clearMeshToStrandPreview();
+  session.data = null;
+  const status = document.querySelector('#meshToStrandStatus');
+  const confirm = document.querySelector('#confirmMeshToStrand');
+  confirm.disabled = true;
+  try {
+    const source = meshToStrandSource();
+    if (!source || source.id !== session.sourceId) throw Error('Selection changed. Close and reopen with one mesh selected.');
+    // Read only the current displayed mesh buffers, never the saved strand/bake inputs.
+    const geometry = source.mesh.geometry.clone();
+    let fit;
+    try {
+      source.mesh.updateWorldMatrix(true, false);
+      geometry.applyMatrix4(source.mesh.matrixWorld);
+      const position = geometry.getAttribute('position');
+      const points = Array.from({length:position.count}, (_,i)=>({x:position.getX(i),y:position.getY(i),z:position.getZ(i)}));
+      const index = geometry.index;
+      const faces = hairFaceIndices(geometry);
+      if(!faces.length) for(let i=0;i+2<(index?.count ?? position.count);i+=3) faces.push([0,1,2].map(k=>index ? index.getX(i+k) : i+k));
+      fit = reconstructStrandFromMesh(points, faces, {
+        pointCount:document.querySelector('#meshToStrandPoints').value,
+        flip:document.querySelector('#meshToStrandFlip').checked
+      });
+    } finally { geometry.dispose(); }
+    session.data = {
+      geometryType:'strand', points:fit.points.map(dataToVector), pointSurfaceNormals:fit.pointSurfaceNormals.map(dataToVector),
+      width:fit.width, depth:fit.depth, taperCurve:fit.taperCurve, depthCurve:fit.depthCurve,
+      taperCurveSecondary:fit.taperCurve, depthCurveSecondary:fit.depthCurve,
+      asymmetricWidthCurve:false, asymmetricDepthCurve:false, centerAsymmetricProfile:false,
+      sweepProfile:fit.sweepProfile || Array.from({length:12},(_,i)=>({x:Math.cos(i*Math.PI/6),z:Math.sin(i*Math.PI/6)})),
+      surfaceNormalInfluence:1, rootAttachmentEnabled:false, rootScalpOffset:0, layerOffsetApplied:0,
+      strandRotation:0, twist:0, twistCurve:[{position:0,value:0},{position:1,value:0}],
+      widthScale:1, depthScale:1, profileOffset:0, curlEnabled:false, strandSplitEnabled:false, hairCard:false,
+      radialSegments:12, lengthSegments:48, dynamicDensity:false,
+      materialId:source.materialId, scalpRegion:source.scalpRegion, hairLayer:source.hairLayer
+    };
+    const draft = addLock('front',session.data,{transient:true});
+    draft.mesh.material.dispose();
+    draft.mesh.material = new THREE.MeshBasicMaterial({color:0x55c5f4,wireframe:true,transparent:true,opacity:.6,depthTest:false});
+    draft.mesh.renderOrder = 1000;
+    const preview = new THREE.Group();
+    preview.add(draft.mesh);
+    const radius = Math.max(fit.width,fit.depth)*.09;
+    [0,fit.points.length-1].forEach((i,k)=>{
+      const marker = new THREE.Mesh(new THREE.SphereGeometry(radius,12,8),new THREE.MeshBasicMaterial({color:k?0xffb454:0x64e798,depthTest:false}));
+      marker.position.copy(session.data.points[i]); marker.renderOrder=1001; preview.add(marker);
+    });
+    session.preview = preview; scene.add(preview);
+    status.textContent = `Green: root · Orange: tip. ${fit.warning}`;
+    confirm.disabled = false;
+    return true;
+  } catch(error) { session.data=null; status.textContent=error.message; return false; }
+}
+
+function openMeshToStrand() {
+  const source=meshToStrandSource();
+  if(!source){window.alert('Select one unlocked mesh in the Meshes workspace.');return false;}
+  clearMeshToStrandPreview();
+  meshToStrandSession={sourceId:source.id,preview:null,data:null};
+  document.querySelector('#meshToStrandPoints').value=8;
+  document.querySelector('#meshToStrandFlip').checked=false;
+  document.querySelector('#meshToStrandHide').checked=false;
+  document.querySelector('#meshToStrandDialog').show();
+  updateMeshToStrandPreview();
+  return true;
+}
+
+function confirmMeshToStrand() {
+  if(!updateMeshToStrandPreview()) return false;
+  const source=meshToStrandSource(), data=meshToStrandSession.data;
+  pushUndoState();
+  const result=addLock('front',data,{deferUi:true});
+  result.name=nextMeshPrimitiveName(`${source.name} Strand`);
+  if(document.querySelector('#meshToStrandHide').checked) source.outlinerVisible=false;
+  document.querySelector('#meshToStrandDialog').close();
+  clearMeshToStrandPreview(); meshToStrandSession=null;
+  setViewportEditMode('strand'); setViewportSelectionMode('object'); setActiveTool('select');
+  applyDisplayVisibilityFilters(); selectLock(result.id);
+  renderLockList(); renderMeshOutliner(); updateCount(); requestShadowMapRefresh();
+  return true;
+}
+
+function selectedMeshConversionSources() {
+  return strandWorkspaceActive() ? selectedLocksInOrder().filter(lock =>
+    !lock.locked && !isModelingMesh(lock) && lock.mesh?.visible
+    && !lock.proceduralParentHidden && !lock.liveSurfaceGuide && !lock.clumpGuide
+    && ['strand','braid','panel','surface','curve-surface'].includes(lock.geometryType)) : [];
+}
+
+function convertSelectedStrandsToMesh() {
+  const sources=selectedMeshConversionSources();
+  if(!sources.length){window.alert('Select one or more unlocked strands to convert to mesh.');return false;}
+  let prepared;
+  try {
+    prepared=sources.map(source=>{
+      const geometry=createHairGeometry(source);
+      try {
+        source.mesh.updateWorldMatrix(true,false);
+        geometry.applyMatrix4(source.mesh.matrixWorld);
+        const faces=hairFaceIndices(geometry);
+        if(!faces.length){const count=geometry.getAttribute('position').count;for(let i=0;i+2<count;i+=3)faces.push([i,i+1,i+2]);}
+        return {source,data:bakeStrandGeometry(geometry,faces)};
+      } finally {geometry.dispose();}
+    });
+  } catch(error){window.alert(`Could not convert strands: ${error.message}`);return false;}
+  pushUndoState();
+  const outputs=prepared.map(({source,data})=>{
+    const result=addLock('front',{
+      geometryType:'poly',modelingMeshType:'converted-strand',
+      points:data.points.map(dataToVector),polyFaces:data.faces,meshBake:data.meshBake,
+      materialId:source.materialId,scalpRegion:source.scalpRegion,hairLayer:source.hairLayer,
+      rootAttachmentEnabled:false,layerOffsetApplied:0,width:1,depth:1
+    },{deferUi:true});
+    result.name=nextMeshPrimitiveName(`${source.name} Mesh`);
+    return result;
+  });
+  sources.forEach(source=>{source.outlinerVisible=false;});
+  applyDisplayVisibilityFilters();
+  setViewportEditMode('mesh');setViewportSelectionMode('object');setActiveTool('select');
+  selectLock(outputs[0].id,{selectedIds:outputs.map(output=>output.id),individualClumpMember:true});
+  renderLockList();renderMeshOutliner();updateCount();requestShadowMapRefresh();
+  return true;
 }
 
 function confirmAutoRemeshStrands() {
@@ -43482,6 +43995,7 @@ document.querySelector('#toggleBackfaceDebug').addEventListener('click', event =
   event.currentTarget.setAttribute('aria-pressed', String(meshBackfaceDebugEnabled));
   document.querySelector('#backfaceDebugMenuState').textContent = meshBackfaceDebugEnabled ? 'On' : 'Off';
 });
+document.querySelector('#toggleShowBackfaces').addEventListener('click', () => setShowBackfacesEnabled(!showBackfacesEnabled));
 
 function selectionCanBecomeClump(selection = selectedLocksInOrder()) {
   return selection.length >= 2
@@ -44051,6 +44565,9 @@ function contextualRadialOptions(kind) {
       && !lock?.locked;
     const componentDelete = selectedMeshComponentDeleteContext();
     return [
+      { action: 'mesh-to-strand', label: 'Convert to Strand', list: true, enabled: Boolean(meshToStrandSource()) },
+      { action: 'split-mesh-parts', label: 'Split into Parts', list: true, enabled: Boolean(lock && isModelingMesh(lock) && !lock.locked) },
+      { action: 'invert-mesh-faces', label: 'Invert Faces', list: true, enabled: Boolean(meshInvertFacesContext()) },
       { action: "tool-loop-cut", label: "Loop Cut", enabled: editableQuadMesh },
       { action: 'mesh-bevel', label: 'Bevel', enabled: editableQuadMesh && Boolean(selectedMeshEdgeOperationContext()?.edges.length) },
       {
@@ -44173,6 +44690,7 @@ function contextualRadialOptions(kind) {
   if (kind === "clump") {
     const guide = clumpViewportSelection ? clumpGuideForLock(getSelectedLock()) : null;
     return [
+      ...(selectedMeshConversionSources().length ? [{action:'convert-strands-to-mesh',label:'Convert to Mesh',list:true}] : []),
       ...clumpMirrorRadialOptions(guide),
       ...(selectedStrandLatticeSources().length >= 2 && selectedStrandLatticeSources().length <= 12
         ? [{ action: "open-strand-lattice-guide", label: "Create Lattice Guide", list: true }] : []),
@@ -44198,6 +44716,8 @@ function contextualRadialOptions(kind) {
   }
   if (kind === "selection") {
     return [
+      ...(selectedMeshConversionSources().length ? [{action:'convert-strands-to-mesh',label:'Convert to Mesh',list:true}] : []),
+      ...(strandWorkspaceActive() && showDevTestFeatures && accessoryStrandExperimentalEnabled ? [{ action: "add-accessory", label: "Add Accessory Strand (Experimental)", list: true }] : []),
       ...selectedMirrorRadialOptions(),
       ...(selectedStrandLatticeSources().length >= 2 && selectedStrandLatticeSources().length <= 12
         ? [{ action: "open-strand-lattice-guide", label: "Create Lattice Guide", list: true }] : []),
@@ -44241,6 +44761,7 @@ function contextualRadialOptions(kind) {
   }
   const componentDelete = kind === "strand" ? selectedMeshComponentDeleteContext() : null;
   return [
+    ...(selectedMeshConversionSources().length ? [{ action: "convert-strands-to-mesh", label: "Convert to Mesh", list: true }] : []),
     ...selectedMirrorRadialOptions(),
     { action: "duplicate", label: "Duplicate strand" },
     selectionSetRadialMenuOption(),
@@ -44678,6 +45199,11 @@ function updateStrandRadialGesture(event) {
 }
 
 function performStrandRadialAction(action, lockId) {
+  if(action==='invert-mesh-faces') return invertSelectedMeshFaces();
+  if(action==='split-mesh-parts') return splitEditableMeshIntoParts(getSelectedLock());
+  if(action==='mesh-to-strand') return openMeshToStrand();
+  if(action==='convert-strands-to-mesh') return convertSelectedStrandsToMesh();
+  if (action === "add-accessory") { setActiveTool("add-accessory"); return true; }
   if (action === 'mesh-bevel') return openMeshBevelDialog();
   if (action === "toggle-dynamic-surface") {
     setDrawSurfaceDynamicEnabled(!drawSurfaceDynamicEnabled());
@@ -44919,7 +45445,7 @@ function beginToolRadialGesture() {
 }
 
 function beginHotkeyToolSettingsHold() {
-  if (!hotkeyToolSettingsExperimentalEnabled || hotkeyToolSettingsHoldActive || duplicatePlacement) return false;
+  if (hotkeyToolSettingsHoldActive || duplicatePlacement) return false;
   hotkeyToolSettingsHoldActive = true;
   syncFloatingToolSettingsPanel();
   if (floatingToolSettingsPanel.classList.contains("hidden")) {
@@ -44940,18 +45466,13 @@ function finishHotkeyToolSettingsHold() {
 function beginToolShortcutPress(key, tool) {
   if (toolShortcutPress || toolRadialGesture || strandRadialGesture || duplicatePlacement) return;
   setActiveTool(tool);
-  if (!radialMenusEnabled && !hotkeyToolSettingsExperimentalEnabled) return;
   toolShortcutPress = {
     key,
     tool,
     openedMode: null,
     holdTimer: window.setTimeout(() => {
       if (!toolShortcutPress || toolShortcutPress.key !== key) return;
-      if (hotkeyToolSettingsExperimentalEnabled) {
-        toolShortcutPress.openedMode = beginHotkeyToolSettingsHold() ? "settings" : null;
-      } else {
-        toolShortcutPress.openedMode = beginToolRadialGesture() ? "radial" : null;
-      }
+      toolShortcutPress.openedMode = beginHotkeyToolSettingsHold() ? "settings" : null;
     }, 180)
   };
 }
@@ -44962,7 +45483,6 @@ function finishToolShortcutPress(key) {
   toolShortcutPress = null;
   window.clearTimeout(press.holdTimer);
   if (press.openedMode === "settings") finishHotkeyToolSettingsHold();
-  else if (press.openedMode === "radial") finishToolRadialGesture();
   return true;
 }
 
@@ -45004,7 +45524,7 @@ function setMultiCameraExperimentalEnabled(enabled, { persist = true } = {}) {
 function positionFloatingToolSettingsPanel() {
   if (!floatingToolSettingsPanel || !viewportToolRail || !viewportPanel) return;
   const viewportBounds = viewportPanel.getBoundingClientRect();
-  if (hotkeyToolSettingsExperimentalEnabled && hotkeyToolSettingsHoldActive) {
+  if (hotkeyToolSettingsHoldActive) {
     floatingToolSettingsPanel.style.width = "";
     const edgeMargin = 8;
     const pointerOffset = 12;
@@ -45047,17 +45567,13 @@ function restoreFloatingToolSettingPanel(panel) {
 
 function syncFloatingToolSettingsPanel() {
   if (!floatingToolSettingsPanel) return;
-  const hotkeyFloatActive = hotkeyToolSettingsExperimentalEnabled && hotkeyToolSettingsHoldActive;
-  const removeHotkeySettingsFromMain = hotkeyToolSettingsExperimentalEnabled && !hotkeyToolSettingsKeepMain;
+  const hotkeyFloatActive = hotkeyToolSettingsHoldActive;
   let visiblePanelCount = 0;
   floatingToolSettingPanels.forEach((panel) => {
     const panelVisible = !panel.classList.contains("hidden");
     const shouldFloat = panelVisible && (floatingToolSettingsExperimentalEnabled || hotkeyFloatActive);
-    const shouldPark = panelVisible && removeHotkeySettingsFromMain && !hotkeyFloatActive;
     if (shouldFloat) {
       visiblePanelCount += 1;
-      if (panel.parentElement !== floatingToolSettingsPanel) floatingToolSettingsPanel.append(panel);
-    } else if (shouldPark) {
       if (panel.parentElement !== floatingToolSettingsPanel) floatingToolSettingsPanel.append(panel);
     } else {
       restoreFloatingToolSettingPanel(panel);
@@ -45078,30 +45594,6 @@ function setFloatingToolSettingsExperimentalEnabled(enabled, { persist = true } 
       FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
       floatingToolSettingsExperimentalEnabled
     );
-  }
-}
-
-function setHotkeyToolSettingsExperimentalEnabled(enabled, { persist = true } = {}) {
-  hotkeyToolSettingsExperimentalEnabled = Boolean(enabled);
-  hotkeyToolSettingsExperimentalPreferenceInput.checked = hotkeyToolSettingsExperimentalEnabled;
-  hotkeyToolSettingsKeepMainPreferenceInput.disabled = !hotkeyToolSettingsExperimentalEnabled;
-  hotkeyToolSettingsKeepMainPreferenceRow.classList.toggle("disabled", !hotkeyToolSettingsExperimentalEnabled);
-  if (!hotkeyToolSettingsExperimentalEnabled) hotkeyToolSettingsHoldActive = false;
-  syncFloatingToolSettingsPanel();
-  if (persist) {
-    saveBooleanPreference(
-      HOTKEY_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
-      hotkeyToolSettingsExperimentalEnabled
-    );
-  }
-}
-
-function setHotkeyToolSettingsKeepMain(enabled, { persist = true } = {}) {
-  hotkeyToolSettingsKeepMain = Boolean(enabled);
-  hotkeyToolSettingsKeepMainPreferenceInput.checked = hotkeyToolSettingsKeepMain;
-  syncFloatingToolSettingsPanel();
-  if (persist) {
-    saveBooleanPreference(HOTKEY_TOOL_SETTINGS_KEEP_MAIN_PREFERENCE_KEY, hotkeyToolSettingsKeepMain);
   }
 }
 
@@ -45162,6 +45654,13 @@ function setSilhouetteVolumeExperimentalEnabled(enabled, { persist = true } = {}
   });
 }
 
+function setAccessoryStrandExperimentalEnabled(enabled, { persist = true } = {}) {
+  accessoryStrandExperimentalEnabled = setDevTestViewportToolEnabled({
+    enabled, input: accessoryStrandExperimentalPreferenceInput, button: accessoryStrandToolButton,
+    tool: "add-accessory", preferenceKey: ACCESSORY_STRAND_EXPERIMENTAL_PREFERENCE_KEY, persist
+  });
+}
+
 function setScalpDrawExperimentalEnabled(enabled, { persist = true } = {}) {
   scalpDrawExperimentalEnabled = setDevTestViewportToolEnabled({
     enabled,
@@ -45195,6 +45694,7 @@ function setShowDevTestFeatures(enabled, { persist = true } = {}) {
   showDevTestFeaturesPreferenceInput.checked = showDevTestFeatures;
   devTestFeaturePreferenceRows.forEach((row) => row.classList.toggle("hidden", !showDevTestFeatures));
   setProceduralDrawExperimentalEnabled(proceduralDrawExperimentalEnabled, { persist: false });
+  setAccessoryStrandExperimentalEnabled(accessoryStrandExperimentalEnabled, { persist: false });
   setCompoundStrandExperimentalEnabled(compoundStrandExperimentalEnabled, { persist: false });
   setHairShellExperimentalEnabled(hairShellExperimentalEnabled, { persist: false });
   setArcHairSurfaceExperimentalEnabled(arcHairSurfaceExperimentalEnabled, { persist: false });
@@ -45363,6 +45863,18 @@ function setGlassPanelColor(value, { persist = true } = {}) {
   if (persist) {
     writeStoredPreference(window, GLASS_PANEL_COLOR_PREFERENCE_KEY, glassPanelColor);
   }
+}
+
+function setAccentColor(value, { persist = true } = {}) {
+  accentColor = normalizeAccentColor(value);
+  document.querySelector('#accentColorPreference').value = accentColor;
+  document.querySelector('#accentColorPreferenceValue').textContent = accentColor.toUpperCase();
+  document.body.style.setProperty('--ui-accent', accentColor);
+  Object.entries(accentIconImages(accentColor)).forEach(([name, image]) => {
+    document.body.style.setProperty(`--accent-icon-${name.replaceAll('/', '-')}`, image);
+  });
+  document.body.classList.toggle('custom-accent', accentColor !== DEFAULT_ACCENT_COLOR);
+  if (persist) writeStoredPreference(window, ACCENT_COLOR_PREFERENCE_KEY, accentColor);
 }
 
 function setViewportStatisticsEnabled(enabled, { persist = true } = {}) {
@@ -45603,10 +46115,9 @@ function openPreferencesDialog() {
     radialMenusEnabled,
     multiCameraExperimentalEnabled,
     floatingToolSettingsExperimentalEnabled,
-    hotkeyToolSettingsExperimentalEnabled,
-    hotkeyToolSettingsKeepMain,
     showDevTestFeatures,
     proceduralDrawExperimentalEnabled,
+    accessoryStrandExperimentalEnabled,
     crownGrowExperimentalEnabled,
     compoundStrandExperimentalEnabled,
     hairShellExperimentalEnabled,
@@ -45621,6 +46132,7 @@ function openPreferencesDialog() {
     compactToolButtonsEnabled,
     sidePanelStyle,
     glassPanelColor,
+    accentColor,
     viewportStatisticsEnabled,
     twistCurveAllStrandsPreviewEnabled,
     layerColorShiftsEnabled,
@@ -45638,6 +46150,7 @@ function openPreferencesDialog() {
   setControlPointDisplaySize(controlPointDisplaySize, { persist: false });
   setViewportBackgroundColor(viewportBackgroundColor, { persist: false });
   setGlassPanelColor(glassPanelColor, { persist: false });
+  setAccentColor(accentColor, { persist: false });
   preferencesBackupStatus.textContent = "";
   setPreferenceCategory("viewport");
   preferencesDialog.showModal();
@@ -45650,14 +46163,10 @@ function savePreferencesDialog() {
     FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
     floatingToolSettingsExperimentalEnabled
   );
-  saveBooleanPreference(
-    HOTKEY_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
-    hotkeyToolSettingsExperimentalEnabled
-  );
-  saveBooleanPreference(HOTKEY_TOOL_SETTINGS_KEEP_MAIN_PREFERENCE_KEY, hotkeyToolSettingsKeepMain);
   saveBooleanPreference(SHOW_DEV_TEST_FEATURES_PREFERENCE_KEY, showDevTestFeatures);
   saveBooleanPreference(CURVY_PREFERENCE_KEY, curvy.enabled);
   saveBooleanPreference(PROCEDURAL_DRAW_EXPERIMENTAL_PREFERENCE_KEY, proceduralDrawExperimentalEnabled);
+  saveBooleanPreference(ACCESSORY_STRAND_EXPERIMENTAL_PREFERENCE_KEY, accessoryStrandExperimentalEnabled);
   saveBooleanPreference(CROWN_GROW_EXPERIMENTAL_PREFERENCE_KEY, crownGrowExperimentalEnabled);
   saveBooleanPreference(COMPOUND_STRAND_EXPERIMENTAL_PREFERENCE_KEY, compoundStrandExperimentalEnabled);
   saveBooleanPreference(HAIR_SHELL_EXPERIMENTAL_PREFERENCE_KEY, hairShellExperimentalEnabled);
@@ -45675,6 +46184,7 @@ function savePreferencesDialog() {
   writeStoredPreference(window, SIDE_PANEL_STYLE_PREFERENCE_KEY, sidePanelStyle);
   writeStoredPreference(window, GLASS_PANEL_COLOR_PREFERENCE_KEY, glassPanelColor);
   saveBooleanPreference(VIEWPORT_STATISTICS_PREFERENCE_KEY, viewportStatisticsEnabled);
+  writeStoredPreference(window, ACCENT_COLOR_PREFERENCE_KEY, accentColor);
   saveBooleanPreference(
     TWIST_CURVE_ALL_STRANDS_PREVIEW_PREFERENCE_KEY,
     twistCurveAllStrandsPreviewEnabled
@@ -45700,14 +46210,6 @@ function cancelPreferencesDialog() {
     );
     setFloatingToolSettingsExperimentalEnabled(
       preferencesOpenSnapshot.floatingToolSettingsExperimentalEnabled,
-      { persist: false }
-    );
-    setHotkeyToolSettingsKeepMain(
-      preferencesOpenSnapshot.hotkeyToolSettingsKeepMain,
-      { persist: false }
-    );
-    setHotkeyToolSettingsExperimentalEnabled(
-      preferencesOpenSnapshot.hotkeyToolSettingsExperimentalEnabled,
       { persist: false }
     );
     setShowDevTestFeatures(preferencesOpenSnapshot.showDevTestFeatures, { persist: false });
@@ -45736,6 +46238,7 @@ function cancelPreferencesDialog() {
       preferencesOpenSnapshot.silhouetteVolumeExperimentalEnabled,
       { persist: false }
     );
+    setAccessoryStrandExperimentalEnabled(preferencesOpenSnapshot.accessoryStrandExperimentalEnabled, { persist: false });
     setScalpDrawExperimentalEnabled(
       preferencesOpenSnapshot.scalpDrawExperimentalEnabled,
       { persist: false }
@@ -45750,6 +46253,7 @@ function cancelPreferencesDialog() {
     setCompactToolButtonsEnabled(preferencesOpenSnapshot.compactToolButtonsEnabled, { persist: false });
     setSidePanelStyle(preferencesOpenSnapshot.sidePanelStyle, { persist: false });
     setGlassPanelColor(preferencesOpenSnapshot.glassPanelColor, { persist: false });
+    setAccentColor(preferencesOpenSnapshot.accentColor, { persist: false });
     setViewportStatisticsEnabled(preferencesOpenSnapshot.viewportStatisticsEnabled, { persist: false });
     setTwistCurveAllStrandsPreviewEnabled(
       preferencesOpenSnapshot.twistCurveAllStrandsPreviewEnabled,
@@ -48539,6 +49043,7 @@ inputs.name.addEventListener("input", () => {
   if (!lock) return;
   lock.name = inputs.name.value || "Untitled lock";
   renderLockList();
+  if(isModelingMesh(lock))renderMeshOutliner();
 });
 
 presetLibraryToggle.addEventListener("click", () => setPresetLibraryOpen(presetLibrary.classList.contains("hidden")));
@@ -50839,14 +51344,13 @@ setTurntableActive(false);
 setRadialMenusEnabled(radialMenusEnabled, { persist: false });
 setMultiCameraExperimentalEnabled(multiCameraExperimentalEnabled, { persist: false });
 setFloatingToolSettingsExperimentalEnabled(floatingToolSettingsExperimentalEnabled, { persist: false });
-setHotkeyToolSettingsKeepMain(hotkeyToolSettingsKeepMain, { persist: false });
-setHotkeyToolSettingsExperimentalEnabled(hotkeyToolSettingsExperimentalEnabled, { persist: false });
 setShowDevTestFeatures(showDevTestFeatures, { persist: false });
 setCurvyEnabled(readStoredBooleanPreference(window, CURVY_PREFERENCE_KEY, false), { persist: false });
 document.querySelector('#curvyPreference').addEventListener('change', event => {
   setCurvyEnabled(event.target.checked, { persist: false });
 });
 setProceduralDrawExperimentalEnabled(proceduralDrawExperimentalEnabled, { persist: false });
+setAccessoryStrandExperimentalEnabled(accessoryStrandExperimentalEnabled, { persist: false });
 setCrownGrowExperimentalEnabled(crownGrowExperimentalEnabled, { persist: false });
 Object.values(crownGrowControls).forEach(({ input }) => {
   input.addEventListener("input", () => syncCrownGrowSettingsFromControls());
@@ -50876,6 +51380,7 @@ setToolTipsEnabled(toolTipsEnabled, { persist: false });
 setCompactToolButtonsEnabled(compactToolButtonsEnabled, { persist: false });
 setSidePanelStyle(sidePanelStyle, { persist: false });
 setGlassPanelColor(glassPanelColor, { persist: false });
+setAccentColor(accentColor, { persist: false });
 setViewportStatisticsEnabled(viewportStatisticsEnabled, { persist: false });
 setTwistCurveAllStrandsPreviewEnabled(twistCurveAllStrandsPreviewEnabled, { persist: false });
 setLayerColorShiftsEnabled(layerColorShiftsEnabled, { persist: false });
@@ -50939,20 +51444,14 @@ floatingToolSettingsExperimentalPreferenceInput.addEventListener("change", () =>
     { persist: false }
   );
 });
-hotkeyToolSettingsExperimentalPreferenceInput.addEventListener("change", () => {
-  setHotkeyToolSettingsExperimentalEnabled(
-    hotkeyToolSettingsExperimentalPreferenceInput.checked,
-    { persist: false }
-  );
-});
-hotkeyToolSettingsKeepMainPreferenceInput.addEventListener("change", () => {
-  setHotkeyToolSettingsKeepMain(hotkeyToolSettingsKeepMainPreferenceInput.checked, { persist: false });
-});
 showDevTestFeaturesPreferenceInput.addEventListener("change", () => {
   setShowDevTestFeatures(showDevTestFeaturesPreferenceInput.checked, { persist: false });
 });
 proceduralDrawExperimentalPreferenceInput.addEventListener("change", () => {
   setProceduralDrawExperimentalEnabled(proceduralDrawExperimentalPreferenceInput.checked, { persist: false });
+});
+accessoryStrandExperimentalPreferenceInput.addEventListener("change", () => {
+  setAccessoryStrandExperimentalEnabled(accessoryStrandExperimentalPreferenceInput.checked, { persist: false });
 });
 crownGrowExperimentalPreferenceInput.addEventListener("change", () => {
   setCrownGrowExperimentalEnabled(crownGrowExperimentalPreferenceInput.checked, { persist: false });
@@ -51002,6 +51501,8 @@ glassPanelColorPreferenceInput.addEventListener("input", () => {
 resetGlassPanelColorButton.addEventListener("click", () => {
   setGlassPanelColor(DEFAULT_GLASS_PANEL_COLOR, { persist: false });
 });
+document.querySelector('#accentColorPreference').addEventListener('input', event => setAccentColor(event.target.value, { persist: false }));
+document.querySelector('#resetAccentColor').addEventListener('click', () => setAccentColor(DEFAULT_ACCENT_COLOR, { persist: false }));
 viewportStatisticsPreferenceInput.addEventListener("change", () => {
   setViewportStatisticsEnabled(viewportStatisticsPreferenceInput.checked, { persist: false });
 });
@@ -51338,6 +51839,20 @@ deleteSelectionAction.addEventListener("click", () => {
 });
 openRebuildCurveButton.addEventListener("click", openRebuildCurveDialog);
 openAutoRemeshStrandsButton.addEventListener("click", openAutoRemeshStrandsPanel);
+document.querySelector('#convertStrandsToMesh').addEventListener('click',convertSelectedStrandsToMesh);
+document.querySelector('#convertMeshToStrand').addEventListener('click',openMeshToStrand);
+document.querySelector('#importEditableMesh').addEventListener('click',openEditableMeshImport);
+document.querySelector('#importEditableMeshFileMenu').addEventListener('click',openEditableMeshImport);
+document.querySelector('#confirmEditableMeshImport').addEventListener('click',importEditableMeshFile);
+document.querySelector('#cancelEditableMeshImport').addEventListener('click',()=>{editableMeshImportGeneration++;document.querySelector('#editableMeshImportDialog').close();});
+document.querySelector('#editableMeshImportDialog').addEventListener('cancel',()=>{editableMeshImportGeneration++;});
+document.querySelector('#editableMeshImportDialog').addEventListener('close',()=>{editableMeshImportGeneration++;});
+document.querySelector('#meshToStrandPoints').addEventListener('input',updateMeshToStrandPreview);
+document.querySelector('#meshToStrandFlip').addEventListener('change',updateMeshToStrandPreview);
+document.querySelector('#confirmMeshToStrand').addEventListener('click',confirmMeshToStrand);
+document.querySelector('#cancelMeshToStrand').addEventListener('click',cancelMeshToStrand);
+document.querySelector('#meshToStrandDialog').addEventListener('close',()=>{clearMeshToStrandPreview();meshToStrandSession=null;});
+document.querySelector('#meshToStrandDialog').addEventListener('keydown',event=>{if(event.key==='Escape'){event.stopPropagation();document.querySelector('#meshToStrandDialog').close();}});
 cancelAutoRemeshStrandsButton.addEventListener("click", () => cancelAutoRemeshStrands());
 confirmAutoRemeshStrandsButton.addEventListener("click", tryConfirmAutoRemeshStrands);
 [autoRemeshAxialLoopsInput, autoRemeshFlowSmoothingInput, autoRemeshTipSeparationInput].forEach((input) => {
@@ -52189,11 +52704,7 @@ window.addEventListener("keydown", (event) => {
   if (!tool) return;
   event.preventDefault();
   if (event.repeat) return;
-  if (hotkeyToolSettingsExperimentalEnabled || ["select", "move", "rotate", "scale"].includes(tool)) {
-    beginToolShortcutPress(event.key.toLowerCase(), tool);
-  } else {
-    setActiveTool(tool);
-  }
+  beginToolShortcutPress(event.key.toLowerCase(), tool);
 }, true);
 
 window.addEventListener("keyup", (event) => {
@@ -54882,6 +55393,15 @@ window.addEventListener("pointercancel", clearViewportPointer);
   renderer.domElement.addEventListener(eventName, blockProportionalSizingEvent, true);
 });
 renderer.domElement.addEventListener("dblclick", selectMeshEdgeLoopAtEvent, true);
+renderer.domElement.addEventListener("pointerdown", beginAccessoryStrand, true);
+window.addEventListener("pointermove", moveAccessoryStrand, true);
+window.addEventListener("pointerup", event => finishAccessoryStrand(event), true);
+window.addEventListener("pointercancel", event => finishAccessoryStrand(event, true), true);
+renderer.domElement.addEventListener("lostpointercapture", event => finishAccessoryStrand(event, true));
+window.addEventListener("blur", () => finishAccessoryStrand(null, true));
+window.addEventListener("keydown", event => {
+  if (event.key === "Escape") finishAccessoryStrand(event, true);
+}, true);
 renderer.domElement.addEventListener("pointerdown", beginBrushWorkspacePatternDrag, true);
 renderer.domElement.addEventListener("pointerdown", beginMeshEditModeRadialGesture, true);
 renderer.domElement.addEventListener("pointerdown", beginTaperMeshPointDrag, true);
@@ -55350,7 +55870,7 @@ function animate(timestamp = performance.now()) {
   // Also catch silent programmatic value/min/max changes (selection, presets and undo).
   // Cached elements, no layout reads, and unchanged fills perform no DOM writes.
   if (timestamp - lastSliderFillSync >= 100) {
-    attributeSliderRanges.forEach(syncSliderFill);
+    uiSliderRanges.forEach(syncSliderFill);
     lastSliderFillSync = timestamp;
   }
   const deltaSeconds = Math.min(0.1, Math.max(0, (timestamp - previousAnimationTimestamp) / 1000));

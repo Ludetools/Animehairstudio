@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.0.1";
 
 export const SCALP_REGIONS = {
   bangs: { label: "Bangs Root", color: 0xef476f },

@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Hair Studio</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=20260830-2" />
-  <link rel="stylesheet" href="./styles.css?v=20260908-6" />
+  <link rel="stylesheet" href="./styles.css?v=20260910-11" />
   </head>
   <body>
     <section id="startupSplash" aria-label="Anime Hair Studio loading" aria-busy="true">
@@ -81,6 +81,7 @@
                 <button id="exportObj" type="button" role="menuitem"><span>Export to OBJ</span></button>
                 <button id="exportSelectionObj" type="button" role="menuitem"><span>Export Selection to OBJ</span></button>
                 <button id="exportUsda" type="button" role="menuitem"><span>Export to USDA</span></button>
+                <button id="importEditableMeshFileMenu" type="button" role="menuitem">Import Mesh…</button>
                 <button
                   id="localExportObj"
                   class="local-save-menu-item"
@@ -120,6 +121,7 @@
                 <button id="openRebuildCurve" type="button" role="menuitem">Rebuild Curve...</button>
                 <button id="fixCurveNormals" type="button" role="menuitem" title="Correct reversed normals on selected strand, panel or braid curves, keeping the first valid normal as the reference. Undoable.">Fix Curve Normals</button>
                 <button id="openAutoRemeshStrands" type="button" role="menuitem">Auto Remesh Strands...</button>
+                <button id="convertStrandsToMesh" type="button" role="menuitem" title="Bake selected strands into editable meshes. Original strands are kept and hidden. Undoable.">Convert to Mesh</button>
                 <button id="createStrandLattice" type="button" role="menuitem" title="Select at least two neighbouring strands. Curves are ordered spatially. Roots form the top edge; tips form the bottom. Originals are retained and hidden.">Create Lattice from Strands</button>
                 <button id="createStrandLatticeGuide" type="button" role="menuitem" title="Select 2–12 neighbouring strands to create a smooth live-surface guide. Originals remain visible.">Create Lattice Guide from Strands</button>
                 <button id="createCompoundStrand" type="button" role="menuitem" hidden aria-hidden="true" tabindex="-1">Create Compound Strand</button>
@@ -131,6 +133,8 @@
               <button id="meshesMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">Meshes</button>
               <div id="meshesMenu" class="app-menu-dropdown hidden" role="menu" aria-label="Meshes">
                 <button id="createBackHairMesh" type="button" role="menuitem">Create Back Hair Mesh</button>
+                <button id="convertMeshToStrand" type="button" role="menuitem">Convert to Strand</button>
+                <button id="importEditableMesh" type="button" role="menuitem">Import Mesh…</button>
                 <button id="createConnectedStrandShell" type="button" role="menuitem">Create Connected Strand Shell</button>
               </div>
             </div>
@@ -180,7 +184,8 @@
             <div class="app-menu-shell">
               <button id="debugMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">Debug</button>
               <div id="debugMenu" class="app-menu-dropdown hidden" role="menu" aria-label="Debug">
-                <button id="toggleBackfaceDebug" type="button" role="menuitem" aria-pressed="false"><span>Green Backfaces</span><span id="backfaceDebugMenuState" class="app-menu-state">Off</span></button>
+                <button id="toggleShowBackfaces" type="button" role="menuitem" aria-pressed="false" title="Render strand and mesh backfaces with their normal material"><span>Show Backfaces</span><span id="showBackfacesMenuState" class="app-menu-state">Off</span></button>
+                <button id="toggleBackfaceDebug" type="button" role="menuitem" aria-pressed="false" title="Highlight back-facing geometry in bright green"><span>Green Backfaces</span><span id="backfaceDebugMenuState" class="app-menu-state">Off</span></button>
                 <button id="toggleUvChecker" type="button" role="menuitem" aria-pressed="false">
                   <span>UV Checker</span>
                   <span id="uvCheckerMenuState" class="app-menu-state">Off</span>
@@ -684,6 +689,7 @@
           <button class="tool-button" data-tool="curve-sharpness" title="Adjust curve point sharpness" aria-label="Curve Sharpness tool"><span class="tool-icon icon-curve-sharpness" aria-hidden="true"></span></button>
           <button id="meshBevelTool" class="tool-button edit-mode-tool-hidden" type="button" title="Bevel selected mesh edges" aria-label="Mesh Bevel"><svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true"><path d="M5 27V15L15 5H27" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
           <button class="tool-button" data-tool="draw" title="Draw strand (D)" aria-label="Draw strand tool"><span class="tool-icon icon-draw-strand" aria-hidden="true"></span><kbd>D</kbd></button>
+          <button class="tool-button experimental-tool-hidden" data-tool="add-accessory" title="Add Accessory Strand (Experimental) — drag on a strand to position, then away to bend" aria-label="Add Accessory Strand tool (Experimental)" hidden aria-hidden="true" tabindex="-1"><svg viewBox="0 0 32 32" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 28C20 19 7 12 19 4"/><path d="M13 19C20 19 26 14 26 8" stroke="#55c5f4"/><path d="M22 7h8m-4-4v8" stroke="#55c5f4"/></svg></button>
           <button class="tool-button" data-tool="radial-draw" title="Procedural Brush" aria-label="Procedural Brush tool"><span class="tool-icon icon-radial-draw" aria-hidden="true"></span></button>
           <button id="crownGrowToolButton" class="tool-button experimental-tool-hidden" data-tool="crown-grow" title="Generate strands from scalp region flow guides" aria-label="Style Forge tool" hidden aria-hidden="true" tabindex="-1"><span class="tool-icon icon-crown-grow" aria-hidden="true"></span></button>
           <button id="viewportFaceExtrudeTool" class="tool-button edit-mode-tool-hidden" data-tool="face-extrude" type="button" title="Extrude a selected mesh face along a drawn curve" aria-label="Face Extrude tool"><span class="tool-icon icon-face-extrude" aria-hidden="true"></span></button>
@@ -2129,14 +2135,18 @@
       <div class="patch-notes-dialog-shell">
         <header class="patch-notes-dialog-head">
           <div>
-            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 1.0.0 Patch Notes</h2>
-            <p id="patchNotesDialogSummary">Curve lattices, pattern brushes, mesh bevel tools, and three remeshing effort levels.</p>
+            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 1.0.1 Patch Notes</h2>
+            <p id="patchNotesDialogSummary">Mesh import and conversion, custom accent colours, standard hotkey settings, and interface fixes.</p>
           </div>
           <button id="closePatchNotes" type="button" title="Close patch notes" aria-label="Close patch notes">X</button>
         </header>
         <div class="patch-notes-workspace">
           <nav class="patch-notes-sidebar" role="tablist" aria-label="Patch note versions">
-            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="1.0.0">
+            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="1.0.1">
+              <strong>1.0.1</strong>
+              <time datetime="2026-09-11">September 11, 2026</time>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-patch-notes-version="1.0.0">
               <strong>1.0.0</strong>
               <time datetime="2026-09-08">September 8, 2026</time>
             </button>
@@ -2162,7 +2172,47 @@
             </button>
           </nav>
           <div class="patch-notes-panels">
-            <article class="patch-notes-content" data-patch-notes-panel="1.0.0"
+            <article class="patch-notes-content" data-patch-notes-panel="1.0.1"
+              data-patch-notes-title="Anime Hair Studio Version 1.0.1 Patch Notes"
+              data-patch-notes-summary="Mesh import and conversion, custom accent colours, standard hotkey settings, and interface fixes.">
+              <section class="patch-notes-section">
+                <h3>New features</h3>
+                <ul>
+                  <li><strong>Convert Strands to Meshes</strong><br />Convert selected strands into editable meshes from the Curves menu or radial menu. The source strands are kept and hidden so you can return to them.</li>
+                  <li><strong>Convert Meshes to Strands</strong><br />Build an editable strand from a mesh’s shape, with automatic root and tip detection, adjustable control-point count and a direction flip. Reconstruction uses the mesh itself, not the original strand data; complex shapes may still need adjustment.</li>
+                  <li><strong>Import Editable Meshes</strong><br />Import OBJ, USDA or FBX geometry directly into the Meshes workspace. Choose to import disconnected parts separately, or split an existing mesh into parts from its context or radial menu. Import is for static geometry; materials, textures, rigs and animation are not imported.</li>
+                  <li><strong>Invert Faces</strong><br />Reverse the entire mesh’s face direction in Object mode, or only selected faces in Face mode.</li>
+                  <li><strong>Custom Accent Colour</strong><br />Choose an interface accent colour in Preferences. Tool icons, radial menus, selection highlights, curve previews and performance readouts follow your chosen colour.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>UI changes</h3>
+                <ul>
+                  <li><strong>Hotkey Tool Settings</strong><br />Holding a tool hotkey now opens its settings near the pointer as standard behaviour, without an experimental toggle. Releasing the key closes the popup and returns settings to Main, unless the separate floating-panel mode is enabled.</li>
+                  <li><strong>Mesh Attributes</strong><br />Selected meshes now show their name and material in the Main tab.</li>
+                  <li><strong>Consistent Import Dialog</strong><br />Mesh import uses the existing importer styling, with compact controls and consistent action colours.</li>
+                  <li><strong>Updated Tool Icons</strong><br />Refreshed sculpting and mirror icons make the tools easier to distinguish.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Tweaks and quality of life</h3>
+                <ul>
+                  <li><strong>Backface Visibility</strong><br />The Debug menu includes Show Backfaces for viewing the reverse side with the normal material, separately from the green backface diagnostic.</li>
+                  <li><strong>Experimental Accessory Strands</strong><br />Add Accessory Strand is available under Dev Test Features and is off by default. Drag on an existing strand to position a flyaway, then drag away to shape it. Disabling the tool does not remove existing accessory strands.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Bug fixes</h3>
+                <ul>
+                  <li><strong>Remesher Strand Interpretation</strong><br />Updated Curve Union integration to use AHS’s strand sweeps, correcting mismatches between the source strand shape and the remesher input.</li>
+                  <li><strong>Mesh-to-Strand Tips</strong><br />Improved profile reconstruction and pointed-tip detection to better retain the source mesh’s shape.</li>
+                  <li><strong>Consistent Sliders and Highlights</strong><br />Updated remaining legacy slider styling, including the remesher, and corrected accent colours on radial/list items, SVG icons, outliner visibility buttons and selected rows.</li>
+                  <li><strong>Reference Panel Layout</strong><br />Fixed the docked Reference Images panel becoming squeezed into a narrow column.</li>
+                  <li><strong>Neutral Panel Tabs</strong><br />Restored the clean underline-only active-tab styling without coloured text or filled highlights.</li>
+                </ul>
+              </section>
+            </article>
+            <article class="patch-notes-content hidden" data-patch-notes-panel="1.0.0"
               data-patch-notes-title="Anime Hair Studio Version 1.0.0 Patch Notes"
               data-patch-notes-summary="Curve lattices, pattern brushes, mesh bevel tools, and three remeshing effort levels.">
               <section class="patch-notes-section">
@@ -2725,6 +2775,14 @@
                       <button id="resetGlassPanelColor" class="slider-reset-button" type="button" title="Reset glass panel colour" aria-label="Reset glass panel colour">&#x21BA;</button>
                     </span>
                   </label>
+                  <label class="preference-color" for="accentColorPreference">
+                    <span><strong>Accent colour</strong><small>Colour for active controls and interface highlights. Does not change hair materials or viewport overlays.</small></span>
+                    <span class="preference-color-control">
+                      <input id="accentColorPreference" type="color" value="#63c7ff" />
+                      <output id="accentColorPreferenceValue" for="accentColorPreference">#63C7FF</output>
+                      <button id="resetAccentColor" class="slider-reset-button" type="button" title="Reset accent colour" aria-label="Reset accent colour">&#x21BA;</button>
+                    </span>
+                  </label>
                   <label class="preference-toggle" for="outlinerFolderColorsPreference">
                     <span><strong>Outliner folder colours</strong><small>Tint strand region folders with their region colours.</small></span>
                     <input id="outlinerFolderColorsPreference" type="checkbox" checked />
@@ -2798,20 +2856,6 @@
                 </span>
                 <input id="crownGrowExperimentalPreference" type="checkbox" />
               </label>
-              <label class="preference-toggle" for="hotkeyToolSettingsExperimentalPreference">
-                <span>
-                  <strong>Hotkey Tool Settings</strong>
-                  <small>Replace tool hotkey radial menus with the floating glass settings panel while the hotkey is held.</small>
-                </span>
-                <input id="hotkeyToolSettingsExperimentalPreference" type="checkbox" />
-              </label>
-              <label id="hotkeyToolSettingsKeepMainPreferenceRow" class="preference-toggle" for="hotkeyToolSettingsKeepMainPreference">
-                <span>
-                  <strong>Keep settings in Main tab</strong>
-                  <small>Keep tool settings available in Main when the hotkey panel is closed.</small>
-                </span>
-                <input id="hotkeyToolSettingsKeepMainPreference" type="checkbox" />
-              </label>
               <div class="experimental-dev-tests">
                 <h3>Dev tests</h3>
                 <p>Dev test features are not intended as functional tools and are included only for testing purposes.</p>
@@ -2825,6 +2869,10 @@
                     <small>Enable the experimental accessory brush builder, recipes, and drawing tool.</small>
                   </span>
                   <input id="proceduralDrawExperimentalPreference" type="checkbox" />
+                </label>
+                <label class="preference-toggle hidden" for="accessoryStrandExperimentalPreference" data-dev-test-feature>
+                  <span><strong>Add Accessory Strand (Experimental)</strong><small>Enable the flyaway creation tool in the Strands toolbar and radial menu. Existing strands remain editable when disabled.</small></span>
+                  <input id="accessoryStrandExperimentalPreference" type="checkbox" />
                 </label>
                 <label class="preference-toggle hidden" for="compoundStrandExperimentalPreference" data-dev-test-feature>
                   <span>
@@ -3295,6 +3343,47 @@
       </form>
     </dialog>
 
+    <dialog id="editableMeshImportDialog" class="warning-dialog drop-import-dialog editable-mesh-import-dialog" aria-labelledby="editableMeshImportTitle">
+      <div class="warning-dialog-body">
+        <div class="profile-dialog-head">
+          <div>
+            <h2 id="editableMeshImportTitle">Import Mesh</h2>
+            <p>Add an editable mesh to the current scene.</p>
+          </div>
+        </div>
+        <div class="editable-mesh-import-fields">
+          <label for="editableMeshImportFile">OBJ, USDA or FBX</label>
+          <input id="editableMeshImportFile" type="file" accept=".obj,.usda,.fbx" />
+          <div class="editable-mesh-import-scale">
+            <label for="editableMeshImportScale">Import Scale</label>
+            <input id="editableMeshImportScale" type="number" min="0.000001" max="10000" step="any" value="1" />
+          </div>
+        </div>
+        <label class="dialog-check"><input id="editableMeshImportParts" type="checkbox" /> Import as Multiple Parts</label>
+        <p class="editable-mesh-import-note">Separate disconnected pieces into editable meshes. USDA converts to meters / Y-up; OBJ and FBX keep their loader units.</p>
+        <p id="editableMeshImportStatus" role="status"></p>
+        <div class="dialog-actions">
+          <button id="cancelEditableMeshImport" type="button">Cancel</button>
+          <button id="confirmEditableMeshImport" type="button" class="primary-action">Import</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="meshToStrandDialog" class="creation-preset-dialog rebuild-curve-dialog" aria-labelledby="meshToStrandTitle">
+      <h2 id="meshToStrandTitle">Convert Mesh to Strand</h2>
+      <p>Fit one editable strand from the mesh. Best for a single elongated hair chunk.</p>
+      <label for="meshToStrandPoints">Control Points</label>
+      <input id="meshToStrandPoints" type="range" min="4" max="32" step="1" value="8" />
+      <output id="meshToStrandPointCount" for="meshToStrandPoints">8</output>
+      <label class="rebuild-curve-check"><input id="meshToStrandFlip" type="checkbox" /> Flip Root / Tip</label>
+      <label class="rebuild-curve-check"><input id="meshToStrandHide" type="checkbox" /> Hide Source Mesh</label>
+      <p id="meshToStrandStatus" role="status"></p>
+      <div class="dialog-actions">
+        <button id="cancelMeshToStrand" type="button">Cancel</button>
+        <button id="confirmMeshToStrand" type="button" class="primary-action">Create Strand</button>
+      </div>
+    </dialog>
+
     <dialog id="rebuildCurveDialog" class="creation-preset-dialog rebuild-curve-dialog" aria-labelledby="rebuildCurveDialogTitle">
       <form id="rebuildCurveForm">
         <div class="profile-dialog-head">
@@ -3426,6 +3515,6 @@
       <button id="referenceCurveConfirm" type="button" disabled>Create Strand</button>
     </div>
   </dialog>
-    <script id="ahsMainModule" type="module" src="./app.js?v=20260908-10"></script>
+    <script id="ahsMainModule" type="module" src="./app.js?v=20260911-4"></script>
   </body>
 </html>
