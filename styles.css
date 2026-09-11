@@ -8908,6 +8908,78 @@ input[type="range"] {
   overflow: auto;
 }
 
+#meshToStrandDialog {
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 32px));
+  padding: 14px;
+}
+
+#meshToStrandDialog h2 {
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+#meshToStrandDialog p {
+  line-height: 1.5;
+}
+
+#meshToStrandDialog .mesh-to-strand-control-row {
+  display: grid;
+  grid-template-columns: auto 36px minmax(64px, 1fr);
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 10px;
+}
+
+#meshToStrandPointCount {
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  padding: 4px 0;
+  border: 1px solid #ffffff12;
+  border-radius: 4px;
+  background: #121116;
+}
+
+#meshToStrandDialog input[type="range"] {
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+#meshToStrandDialog .mesh-to-strand-options {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+#meshToStrandDialog .mesh-to-strand-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  cursor: pointer;
+}
+
+#meshToStrandDialog input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--ui-accent, #63c7ff);
+}
+
+#meshToStrandDialog .dialog-actions {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #ffffff12;
+  gap: 8px;
+}
+
+#meshToStrandStatus:empty { display: none; }
+
 .procedural-duplicate-dialog {
   inset: 72px 372px auto auto;
   width: min(410px, calc(100vw - 48px));

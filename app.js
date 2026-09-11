@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { accentIconImages } from './modules/accent-icons.js';
 import { splitMeshParts } from './modules/mesh-parts.js';
 import { parseEditableOBJ, parseEditableUSDA, scaleImportedMeshes, validateImportedMeshes } from './modules/editable-mesh-import.js';
-import { reconstructStrandFromMesh } from './modules/mesh-to-strand.js?v=20260910-2';
+import { reconstructStrandFromMesh } from './modules/mesh-to-strand.js?v=20260911-1';
 import { bakeStrandGeometry, cloneMeshBake, mirrorMeshBake, meshBakeMatches, invertMeshFaces } from './modules/strand-mesh-bake.js?v=20260910-1';
 import { accessoryStrandPoints } from './modules/accessory-strand.js?v=20260908-1';
 import { latticeOffsetNormals } from './modules/lattice-offset.js';
@@ -43218,11 +43218,48 @@ function meshToStrandSource() {
     && !selected[0].locked && selected[0].mesh?.visible ? selected[0] : null;
 }
 
+function createMeshToStrandTag(text, colour, point) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128; canvas.height = 56;
+  const context = canvas.getContext('2d');
+  context.beginPath();
+  context.roundRect(2, 2, 124, 52, 26);
+  context.fillStyle = '#1c1a20';
+  context.fill();
+  context.strokeStyle = colour;
+  context.lineWidth = 2;
+  context.stroke();
+  context.font = '600 28px system-ui, sans-serif';
+  context.textAlign = 'center'; context.textBaseline = 'middle';
+  context.fillStyle = '#f3eef2';
+  context.fillText(text, 64, 28);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const tag = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture, transparent: true, depthTest: false, depthWrite: false, toneMapped: false
+  }));
+  tag.position.copy(point);
+  tag.center.set(-0.2, 0.5);
+  tag.renderOrder = 1002;
+  tag.raycast = () => {};
+  const viewportSize = new THREE.Vector4();
+  const viewPoint = new THREE.Vector3();
+  tag.onBeforeRender = (activeRenderer, scene, viewCamera) => {
+    activeRenderer.getViewport(viewportSize);
+    viewPoint.setFromMatrixPosition(tag.matrixWorld).applyMatrix4(viewCamera.matrixWorldInverse);
+    const depth = viewCamera.isPerspectiveCamera ? Math.abs(viewPoint.z) : 1;
+    const units = 2 * depth / Math.abs(viewCamera.projectionMatrix.elements[5]) / Math.max(1, viewportSize.w);
+    tag.scale.set(48 * units, 21 * units, 1);
+    tag.updateMatrixWorld();
+  };
+  return tag;
+}
+
 function clearMeshToStrandPreview() {
   const preview = meshToStrandSession?.preview;
   if (!preview) return;
   scene.remove(preview);
-  preview.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
+  preview.traverse(object => { object.geometry?.dispose(); object.material?.map?.dispose(); object.material?.dispose(); });
   meshToStrandSession.preview = null;
 }
 
@@ -43270,7 +43307,7 @@ function updateMeshToStrandPreview() {
       surfaceNormalInfluence:1, rootAttachmentEnabled:false, rootScalpOffset:0, layerOffsetApplied:0,
       strandRotation:0, twist:0, twistCurve:[{position:0,value:0},{position:1,value:0}],
       widthScale:1, depthScale:1, profileOffset:0, curlEnabled:false, strandSplitEnabled:false, hairCard:false,
-      radialSegments:12, lengthSegments:48, dynamicDensity:false,
+      radialSegments:fit.radialSegments, lengthSegments:fit.lengthSegments, dynamicDensity:false,
       materialId:source.materialId, scalpRegion:source.scalpRegion, hairLayer:source.hairLayer
     };
     const draft = addLock('front',session.data,{transient:true});
@@ -43283,9 +43320,10 @@ function updateMeshToStrandPreview() {
     [0,fit.points.length-1].forEach((i,k)=>{
       const marker = new THREE.Mesh(new THREE.SphereGeometry(radius,12,8),new THREE.MeshBasicMaterial({color:k?0xffb454:0x64e798,depthTest:false}));
       marker.position.copy(session.data.points[i]); marker.renderOrder=1001; preview.add(marker);
+      preview.add(createMeshToStrandTag(k ? 'Tip' : 'Root', k ? '#ffb454' : '#64e798', session.data.points[i]));
     });
     session.preview = preview; scene.add(preview);
-    status.textContent = `Green: root · Orange: tip. ${fit.warning}`;
+    status.textContent = '';
     confirm.disabled = false;
     return true;
   } catch(error) { session.data=null; status.textContent=error.message; return false; }
@@ -43298,7 +43336,7 @@ function openMeshToStrand() {
   meshToStrandSession={sourceId:source.id,preview:null,data:null};
   document.querySelector('#meshToStrandPoints').value=8;
   document.querySelector('#meshToStrandFlip').checked=false;
-  document.querySelector('#meshToStrandHide').checked=false;
+  document.querySelector('#meshToStrandHide').checked=true;
   document.querySelector('#meshToStrandDialog').show();
   updateMeshToStrandPreview();
   return true;

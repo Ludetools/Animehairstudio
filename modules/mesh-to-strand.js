@@ -108,5 +108,10 @@ export function reconstructStrandFromMesh(positions,faces,{pointCount=8,flip=fal
   if(area<0)sweepProfile.reverse();
  }
  const curve=(key,max)=>fitted.map((s,i)=>({position:parameters[i],value:s[key]/max,interpolation:'linear'}));
- return {points:resampled.map(s=>vector(s.center)),pointSurfaceNormals:resampled.map(s=>vector(s.normal)),width,depth,taperCurve:curve('width',width),depthCurve:curve('depth',depth),sweepProfile,warning:loopSamples?'Fitted from mesh loops and measured profile. Check the silhouette before confirming.':'Approximate elliptical fit. Check the root, tip and silhouette; branched meshes may not fit one strand.'};
+ // Match recoverable rings directly. Otherwise approximate the polygon budget
+ // in quad equivalents; split render vertices must not inflate this estimate.
+ const radialSegments=loopSamples ? Math.max(4,Math.min(24,loopSamples[0].length)) : 12;
+ const quadBudget=faces.reduce((sum,face)=>sum+Math.max(1,face.length-2)/2,0);
+ const lengthSegments=Math.max(4,Math.min(256,Math.round(loopSamples ? fitted.length-1 : quadBudget/radialSegments)));
+ return {points:resampled.map(s=>vector(s.center)),pointSurfaceNormals:resampled.map(s=>vector(s.normal)),width,depth,taperCurve:curve('width',width),depthCurve:curve('depth',depth),sweepProfile,radialSegments,lengthSegments,warning:loopSamples?'Fitted from mesh loops and measured profile. Check the silhouette before confirming.':'Approximate elliptical fit. Check the root, tip and silhouette; branched meshes may not fit one strand.'};
 }
