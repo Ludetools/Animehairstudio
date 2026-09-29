@@ -1,0 +1,39 @@
+Anime Hair Studio: bundled Boolean remesher third-party notices
+
+Manifold 3.5.3 (npm package manifold-3d)
+https://github.com/elalish/manifold/tree/v3.5.3
+Copyright 2021 The Manifold Authors.
+Copyright 2022 The Manifold Authors. (WebAssembly bindings)
+Licensed under Apache-2.0. The full text is in LICENSE in this directory.
+The inspected manifold-3d-3.5.3 npm archive contains LICENSE but no NOTICE file.
+This NOTICE is an AHS attribution and integration record, not an upstream NOTICE.
+
+Modifications for the AHS / Strand Remesh integration:
+The JavaScript wrapper's default ES-module export is removed, import.meta.url
+is replaced with a fixed embedded-module URL, and the WASM is embedded as base64
+and passed to the module factory. AHS adds worker routing, cancellation and
+mesh/surface adapters. These changes are not changes to the Manifold WASM.
+The WASM bytes are identical to the vendored original npm-package binary.
+WASM SHA-256:
+73e3b419ad31294f6b1cc478173944e50efc4a34bfdeeff0107bdfc12975f11c
+Original manifold.js SHA-256:
+860b5c9702a807d1f93b9eb5b4fce15dd1de1af35c508301791986bc4e70c552
+
+Associated WebAssembly runtime and build dependency notices:
+- Emscripten generated runtime: see EMSCRIPTEN-LICENSE (MIT/NCSA text,
+  including the upstream Node.js attribution).
+  https://github.com/emscripten-core/emscripten
+- musl C runtime: see MUSL-COPYRIGHT.
+  https://github.com/emscripten-core/emscripten/blob/main/system/lib/libc/musl/COPYRIGHT
+- LLVM libc++ runtime: see LIBCXX-LICENSE, including LLVM exceptions and
+  legacy license text. The supplied binary does not record its compiler version;
+  this is an upstream license reference, not a claim that LLVM 21 built it.
+  https://github.com/llvm/llvm-project/blob/llvmorg-21.1.0/libcxx/LICENSE.TXT
+- Clipper2 CrossSection dependency: see CLIPPER2-LICENSE (Boost-1.0).
+  https://github.com/AngusJohnson/Clipper2
+  The upstream Manifold build configuration selects Clipper2 for CrossSection;
+  only compiled code is bundled, not the Clipper2 source tree.
+
+No upstream endorsement is implied. These components retain their own licenses;
+AHS's main license does not replace or restrict the rights those licenses grant
+in these third-party components. This notice does not relicense AHS-owned code.
