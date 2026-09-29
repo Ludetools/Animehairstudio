@@ -1,3 +1,5 @@
+import {buildUsdHairRig,usdHairWeights} from './usda-rig.js';
+
 function finiteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -69,20 +71,28 @@ function primvarLines(type, name, values, interpolation, indices = null) {
   return lines;
 }
 
-function meshBlock(mesh, identifier) {
+function meshBlock(mesh, identifier, skeleton, rootIdentifier, includeWeights) {
   const points = Array.isArray(mesh.points) ? mesh.points : [];
   const faces = (Array.isArray(mesh.faces) ? mesh.faces : [])
     .filter((face) => Array.isArray(face) && face.length >= 3);
   const faceVertexCounts = faces.map((face) => face.length);
   const faceVertexIndices = faces.flat();
+  const skin=includeWeights&&skeleton?usdHairWeights(points,mesh.id,skeleton):null;
   const lines = [
-    `        def Mesh "${identifier}"`,
+    `        def Mesh "${identifier}"${skin?' (prepend apiSchemas = ["SkelBindingAPI"])':''}`,
     "        {",
     `            point3f[] points = ${tupleArray(points)}`,
     `            int[] faceVertexCounts = ${numberArray(faceVertexCounts)}`,
     `            int[] faceVertexIndices = ${numberArray(faceVertexIndices)}`,
     '            uniform token subdivisionScheme = "none"'
   ];
+  if(skin)lines.push(
+    `            rel skel:skeleton = </${rootIdentifier}/Skeleton>`,
+    '            uniform token primvars:skel:skinningMethod = "classicLinear"',
+    '            matrix4d primvars:skel:geomBindTransform = ((1,0,0,0),(0,1,0,0),(0,0,1,0),(0,0,0,1))',
+    `            int[] primvars:skel:jointIndices = ${numberArray(skin.indices)} (\n                interpolation = "vertex"\n                elementSize = 3\n            )`,
+    `            float[] primvars:skel:jointWeights = [${skin.weights.map(formatNumber).join(', ')}] (\n                interpolation = "vertex"\n                elementSize = 3\n            )`
+  );
 
   if (Array.isArray(mesh.normals) && mesh.normals.length === points.length) {
     lines.push(
@@ -124,17 +134,23 @@ function curveBlock(curve, identifier) {
 export function exportAnimeHairUsda({
   meshes = [],
   curves = [],
+  rigs = [],
+  rigRoot = null,
+  includeBones = false,
+  includeWeights = false,
   rootName = "AnimeHairStudio"
 } = {}) {
   const usedMeshNames = new Set();
   const usedCurveNames = new Set();
+  const rootIdentifier = usdIdentifier(rootName, "AnimeHairStudio");
+  const skeleton=includeBones||includeWeights?buildUsdHairRig(rigs,rigRoot,usdIdentifier):null;
   const meshBlocks = meshes
     .filter((mesh) => Array.isArray(mesh?.points) && mesh.points.length && Array.isArray(mesh?.faces) && mesh.faces.length)
-    .map((mesh) => meshBlock(mesh, uniqueIdentifier(mesh.name, usedMeshNames, "HairMesh")));
+    .map((mesh) => meshBlock(mesh, uniqueIdentifier(mesh.name, usedMeshNames, "HairMesh"),skeleton,rootIdentifier,includeWeights));
   const curveBlocks = curves
     .filter((curve) => Array.isArray(curve?.points) && curve.points.length >= 4)
     .map((curve) => curveBlock(curve, uniqueIdentifier(`${curve.name || "Hair"}_Curve`, usedCurveNames, "HairCurve")));
-  const rootIdentifier = usdIdentifier(rootName, "AnimeHairStudio");
+  const matrices=values=>`[${values.map(m=>`(${[0,4,8,12].map(i=>tuple(m.slice(i,i+4))).join(', ')})`).join(', ')}]`;
 
   return [
     "#usda 1.0",
@@ -144,8 +160,12 @@ export function exportAnimeHairUsda({
     '    upAxis = "Y"',
     ")",
     "",
-    `def Xform "${rootIdentifier}"`,
+    `def ${skeleton?'SkelRoot':'Xform'} "${rootIdentifier}"`,
     "{",
+    ...(skeleton?['    def Skeleton "Skeleton"','    {',
+      `        uniform token[] joints = [${skeleton.joints.map(quoteString).join(', ')}]`,
+      `        uniform matrix4d[] bindTransforms = ${matrices(skeleton.bindTransforms)}`,
+      `        uniform matrix4d[] restTransforms = ${matrices(skeleton.restTransforms)}`,'    }']:[]),
     '    def Scope "Meshes"',
     "    {",
     meshBlocks.join("\n\n"),

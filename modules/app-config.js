@@ -1,4 +1,7 @@
-export const APP_VERSION = "1.0.1";
+export const APP_VERSION = "1.0.2";
+export const CAMERA_FOV_DEFAULT = 38;
+export const CAMERA_FOV_MIN = 10;
+export const CAMERA_FOV_MAX = 100;
 
 export const SCALP_REGIONS = {
   bangs: { label: "Bangs Root", color: 0xef476f },

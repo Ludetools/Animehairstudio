@@ -1,4 +1,5 @@
 import { DEFAULT_HAIR_MATERIAL_SETTINGS } from "./app-config.js";
+import { normalizeGemFracturing, normalizeGemDepth } from './gem-hair-shader.js';
 import {
   normalizeAnimeAnisotropicSettings,
   normalizeHairShader
@@ -50,6 +51,15 @@ export function normalizeHairMaterialDefinition(material = {}) {
   LEGACY_CUSTOM_HAIR_MATERIAL_FIELDS.forEach((key) => delete material[key]);
   material.color ||= DEFAULT_HAIR_MATERIAL_SETTINGS.color;
   material.shader = normalizeHairShader(material.shader);
+  material.gemFracturing = normalizeGemFracturing(material.gemFracturing);
+  Object.assign(material, normalizeGemDepth(material));
+  delete material.realisticTipFullness;
+  delete material.realisticTipReach;
+  delete material.realisticFlyaways;
+  // Retired experiment fields must not survive load/undo into future saves.
+  delete material.gemShadowColor;
+  delete material.gemCaustics;
+  delete material.gemCastShadows;
   Object.assign(material, normalizeAnimeAnisotropicSettings(material));
   const roughness = Number(material.roughness);
   material.roughness = Number.isFinite(roughness)
@@ -121,6 +131,8 @@ export function hairMaterialPresetValue(material = {}) {
     color: normalized.color,
     roughness: normalized.roughness,
     shader: normalized.shader,
+    gemFracturing: normalized.gemFracturing,
+    ...normalizeGemDepth(normalized),
     baseColorGradientEnabled: normalized.baseColorGradientEnabled,
     baseColorGradientStops: normalized.baseColorGradientStops.map((stop) => ({ ...stop })),
     ...animeSettings

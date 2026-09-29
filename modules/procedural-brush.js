@@ -1,3 +1,4 @@
+import { sampleTaperCurve } from "./curve-math.js";
 import {
   DEFAULT_SWEEP_PROFILE,
   DEFAULT_TWIST_CURVE,
@@ -278,13 +279,23 @@ function normalizeProceduralBrushTwistCurve(curve) {
   })).sort((left, right) => left.position - right.position);
 }
 
+export function linkProceduralBrushCurveEndpoints(curve, editedIndex = 0) {
+  if (!curve || curve.length < 2) return curve;
+  const value = editedIndex === curve.length - 1 ? curve.at(-1).value : curve[0].value;
+  curve[0].value = value;
+  curve.at(-1).value = value;
+  curve[0].position = 0;
+  curve.at(-1).position = 1;
+  return curve;
+}
+
 export function normalizeProceduralBrushStrandProfiles(profiles, strandCount = 1) {
   const count = clamp(Math.round(Number(strandCount) || 1), 1, 16);
   const source = Array.isArray(profiles) ? profiles : [];
   return Array.from({ length: count }, (_, strandIndex) => {
     const profile = source[strandIndex] || {};
-    const taperCurve = normalizeProceduralBrushShapeCurve(profile.taperCurve);
-    const depthCurve = normalizeProceduralBrushShapeCurve(profile.depthCurve);
+    const taperCurve = linkProceduralBrushCurveEndpoints(normalizeProceduralBrushShapeCurve(profile.taperCurve));
+    const depthCurve = linkProceduralBrushCurveEndpoints(normalizeProceduralBrushShapeCurve(profile.depthCurve));
     const twistCurve = normalizeProceduralBrushTwistCurve(profile.twistCurve);
     const sweepProfile = Array.isArray(profile.sweepProfile) && profile.sweepProfile.length >= 4
       ? profile.sweepProfile.map((point) => ({
@@ -298,8 +309,8 @@ export function normalizeProceduralBrushStrandProfiles(profiles, strandCount = 1
       taperCurve,
       depthCurve,
       twistCurve,
-      taperCurveSecondary: normalizeProceduralBrushShapeCurve(profile.taperCurveSecondary || taperCurve),
-      depthCurveSecondary: normalizeProceduralBrushShapeCurve(profile.depthCurveSecondary || depthCurve),
+      taperCurveSecondary: linkProceduralBrushCurveEndpoints(normalizeProceduralBrushShapeCurve(profile.taperCurveSecondary || taperCurve)),
+      depthCurveSecondary: linkProceduralBrushCurveEndpoints(normalizeProceduralBrushShapeCurve(profile.depthCurveSecondary || depthCurve)),
       asymmetricWidthCurve: Boolean(profile.asymmetricWidthCurve),
       asymmetricDepthCurve: Boolean(profile.asymmetricDepthCurve),
       centerAsymmetricProfile: Boolean(profile.centerAsymmetricProfile)
@@ -691,6 +702,51 @@ export function proceduralBrushPatternSections(value = {}, strandIndex = 0, repe
   );
 }
 
+// Shape curves use the same control-span parameter as the assembled strand.
+// Keep recipe curves local; only expand the derived preview/template settings.
+export function proceduralBrushRepeatedProfile(profile = {}, sections = []) {
+  const spans = sections.map(section => Math.max(0, section.points.length - 1));
+  const total = spans.reduce((sum, count) => sum + count, 0);
+  if (!total || sections.length < 2) return JSON.parse(JSON.stringify(profile));
+  const result = JSON.parse(JSON.stringify(profile));
+  for (const key of ['taperCurve', 'depthCurve', 'taperCurveSecondary', 'depthCurveSecondary']) {
+    const curve = normalizeProceduralBrushShapeCurve(profile[key] || profile[key.replace('Secondary', '')]);
+    // Sample each smooth span before assembly so neighbouring repeats cannot
+    // change its Hermite tangents. Authored keys remain exact; recipe stays small.
+    const local = [];
+    curve.forEach((point, index) => {
+      const next = curve[index + 1];
+      const count = next && point.interpolation === 'smooth' ? 32 : 1;
+      for (let step = 0; step < count; step += 1) {
+        const position = next ? point.position + (next.position - point.position) * step / count : point.position;
+        local.push({ position, value: step === 0 ? point.value : sampleTaperCurve(curve, position),
+          interpolation: point.interpolation === 'constant' ? 'constant' : 'linear' });
+      }
+    });
+    if (local[0].position > 0) local.unshift({...local[0], position:0});
+    if (local.at(-1).position < 1) local.push({...local.at(-1), position:1});
+    let start = 0;
+    const expanded = [];
+    spans.forEach(span => {
+      if (!span) return;
+      local.forEach(point => {
+        const next = {...point, position:(start + point.position * span) / total};
+        const previous = expanded.at(-1);
+        if (previous && Math.abs(previous.position - next.position) < 1e-12) {
+          if (previous.value === next.value) { expanded[expanded.length-1] = next; return; }
+          // Explicit narrow transition when the authored endpoints do not match.
+          previous.position -= Math.min(1e-6, span / total * 1e-4);
+          previous.interpolation = 'linear';
+        }
+        expanded.push(next);
+      });
+      start += span;
+    });
+    result[key] = expanded;
+  }
+  return result;
+}
+
 export function proceduralBrushCenteredPatternSections(value = {}, strandIndex = 0, repeatCountOverride = 1) {
   const recipe = normalizeProceduralBrushRecipe(value);
   const index = clamp(Math.round(Number(strandIndex) || 0), 0, recipe.layout.strandCount - 1);
@@ -819,7 +875,7 @@ export function proceduralBrushTemplateData(value = {}, options = {}) {
       };
     });
     const points = placed.map((point) => [point.x, point.y, point.z]);
-    const profile = recipe.strandProfiles[strandIndex] || {};
+    const profile = proceduralBrushRepeatedProfile(recipe.strandProfiles[strandIndex] || {}, patternSectionsFromRecipe(recipe, strandIndex, repeatCount));
     strands.push({
       width: baseWidth,
       depth,

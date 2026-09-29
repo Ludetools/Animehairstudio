@@ -15,7 +15,7 @@ body.custom-accent {
   --ui-accent-text: color-mix(in srgb, var(--ui-accent) 45%, white);
   --ui-accent-surface: color-mix(in srgb, var(--ui-accent) 18%, #19181d);
 }
-body.custom-accent :is(button.active, button[aria-pressed="true"], .primary-action, .tool-button.active, .viewport-selection-mode-buttons button.active, .segmented-control button.active):not([role="tab"]) {
+body.custom-accent :is(button.active, button[aria-pressed="true"], .primary-action, .tool-button.active, .viewport-selection-mode-buttons button.active, .segmented-control button.active):not([role="tab"]):not(.outliner-visibility-toggle) {
   border-color: var(--ui-accent) !important;
   background: var(--ui-accent-surface) !important;
   color: var(--ui-accent-text) !important;
@@ -1633,6 +1633,101 @@ button:focus-visible {
   text-align: center;
 }
 
+body.rigging-workspace-active :is(#meshOutlinerTab, #guideOutlinerTab, #referenceOutlinerTab),
+body.rigging-workspace-active .outliner-content:not(#lockList),
+body.rigging-workspace-active #presetWorkspaceBrowser,
+body.rigging-workspace-active .viewport-tools > :not([data-tool="select"]):not([data-tool="move"]):not([data-tool="rotate"]):not([data-tool="scale"]),
+body.rigging-workspace-active .app-menu-shell:has(#curvesMenuToggle),
+body.rigging-workspace-active .app-menu-shell:has(#meshesMenuToggle),
+body.rigging-workspace-active .app-menu-shell:has(#guidesMenuToggle),
+body.rigging-workspace-active .app-menu-shell:has(#referenceMenuToggle),
+body.rigging-workspace-active #floatingToolSettingsPanel,
+body.rigging-workspace-active #viewportSelectionModeControl,
+body.rigging-workspace-active .tool-panel:not(.guide-enabled) > .attribute-editor-tabs,
+body.rigging-workspace-active .tool-panel:not([data-active-attribute-tab="guide"]) > .attribute-editor-content {
+  display: none !important;
+}
+
+#rigPhysicsToggle { display: none; }
+body.rigging-workspace-active #rigPhysicsToggle { display: inline-flex; align-items: center; justify-content: center; }
+body.rigging-workspace-active #presetLibraryToggle,
+body.rigging-workspace-active #presetLibrary { display: none !important; }
+
+#rigSelectionModeControl { display: none; }
+#guideViewContextMenu .guide-view-check-row[hidden] { display: none; }
+#rigSelectionModeControl .viewport-selection-mode-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; gap: 5px; background: transparent; border: 0; }
+#rigSelectionModeControl .viewport-selection-mode-buttons button { display: flex; align-items: center; justify-content: center; min-width: 0; width: 100%; padding: 0 4px; box-sizing: border-box; text-align: center; white-space: nowrap; font-size: 11px; border-radius: 5px; border: 1px solid var(--border, #39343e); }
+body.rigging-workspace-active .viewport-edit-mode { width: 284px; }
+#hairRigBoneNameRow[hidden] { display: none; }
+.rig-weight-toggle { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.rig-blend-controls { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.rig-blend-controls output { min-width: 38px; text-align: right; font-size: 12px; }
+.rig-weight-gradient { height: 8px; margin-top: 12px; border-radius: 4px; background: linear-gradient(to right, #3959c4, #00e1f3, #ffed3f, #f94730); }
+.rig-weight-labels { display: flex; justify-content: space-between; font-size: 11px; margin-top: 4px; }
+#hairBoneWeightLegend[hidden] { display: none; }
+body.rigging-workspace-active #rigSelectionModeControl { display: grid; }
+.rigging-workspace-section {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 16px 14px;
+  color: var(--text-muted, #a39da8);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.rigging-workspace-section[hidden] { display: none !important; }
+.rigging-workspace-section .rig-control { display: grid; grid-template-columns: 90px minmax(0, 1fr); align-items: center; gap: 8px; margin: 12px 0; }
+.rigging-workspace-section .rig-control input { width: 100%; min-width: 0; box-sizing: border-box; }
+.rigging-workspace-section .rig-control input[type="number"] { width: 72px; }
+#riggingRigTab { display: none; }
+body.rigging-workspace-active #riggingRigTab { display: block; }
+body.rigging-workspace-active .outliner-panel > .outliner-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+body.rigging-workspace-active .outliner-scroll-content:has(> #riggingOutliner:not([hidden])) { padding: 8px 4px 8px 6px; }
+#riggingOutliner { padding: 0; overflow: visible; scrollbar-gutter: auto; }
+#riggingOutliner .outliner-group { --outliner-region-color: var(--ui-accent); }
+#hairRigPathPreview { position: absolute; z-index: 40; top: 80px; right: 16px; box-sizing: border-box; width: min(320px, calc(100% - 32px)); max-height: calc(100% - 100px); overflow: auto; padding: 14px; border: 1px solid #ffffff20; border-radius: 8px; background: var(--glass-panel-color, #1c1b20); box-shadow: 0 12px 32px #0006; }
+#hairRigPathPreview[hidden] { display: none; }
+#hairRigPathPreview .section-head { margin: 0 0 12px; }
+#hairRigPathPreview .rig-control { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; align-items: center; margin: 8px 0; }
+#hairRigPathPreview input, #hairRigPathPreview select { box-sizing: border-box; min-width: 0; width: 100%; }
+#hairRigPathPreview input[type="checkbox"] { width: 16px; height: 16px; justify-self: end; accent-color: var(--ui-accent, #55c5f4); }
+#hairRigPathPreview .rig-control:has(input[type="checkbox"]) { grid-template-columns: 1fr auto; }
+#hairRigPathPreview p { font-size: 11px; color: #aaa6b2; }
+#hairRigPathPreview .dialog-actions { margin-top: 12px; justify-content: flex-end; }
+body.floating-side-panels:not(.compact-sidebar-docked) #hairRigPathPreview { right: min(calc(var(--right-panel-space) + 18px), max(16px, calc(100% - 340px))); }
+#hairRigPathOrder { white-space: pre-line; overflow-wrap: anywhere; }
+#hairRigPathMode { min-width: 0; max-width: 100%; }
+#riggingOutliner .outliner-group-head { grid-template-columns: 22px 24px minmax(0, 1fr); }
+#riggingOutliner .outliner-disclosure { display: grid; place-items: center; transform: none; }
+#riggingOutliner .rig-nested-chains { margin: 3px 0 4px 12px; min-width: 0; }
+#riggingOutliner .rig-drop-target { outline: 1px solid var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 16%, transparent); }
+#riggingOutliner .outliner-group-select { grid-template-columns: minmax(0, 1fr) auto; }
+#riggingOutliner .lock-item-shell { grid-template-columns: 24px 26px minmax(0, 1fr); padding-left: 0; }
+#riggingOutliner .outliner-group > .outliner-group-items { margin-left: 12px; }
+#riggingOutliner .lock-item { min-width: 0; padding-left: 4px; }
+#riggingOutliner .outliner-folder-icon { justify-self: center; color: #8c858e; }
+#riggingOutliner .rig-root-branch > .outliner-group-select { margin-bottom: 4px; font-weight: 600; width: 100%; }
+#riggingOutliner .rig-root-chains { display: grid; gap: 3px; min-width: 0; }
+.rig-actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.rig-limit-inputs { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 8px; align-items: center; min-width: 0; }
+.rig-limit-inputs input { min-width: 0; width: 100%; box-sizing: border-box; }
+.rig-limit-sideways { border-left: 2px solid #71d6ef; padding-left: 6px; }
+.rig-limit-forward { border-left: 2px solid #db9be9; padding-left: 6px; }
+.rig-limit-label { position: fixed; z-index: 50; pointer-events: none; padding: 3px 7px; border: 1px solid currentColor; border-radius: 10px; background: #19191ee6; font: 11px system-ui, sans-serif; color: #71d6ef; }
+.rig-limit-label.forward { color: #db9be9; }
+#hairRigList .rig-bone-physics-toggle { box-sizing: border-box; width: 22px; min-width: 22px; max-width: 22px; height: 22px; min-height: 22px; max-height: 22px; padding: 0; margin: 0 2px; display: grid; place-items: center; border: 1px solid #45434c; border-radius: 2px; background: transparent; color: var(--text-muted, #92909c); font-size: 11px; font-weight: 600; line-height: 1; align-self: center; }
+#hairRigList .rig-bone-physics-toggle[aria-pressed="true"] { color: var(--ui-accent); border-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 12%, transparent); }
+#hairRigList .rig-bone-physics-toggle:focus-visible { outline: 1px solid var(--ui-accent); outline-offset: 1px; border-radius: 5px; }
+#hairBonePhysicsRow[hidden] { display: none; }
+.rig-actions button { font-size: 12px; padding: 6px 9px; }
+.rigging-workspace-section .section-head,
+.rigging-empty-title { color: var(--text-primary, #e6e1e9); }
+.rigging-empty-title { margin-top: 26px; font-weight: 600; }
+
 body.preset-workspace-active .outliner-tabs {
   display: none;
 }
@@ -2439,7 +2534,8 @@ body.custom-accent .strand-radial-menu > button:not(.radial-back):disabled:hover
 
 .camera-view-cube {
   position: absolute;
-  top: calc(var(--viewport-title-inset, 0px) + 86px);
+  /* Leave space above the Transform panel, including the attached-header layout. */
+  top: 62px;
   right: 18px;
   z-index: 6;
   width: 72px;
@@ -2889,7 +2985,7 @@ body.custom-accent .strand-radial-menu > button:not(.radial-back):disabled:hover
 }
 
 /* Flush title-bar attachment for viewport chrome. */
-body.attached-glass-panels {
+body.attached-glass-panels:not(.ios-ui-experiment) {
 .viewport-edit-mode,
 .viewport-stats,
 .viewport-top-controls .tool-button,
@@ -3967,9 +4063,9 @@ body.reference-outliner-drag-active .reference-outliner-group-head.reference-dro
   mask: var(--ahs-tool-glyph) center / contain no-repeat;
 }
 
-.sculpt-move-icon { --ahs-tool-glyph: url("./assets/icons/sculpt-move.svg"); }
-.sculpt-smooth-icon { --ahs-tool-glyph: url("./assets/icons/sculpt-smooth.svg"); }
-.sculpt-inflate-icon { --ahs-tool-glyph: url("./assets/icons/sculpt-inflate.svg?v=3"); }
+.sculpt-move-icon { --ahs-tool-glyph: url("./assets/icons/sculpt-move.svg?v=20260921-1"); }
+.sculpt-smooth-icon { --ahs-tool-glyph: url("./assets/icons/sculpt-smooth.svg?v=20260921-1"); }
+.sculpt-inflate-icon { --ahs-tool-glyph: url("./assets/icons/sculpt-inflate.svg?v=20260921-1"); }
 
 .sculpt-brush-cursor {
   position: absolute;
@@ -5442,6 +5538,22 @@ body.floating-side-panels:not(.compact-sidebar-docked) .curvy { right: calc(var(
   color: #ffdaa2;
 }
 
+.orthographic-view-button .projection-cube {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  pointer-events: none;
+}
+.orthographic-view-button[aria-pressed="false"] .projection-orthographic,
+.orthographic-view-button[aria-pressed="true"] .projection-perspective {
+  display: none;
+}
+
 /* One active-state accent across the viewport's display and editing controls. */
 :is(.viewport-display-actions, .viewport-modes) > button.active {
   border-color: #63c7ff;
@@ -6105,6 +6217,40 @@ body.floating-side-panels:not(.compact-sidebar-docked) .curvy { right: calc(var(
   display: none !important;
 }
 
+.attribute-editor-tabs > #attributeGuideTab[hidden],
+#appGuidePanel [hidden] { display: none !important; }
+#guidedWorkflowOverlay[hidden], #guidedWorkflowPlayer[hidden], #guidedWorkflowPlayer [hidden] { display: none !important; }
+#guidedWorkflowOverlay, #guidedWorkflowPlayer { zoom: calc(1 / var(--ui-scale)); position: fixed; }
+#guidedWorkflowOverlay { inset: 0; width: 100vw; height: 100vh; z-index: 90000; pointer-events: none; }
+#guidedWorkflowOverlay svg { width: 100%; height: 100%; display: block; }
+#guidedWorkflowOverlay path { fill: #000b; }
+#guidedWorkflowPlayer { z-index: 90001; bottom: 16px; left: 12px; width: min(410px, calc(100vw - 24px)); box-sizing: border-box; padding: 10px 12px; border: 1px solid #55515e; border-radius: 8px; background: #211e26; color: #e7e3eb; box-shadow: 0 8px 30px #0008; font-size: 12px; line-height: 1.4; }
+.guided-player-heading { color: #b1aab9; font-size: 11px; }
+.guided-player-actions { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+#guidedWorkflowPlayer h2 { font-size: 14px; margin: 4px 0; }
+#guidedWorkflowText { margin: 4px 0 10px; white-space: pre-line; }
+#guidedProportionalTip { margin: 0 0 10px; }
+#autoRemeshStrandsPanel label[hidden] { display: none !important; }
+#guidedWorkflowPlayer #guidedProportionalHint { display: inline-flex; vertical-align: middle; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 2px; }
+#proportionalToggle.guide-hint-glow { outline: 2px solid #9ce2ff; outline-offset: 2px; box-shadow: 0 0 14px 4px #65cdff, inset 0 0 8px #65cdff88; }
+#guidedWorkflowPlayer button { min-height: 26px; padding: 3px 7px; font-size: 11px; white-space: nowrap; }
+#guidedWorkflowProgress { color: #b1aab9; margin: 0 auto 0 0; font-size: 11px; white-space: nowrap; }
+#appGuidePanel { border-bottom: 0; font-size: 12px; line-height: 1.6; }
+#appGuidePanel > label { display: block; margin: 10px 0 5px; color: #aaa4b2; }
+#appGuidePanel > input, #appGuidePanel > select { width: 100%; box-sizing: border-box; min-height: 30px; }
+#appGuidePanel h2 { font-size: 14px; line-height: 1.4; }
+#appGuidePanel ol { padding-left: 20px; }
+#appGuidePanel li { margin-bottom: 10px; }
+#appGuideStatus, #appGuideContext { color: #aaa4b2; }
+#appGuideResults { display: flex; flex-direction: column; gap: 6px; }
+#appGuideResults .app-guide-topic { text-align: left; padding: 8px 10px; font-size: 12px; }
+.tool-panel[data-active-attribute-tab="guide"] > #riggingWorkspacePanel { display: none !important; }
+body.rigging-workspace-active .tool-panel.guide-enabled > .attribute-editor-tabs { display: flex !important; }
+body.rigging-workspace-active .tool-panel.guide-enabled > .attribute-editor-tabs { order: -1; }
+body.rigging-workspace-active .tool-panel.guide-enabled #attributeDisplayTab,
+body.rigging-workspace-active .tool-panel.guide-enabled #attributeMaterialsTab { display: none !important; }
+body.rigging-workspace-active .tool-panel.guide-enabled[data-active-attribute-tab="guide"] > .attribute-editor-content { display: flex !important; }
+
 #scalpPanel,
 #scalpPaintPanel,
 #scalpBuilderPanel,
@@ -6235,6 +6381,7 @@ body.floating-side-panels:not(.compact-sidebar-docked) .curvy { right: calc(var(
   order: 3;
 }
 
+#hairMaterialGemControls.hidden,
 #hairMaterialStandardControls.hidden,
 #hairMaterialAnimeControls.hidden,
 #hairMaterialRoughnessControl.hidden {
@@ -6245,6 +6392,17 @@ body.floating-side-panels:not(.compact-sidebar-docked) .curvy { right: calc(var(
   margin-top: 12px;
   padding-top: 4px;
   border-top: 1px solid #332e35;
+}
+
+#hairMaterialAnimeOutlineSettings[hidden] {
+  display: none;
+}
+
+.anime-outline-hint {
+  margin: 8px 0 14px;
+  color: #b4acbb;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .anime-shader-color-grid {
@@ -8240,6 +8398,66 @@ body.floating-side-panels:not(.compact-sidebar-docked) .curvy { right: calc(var(
   font-size: 17px;
 }
 
+/* Disclosure never changes a section's contextual visibility or child layout. */
+.attribute-section-heading > button.attribute-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 9px;
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  min-height: 28px;
+  aspect-ratio: auto;
+  padding: 3px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.attribute-section-heading > button.attribute-section-toggle {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.attribute-section-toggle::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  margin: 0 3px 3px 2px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.attribute-section-toggle[aria-expanded="false"]::before {
+  margin-bottom: 0;
+  transform: rotate(-45deg);
+}
+
+.attribute-section-heading > .attribute-section-toggle:hover {
+  color: var(--ui-accent);
+}
+
+.attribute-section-heading > .attribute-section-toggle:focus-visible {
+  outline: 1px solid var(--ui-accent);
+  outline-offset: 3px;
+}
+
+.attribute-disclosure-section.attribute-section-collapsed > :not(.attribute-section-heading) {
+  display: none !important;
+}
+
+.attribute-section-collapsed > .attribute-section-heading {
+  margin-bottom: 0;
+}
+
 .material-outliner {
   display: flex;
   flex-direction: column;
@@ -8446,8 +8664,12 @@ input[type="color"] {
 
 .app-color-picker-footer {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 28px 28px minmax(0, 1fr) auto;
 }
+
+.app-color-picker-footer #appColorEyedropper { padding: 0; display: grid; place-items: center; }
+.app-color-eyedropper-status { margin-top: 6px; font-size: 11px; color: #bcbcc2; }
+.app-color-eyedropper-status:empty { display: none; }
 
 .app-color-preview {
   width: 28px;
@@ -10192,7 +10414,7 @@ body.outliner-folder-colors-disabled .outliner-panel [data-strand-group] .outlin
   min-height: 24px;
 }
 
-/* Share the accent for selection, including the separate eye-button column. */
+/* Accent the selected row, not its independent visibility control. */
 body .outliner-panel :is(.lock-item.active, .guide-outliner-item.active, .reference-outliner-item.active, .outliner-group-head.selected),
 body .outliner-panel .outliner-clump.selected > .outliner-clump-head {
   border-color: var(--ui-accent) !important;
@@ -10200,14 +10422,13 @@ body .outliner-panel .outliner-clump.selected > .outliner-clump-head {
   color: var(--ui-accent-text, #a8e1ff) !important;
   box-shadow: inset 2px 0 var(--ui-accent);
 }
-body .outliner-panel .outliner-visibility-toggle:is(:hover, :focus-visible),
-body .outliner-panel .lock-item-shell:has(> .lock-item.active) > .outliner-visibility-toggle,
-body .outliner-panel .mesh-outliner-folder-head:has(> .lock-item.active) > .outliner-visibility-toggle {
-  border-color: var(--ui-accent) !important;
-  background: var(--ui-accent-surface, #1d3040) !important;
-  color: var(--ui-accent-text, #a8e1ff) !important;
+body .outliner-panel .outliner-visibility-toggle {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 body .outliner-panel button:focus-visible { outline-color: var(--ui-accent); }
+body .outliner-panel .outliner-visibility-toggle:focus-visible { outline-color: #e6e6ea; }
 .outliner-panel .lock-item-shell.clump-child .lock-item {
   min-height: 24px;
   padding-top: 1px;
@@ -10527,6 +10748,7 @@ body.floating-side-panels.compact-sidebar-docked .reference-image-panel.referenc
 .outliner-panel .selection-sets-group .outliner-group-select { grid-template-columns: 12px minmax(0, 1fr) auto; text-align: left; }
 .outliner-panel .selection-sets-group .selection-set-folder-icon { border-color: #bcb8c2; background: transparent; box-shadow: none; }
 .attribute-empty-state { padding: 18px 12px; }
+.attribute-empty-state.hidden { display: none !important; }
 .attribute-empty-state h2 { font-size: 14px; margin: 0 0 12px; color: #d8d5dc; }
 .attribute-empty-state p { font-size: 12px; line-height: 1.65; color: #a5a0ad; margin: 0 0 12px; }
 
@@ -10545,7 +10767,6 @@ body.floating-side-panels.compact-sidebar-docked .reference-image-panel.referenc
   color: #aaa5b0; font-size: 11px; min-width: 0;
 }
 #workspaceStatusSummary { flex: 0 0 auto; color: #d8d5dc; }
-.attribute-selection-scope { padding: 8px 0 12px; margin-bottom: 12px; border-bottom: 1px solid #ffffff18; color: #aaa4b2; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
 #workspaceEditingContext { flex: 0 1 auto; min-width: 0; color: #a8e1ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspace-status-bar .placement-status {
   min-width: 0; max-width: none; padding: 0; border: 0; border-radius: 0;
@@ -10718,6 +10939,15 @@ body .sidebar-collapse-toggle[aria-expanded="true"] { display: none !important; 
 }
 
 /* Shared flat panel tabs; content containers retain their existing scroll behavior. */
+body .studio-shell .tool-panel > .attribute-editor-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+}
+body .studio-shell .tool-panel > .attribute-editor-tabs > button[role="tab"] {
+  flex: 1 1 0;
+  white-space: nowrap;
+}
+
 body .studio-shell :is(.outliner-panel, .tool-panel) :is(.outliner-tabs, .attribute-editor-tabs) {
   flex: 0 0 auto;
   align-items: stretch;
@@ -10807,8 +11037,8 @@ body .studio-shell :is(.outliner-panel, .tool-panel) :is(.outliner-tabs, .attrib
 }
 
 @media (min-width: 861px) {
-  body.attached-glass-panels.floating-side-panels.glass-side-panels:not(.compact-outliner-collapsed) .outliner-panel,
-  body.attached-glass-panels.floating-side-panels.glass-side-panels:not(.compact-attribute-collapsed) .tool-panel {
+  body.attached-glass-panels.floating-side-panels.glass-side-panels:not(.compact-outliner-collapsed):not(.ios-ui-experiment) .outliner-panel,
+  body.attached-glass-panels.floating-side-panels.glass-side-panels:not(.compact-attribute-collapsed):not(.ios-ui-experiment) .tool-panel {
     align-self: start;
     height: calc(100% - 10px);
     border-top-color: transparent;
@@ -10819,7 +11049,7 @@ body .studio-shell :is(.outliner-panel, .tool-panel) :is(.outliner-tabs, .attrib
 
 /* The scene spans the title row so the header's alpha reveals the actual
    viewport. Chrome stays below the menu; all picking uses the full canvas. */
-body.attached-glass-panels {
+body.attached-glass-panels:not(.ios-ui-experiment) {
 @media (min-width: 861px) {
   .studio-shell { --viewport-title-inset: 36px; }
   .studio-shell > .viewport-panel,
@@ -10899,3 +11129,277 @@ body:not(.attached-glass-panels) .viewport-stats {
 .icon-draw-capsule-guide { --ahs-tool-glyph: url("./assets/icons/draw-capsule-guide.svg"); }
 .icon-dynamic-surface { --ahs-tool-glyph: url("./assets/icons/dynamic-surface.svg?v=4"); }
 #drawSurfaceDynamic { display: inline-flex; align-items: center; justify-content: center; width: 36px; min-width: 36px; padding: 0; flex: 0 0 36px; }
+
+/* iPad lab: removable, session-only presentation. No desktop rules opt into it. */
+#iosWorkspaceBar[hidden], #iosMoreTools[hidden] { display: none !important; }
+#iosMenuFooter[hidden], #iosViewOptions[hidden] { display: none !important; }
+.ios-glass-definitions { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
+body.ios-ui-experiment {
+  --ios-surface: color-mix(in srgb, var(--glass-panel-color) 64%, transparent);
+  --ios-glass-sheen: linear-gradient(135deg, #ffffff24 0%, #ffffff08 24%, #ffffff00 52%, #b9dcff10 100%);
+  --ios-glass-backdrop: blur(12px) saturate(155%) brightness(1.06);
+  --ios-border: #ffffff30;
+  --ios-shadow: 0 18px 48px #0004, 0 2px 8px #0002, inset 0 1px 0 #ffffff75, inset 1px 0 0 #ffffff22, inset 0 -1px 0 #d8eaff38;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  overflow: hidden;
+}
+/* The engine gate is deliberately conservative; CSS.supports alone cannot
+   distinguish URL parsing from real SVG backdrop rendering. No scene copies. */
+body.ios-ui-experiment.ios-glass-refraction {
+  --ios-surface: color-mix(in srgb, var(--glass-panel-color) 52%, transparent);
+  --ios-glass-backdrop: url("#iosGlassRefraction") blur(2.5px) saturate(145%) brightness(1.06);
+}
+body.ios-ui-experiment .studio-shell {
+  display: block; position: relative; height: var(--ui-layout-height);
+  min-height: 0; padding: 0;
+}
+body.ios-ui-experiment .app-topbar {
+  display: none; position: absolute; inset: 82px auto auto 20px; z-index: 45;
+  width: min(348px, calc(100% - 40px)); height: auto; max-height: calc(var(--ui-layout-height) - 110px);
+  overflow: auto; overscroll-behavior: contain; padding: 12px;
+  border: 1px solid var(--ios-border); border-radius: 24px;
+  background: var(--ios-glass-sheen), var(--ios-surface);
+  -webkit-backdrop-filter: var(--ios-glass-backdrop); backdrop-filter: var(--ios-glass-backdrop); box-shadow: var(--ios-shadow);
+}
+body.ios-ui-experiment.ios-app-menu-open .app-topbar { display: block; }
+body.ios-ui-experiment .app-topbar :is(.viewport-title, .patreon-link, .kofi-link) { display: none; }
+body.ios-ui-experiment .app-menu-bar { display: block; }
+body.ios-ui-experiment .app-menu-shell { border-bottom: 1px solid #ffffff0c; }
+body.ios-ui-experiment .app-menu-trigger {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  min-height: 46px; padding: 0 14px; border: 0; border-radius: 12px; font-size: 15px; letter-spacing: 0;
+}
+body.ios-ui-experiment .app-menu-trigger::after { content: "›"; font-size: 22px; color: #a0a6b2; }
+body.ios-ui-experiment .app-menu-trigger[aria-expanded="true"]::after { transform: rotate(90deg); }
+body.ios-ui-experiment .app-menu-trigger[aria-expanded="true"] { background: #ffffff0b; color: var(--ui-accent); }
+body.ios-ui-experiment :is(.app-menu-dropdown, .app-menu-submenu) {
+  position: static; min-width: 0; max-width: none; width: 100%; padding: 4px 0 8px;
+  border: 0; border-radius: 12px; background: #00000010; box-shadow: none;
+}
+body.ios-ui-experiment .app-menu-dropdown button { min-height: 44px; padding: 8px 14px; border-radius: 10px; font-size: 14px; }
+body.ios-ui-experiment .app-menu-dropdown kbd { display: none; }
+body.ios-ui-experiment .ios-menu-footer { display: grid; gap: 10px; padding: 16px 6px 4px; }
+body.ios-ui-experiment .ios-menu-footer > span { color: #a7aab5; font-size: 12px; }
+body.ios-ui-experiment .ios-menu-footer button { min-height: 44px; border: 0; border-radius: 12px; background: #ffffff09; color: var(--ui-accent); }
+body.ios-ui-experiment .studio-shell > .viewport-panel {
+  position: absolute; inset: 0; width: auto; height: auto; min-height: 0;
+  margin: 0; border: 0; border-radius: 0;
+}
+body.ios-ui-experiment .ios-workspace-bar {
+  position: absolute; inset: max(18px, env(safe-area-inset-top)) 22px auto; z-index: 16;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  pointer-events: none;
+}
+body.ios-ui-experiment .ios-workspace-bar > * { pointer-events: auto; }
+body.ios-ui-experiment .ios-panel-actions { display: flex; align-items: center; gap: 8px; }
+body.ios-ui-experiment .ios-lab-label {
+  font-size: 16px; font-weight: 600; letter-spacing: -.35px; padding: 0 10px; white-space: nowrap;
+}
+body.ios-ui-experiment .ios-lab-label small {
+  display: block; margin-top: 3px; font-size: 11px; font-weight: 400; letter-spacing: 0;
+  color: #a4a9b4;
+}
+body.ios-ui-experiment .ios-workspace-bar button {
+  min-height: 44px; padding: 0 14px; border: 0;
+  border-radius: 50%; background: #ffffff09; color: #e5e8f0;
+  font-size: 14px; font-weight: 500; touch-action: manipulation;
+}
+body.ios-ui-experiment .ios-workspace-bar .ios-icon-button { display: grid; place-items: center; width: 44px; min-width: 44px; padding: 0; }
+body.ios-ui-experiment .ios-icon-button svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+body.ios-ui-experiment #iosMenuToggle svg circle { fill: currentColor; }
+body.ios-ui-experiment #iosSave { margin-left: 5px; color: var(--ui-accent); }
+body.ios-ui-experiment .ios-workspace-segments,
+body.ios-ui-experiment .ios-history-actions {
+  display: flex; align-items: center; gap: 2px; padding: 4px;
+  border: 1px solid var(--ios-border); border-radius: 28px;
+  background: var(--ios-glass-sheen), var(--ios-surface);
+  -webkit-backdrop-filter: var(--ios-glass-backdrop); backdrop-filter: var(--ios-glass-backdrop); box-shadow: var(--ios-shadow);
+}
+body.ios-ui-experiment .ios-workspace-segments button { min-width: 76px; border: 0; border-radius: 24px; background: transparent; }
+body.ios-ui-experiment .ios-workspace-segments button.active {
+  background: var(--ui-accent); color: #061923; box-shadow: 0 2px 8px #0003;
+}
+body.ios-ui-experiment .ios-history-actions { border: 0; border-radius: 0; padding-right: 10px; margin-right: 2px; background: none; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; border-right: 1px solid #ffffff1c; }
+body.ios-ui-experiment .ios-history-actions button { min-width: 44px; padding: 0; border: 0; background: transparent; }
+body.ios-ui-experiment .ios-workspace-bar button:disabled { opacity: .3; cursor: default; }
+body.ios-ui-experiment .ios-workspace-bar button[aria-expanded="true"] { background: color-mix(in srgb, var(--ui-accent) 13%, transparent); color: var(--ui-accent); }
+body.ios-ui-experiment :is(button, select, input):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 2px; }
+
+/* Use the original panels, with their IDs, scroll owners and live controls intact. */
+body.ios-ui-experiment .studio-shell > :is(.outliner-panel, .tool-panel) {
+  position: absolute; top: 130px; bottom: 134px; height: auto; max-height: 620px; min-height: 0;
+  margin: 0; padding: 0; align-self: auto; overflow: hidden;
+  border: 1px solid var(--ios-border); border-radius: 26px;
+  background: var(--ios-glass-sheen), var(--ios-surface);
+  -webkit-backdrop-filter: var(--ios-glass-backdrop); backdrop-filter: var(--ios-glass-backdrop); box-shadow: var(--ios-shadow);
+}
+body.ios-ui-experiment .studio-shell > .outliner-panel { left: 18px; right: auto; width: var(--left-panel-space); }
+body.ios-ui-experiment .studio-shell > .tool-panel { right: 18px; left: auto; width: var(--right-panel-space); }
+body.ios-ui-experiment.compact-outliner-collapsed .studio-shell > .outliner-panel,
+body.ios-ui-experiment.compact-attribute-collapsed .studio-shell > .tool-panel { display: none !important; }
+body.ios-ui-experiment .studio-shell :is(.outliner-panel, .tool-panel)::before,
+body.ios-ui-experiment .studio-shell :is(.outliner-panel, .tool-panel)::after { content: none; }
+body.ios-ui-experiment .sidebar-collapse-toggle { display: none !important; }
+body.ios-ui-experiment .studio-shell :is(.outliner-tabs, .attribute-editor-tabs) {
+  gap: 2px; margin: 10px; padding: 4px; border: 0; border-radius: 12px; background: #ffffff08;
+}
+body.ios-ui-experiment .studio-shell :is(.outliner-tabs, .attribute-editor-tabs) > button[role="tab"] {
+  min-height: 40px; height: 40px; padding: 0 5px; border-radius: 9px; font-size: 12px;
+}
+body.ios-ui-experiment .studio-shell :is(.outliner-tabs, .attribute-editor-tabs) > button[role="tab"].active {
+  background: #ffffff16; color: #fff; box-shadow: 0 2px 6px #0003;
+}
+body.ios-ui-experiment .studio-shell :is(.outliner-tabs, .attribute-editor-tabs) > button[role="tab"].active::after { content: none; }
+body.ios-ui-experiment .outliner-scroll-content { padding: 0 10px 12px; }
+body.ios-ui-experiment .outliner-group { border-radius: 12px; margin-bottom: 8px; }
+body.ios-ui-experiment :is(.lock-item, .outliner-group-head, .outliner-layer-head, .guide-outliner-item, .reference-outliner-item) { min-height: 34px; border-radius: 8px; }
+body.ios-ui-experiment .attribute-editor-content { --setting-height: 36px; padding: 4px 10px 16px; text-shadow: 0 1px 2px #0005; }
+body.ios-ui-experiment .attribute-editor-content > .panel-section {
+  margin: 0 0 10px; padding: 12px; border: 0; border-radius: 16px; background: #10141b30;
+}
+body.ios-ui-experiment .attribute-section-heading > .attribute-section-toggle { min-height: 40px; }
+body.ios-ui-experiment .attribute-editor-content :is(select, input[type="text"], input[type="number"]) { border: 0; border-radius: 10px; background: #ffffff09; font-size: 13px; }
+body.ios-ui-experiment .attribute-editor-content .slider-number-input { color: var(--ui-accent); text-align: center; }
+body.ios-ui-experiment .attribute-editor-content .slider-reset-button { border-color: transparent; border-radius: 50%; color: #858b98; }
+body.ios-ui-experiment input[type="range"] { --slider-accent: var(--ui-accent); height: 36px; }
+body.ios-ui-experiment input[type="range"]::-webkit-slider-runnable-track { height: 5px; border-radius: 5px; }
+body.ios-ui-experiment input[type="range"]::-webkit-slider-thumb { width: 18px; height: 18px; margin-top: -6.5px; background: #fff; box-shadow: 0 1px 4px #0005; }
+body.ios-ui-experiment input[type="range"]::-moz-range-track { height: 5px; border-radius: 5px; }
+body.ios-ui-experiment input[type="range"]::-moz-range-thumb { width: 18px; height: 18px; background: #fff; }
+body.ios-ui-experiment .toggle-row input { width: 44px; min-width: 44px; height: 26px; border: 0; border-radius: 20px; background: #78788050; }
+body.ios-ui-experiment .toggle-row input::after { width: 22px; height: 22px; left: 2px; top: 2px; background: #fff; transform: none; box-shadow: 0 2px 4px #0003; }
+body.ios-ui-experiment .toggle-row input:checked { background: #30d158; }
+body.ios-ui-experiment .toggle-row input:checked::after { left: 20px; background: #fff; transform: none; }
+
+/* Original controls retain all workspaces and tools inside View Options. */
+body.ios-ui-experiment .viewport-top-controls :is(.viewport-display-actions, .viewport-modes) {
+  flex-wrap: wrap; gap: 4px;
+}
+body.ios-ui-experiment .viewport-top-controls .viewport-draw-settings {
+  position: static; flex-wrap: wrap; justify-content: flex-end; height: auto; min-height: 0; width: auto; max-width: 100%;
+}
+body.ios-ui-experiment .viewport-top-controls button { border-radius: 11px; min-height: 40px; }
+body.ios-ui-experiment .viewport-top-controls :is(.viewport-live-surface-control, .viewport-draw-settings > label) { border-radius: 11px; }
+body.ios-ui-experiment .viewport-panel > .camera-view-cube { top: 82px; right: 24px; transform: scale(.72); transform-origin: top right; }
+body.ios-ui-experiment :is(.viewport-stats, .viewport-bottom-left-guidance) { display: none; }
+body.ios-ui-experiment .viewport-panel > .viewport-exit-editor { left: 50%; bottom: 166px; border-radius: 12px; }
+body.ios-ui-experiment .viewport-panel > .preset-library { inset: 174px 18px 110px; border-radius: 20px; }
+body.ios-ui-experiment .viewport-panel > .reference-image-panel:not(.reference-image-panel-docked) {
+  top: 190px; right: 18px; width: min(330px, calc(100% - 36px));
+}
+
+/* Primary tools live in a compact dock. More opens the original auxiliary controls. */
+body.ios-ui-experiment .viewport-panel > .viewport-tools {
+  position: absolute; top: auto; bottom: max(30px, env(safe-area-inset-bottom)); left: 50%; right: auto; z-index: 14;
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  width: max-content; max-width: min(680px, calc(100% - 36px)); gap: 6px; padding: 9px;
+  transform: translateX(-50%); border: 1px solid var(--ios-border); border-radius: 30px;
+  background: var(--ios-glass-sheen), var(--ios-surface);
+  -webkit-backdrop-filter: var(--ios-glass-backdrop); backdrop-filter: var(--ios-glass-backdrop); box-shadow: var(--ios-shadow);
+}
+body.ios-ui-experiment .viewport-tools > .tool-button,
+body.ios-ui-experiment .viewport-tools .mesh-primitive-tool > .tool-button,
+body.ios-ui-experiment .ios-more-tools {
+  flex: 0 0 60px; width: 60px; min-width: 60px; height: 62px; min-height: 62px;
+  flex-direction: column; justify-content: center; gap: 5px; padding: 5px;
+  border-radius: 21px; border-color: transparent; background-color: transparent;
+}
+body.ios-ui-experiment .ios-more-tools { display: flex; align-items: center; order: 100; font-size: 11px; }
+body.ios-ui-experiment .ios-more-tools > span:first-child { height: 26px; line-height: 26px; font-size: 16px; letter-spacing: 2px; }
+body.ios-ui-experiment .viewport-tools .tool-button > kbd { display: none; }
+body.ios-ui-experiment .viewport-tools .tool-button[data-ios-label]::after { content: attr(data-ios-label); font-size: 11px; line-height: 14px; }
+body.ios-ui-experiment .viewport-tools .tool-button.active,
+body.ios-ui-experiment .ios-more-tools[aria-expanded="true"] {
+  border-color: transparent; background-color: color-mix(in srgb, var(--ui-accent) 23%, transparent); color: var(--ui-accent);
+}
+body.ios-ui-experiment:not(.ios-more-tools-open) .viewport-tools > :not([data-ios-label]):not(.active):not(.ios-more-tools) { display: none; }
+body.ios-ui-experiment .viewport-tools .mesh-primitive-tool { width: 60px; }
+body.ios-ui-experiment .viewport-tools .mesh-primitive-picker { left: auto; right: 0; top: auto; bottom: calc(100% + 10px); }
+body.ios-ui-experiment .viewport-panel > .sculpt-brush-dock {
+  bottom: 114px; left: 50%; border-radius: 16px; padding: 6px; max-width: calc(100% - 36px);
+  border: 1px solid var(--ios-border); background: var(--ios-glass-sheen), var(--ios-surface);
+  -webkit-backdrop-filter: var(--ios-glass-backdrop); backdrop-filter: var(--ios-glass-backdrop); box-shadow: var(--ios-shadow);
+}
+body.ios-ui-experiment:not(.ios-sculpt-active) .sculpt-brush-dock { display: none; }
+body.ios-ui-experiment.ios-more-tools-open .sculpt-brush-dock { bottom: 258px; }
+body.ios-ui-experiment .sculpt-brush-button.tool-button { min-height: 42px; border-radius: 11px; }
+body.ios-ui-experiment .workspace-status-bar { display: contents; }
+body.ios-ui-experiment :is(#workspaceStatusSummary, #workspaceEditingContext) { display: none; }
+body.ios-ui-experiment .workspace-status-bar .placement-status {
+  position: fixed; z-index: 15; bottom: 5px; left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: calc(100% - 32px); border: 0; padding: 3px 10px; border-radius: 10px;
+  color: #b7becb; background: #161a2080; font-size: 11px; pointer-events: none;
+}
+
+/* One native-feeling sheet hosts the original workspace/display controls. */
+body.ios-ui-experiment .ios-view-options {
+  position: absolute; top: 82px; right: 20px; z-index: 44;
+  width: min(360px, calc(100% - 40px)); max-height: calc(100% - 110px);
+  padding: 16px; overflow: auto; overscroll-behavior: contain;
+  border: 1px solid var(--ios-border); border-radius: 24px;
+  background: var(--ios-glass-sheen), var(--ios-surface); box-shadow: var(--ios-shadow);
+  -webkit-backdrop-filter: var(--ios-glass-backdrop); backdrop-filter: var(--ios-glass-backdrop);
+}
+body.ios-ui-experiment .ios-sheet-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-size: 17px; }
+body.ios-ui-experiment .ios-sheet-heading button { min-height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--ui-accent); font-size: 15px; }
+body.ios-ui-experiment #iosViewOptions > .viewport-edit-mode {
+  position: static; width: 100%; margin: 0 0 14px; border: 0; border-radius: 14px; background: #ffffff06;
+  box-shadow: none; backdrop-filter: none;
+}
+body.ios-ui-experiment #iosViewOptions > .viewport-top-controls {
+  position: static; display: flex; flex-direction: column; align-items: stretch; width: 100%;
+  gap: 14px; padding: 0; margin: 0; transform: none; pointer-events: auto;
+}
+body.ios-ui-experiment #iosViewOptions :is(.viewport-display-actions, .viewport-modes) { height: auto; flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+body.ios-ui-experiment #iosViewOptions .viewport-draw-settings { order: -1; display: flex; flex-direction: column; align-items: stretch; gap: 8px; }
+body.ios-ui-experiment #iosViewOptions .viewport-draw-settings.hidden { display: none; }
+body.ios-ui-experiment #iosViewOptions .viewport-draw-settings label { min-width: 0; grid-template-columns: auto minmax(0, 1fr); }
+body.ios-ui-experiment #iosViewOptions .viewport-live-surface-control > label { flex: 1; }
+body.ios-ui-experiment #iosViewOptions .viewport-draw-settings select { width: 100%; min-width: 0; }
+body.ios-ui-experiment #iosViewOptions :is(select, .viewport-selection-mode-buttons) { border: 0; border-radius: 9px; background-color: #ffffff09; }
+body.ios-ui-experiment #iosViewOptions .viewport-selection-mode > span,
+body.ios-ui-experiment #iosViewOptions label > span { text-transform: none; font-size: 12px; letter-spacing: 0; font-weight: 500; }
+
+/* A portrait/tablet-sized window uses a single switchable side sheet. */
+@media (max-width: 1000px) {
+  body.ios-ui-experiment .ios-lab-label { display: none; }
+  body.ios-ui-experiment .ios-workspace-bar { inset-inline: 12px; gap: 6px; }
+  body.ios-ui-experiment .ios-workspace-bar button { padding-inline: 10px; }
+  body.ios-ui-experiment .ios-workspace-segments button { min-width: 60px; }
+  body.ios-ui-experiment .studio-shell > :is(.outliner-panel, .tool-panel) {
+    left: auto; right: 12px; width: min(340px, calc(100% - 24px)); top: 130px; bottom: 142px;
+  }
+  body.ios-ui-experiment:not(.ios-outliner-front) .studio-shell > .outliner-panel,
+  body.ios-ui-experiment.ios-outliner-front .studio-shell > .tool-panel { display: none; }
+  body.ios-ui-experiment .viewport-bottom-left-guidance { display: none; }
+  body.ios-ui-experiment .ios-panel-actions { gap: 4px; }
+}
+@media (max-width: 700px) {
+  body.ios-ui-experiment .ios-workspace-bar { flex-wrap: wrap; }
+  body.ios-ui-experiment .ios-workspace-segments { order: 3; margin: 0 auto; }
+  body.ios-ui-experiment .ios-history-actions { display: none; } /* Edit menu still owns history. */
+  body.ios-ui-experiment :is(.app-topbar, .ios-view-options) { top: 136px; max-height: calc(var(--ui-layout-height) - 160px); }
+  body.ios-ui-experiment .studio-shell > :is(.outliner-panel, .tool-panel) { top: 148px; bottom: 128px; }
+  body.ios-ui-experiment .camera-view-cube { display: none; }
+  body.ios-ui-experiment .viewport-tools > .tool-button,
+  body.ios-ui-experiment .ios-more-tools { flex-basis: 46px; min-width: 46px; width: 46px; }
+  body.ios-ui-experiment .viewport-stats { display: none; }
+}
+/* Keep text readable without translucency, including on unsupported engines.
+   Match the enhanced selector's specificity so it cannot defeat these fallbacks. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  body.ios-ui-experiment, body.ios-ui-experiment.ios-glass-refraction {
+    --ios-surface: var(--glass-panel-color);
+    --ios-glass-backdrop: none;
+    --ios-glass-sheen: linear-gradient(135deg, #ffffff0a, transparent);
+  }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  body.ios-ui-experiment, body.ios-ui-experiment.ios-glass-refraction {
+    --ios-surface: var(--glass-panel-color);
+    --ios-glass-backdrop: none;
+    --ios-glass-sheen: linear-gradient(135deg, #ffffff0a, transparent);
+    --ios-border: #ffffff60;
+    --ios-shadow: 0 4px 12px #0004;
+  }
+}

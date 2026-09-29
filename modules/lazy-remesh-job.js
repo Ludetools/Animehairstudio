@@ -1,5 +1,6 @@
 // Preserve the cancellable job interface while deferring the large runtime.
-export function startCurveUnionJob(data, onProgress, load = () => import('./curve-union-job.js?v=20260908-1')) {
+export function startCurveUnionJob(data, onProgress, load = () => data.method === 'boolean'
+  ? import('./boolean-remesh-job.js?v=20260925-1') : import('./curve-union-job.js?v=20260922-1')) {
   let job, cancelled = false, rejectPending;
   const cancellation = new Promise((_, reject) => { rejectPending = reject; });
   const work = Promise.resolve().then(load).then(module => {

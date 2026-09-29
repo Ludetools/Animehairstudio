@@ -9,6 +9,21 @@
   <link rel="stylesheet" href="./styles.css?v=20260911-3" />
   </head>
   <body>
+    <!-- Shared, static lens maps for the iPad lab. Keep rendered (not display:none)
+         so SVG backdrop references resolve; this never occupies layout or takes input. -->
+    <svg class="ios-glass-definitions" width="0" height="0" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="iosGlassRefraction" x="0%" y="0%" width="100%" height="100%" color-interpolation-filters="sRGB">
+          <!-- R controls horizontal displacement, G vertical. The flat 50% centre
+               is neutral; edge values sample inward by at most 9 CSS pixels.
+               Default feImage subregions fit the filter bounds at every panel size. -->
+          <feImage preserveAspectRatio="none" result="lensX" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'%3E%3Cdefs%3E%3ClinearGradient id='x'%3E%3Cstop stop-color='rgb(100%25,0%25,0%25)'/%3E%3Cstop offset='.025' stop-color='rgb(85%25,0%25,0%25)'/%3E%3Cstop offset='.08' stop-color='rgb(50%25,0%25,0%25)'/%3E%3Cstop offset='.92' stop-color='rgb(50%25,0%25,0%25)'/%3E%3Cstop offset='.975' stop-color='rgb(15%25,0%25,0%25)'/%3E%3Cstop offset='1' stop-color='black'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23x)' d='M0 0H256V256H0Z'/%3E%3C/svg%3E" />
+          <feImage preserveAspectRatio="none" result="lensY" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='256' height='256' viewBox='0 0 256 256'%3E%3Cdefs%3E%3ClinearGradient id='y' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop stop-color='rgb(0%25,100%25,0%25)'/%3E%3Cstop offset='.025' stop-color='rgb(0%25,85%25,0%25)'/%3E%3Cstop offset='.08' stop-color='rgb(0%25,50%25,0%25)'/%3E%3Cstop offset='.92' stop-color='rgb(0%25,50%25,0%25)'/%3E%3Cstop offset='.975' stop-color='rgb(0%25,15%25,0%25)'/%3E%3Cstop offset='1' stop-color='black'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath fill='url(%23y)' d='M0 0H256V256H0Z'/%3E%3C/svg%3E" />
+          <feBlend in="lensX" in2="lensY" mode="screen" result="lensMap" />
+          <feDisplacementMap in="SourceGraphic" in2="lensMap" scale="18" xChannelSelector="R" yChannelSelector="G" />
+        </filter>
+      </defs>
+    </svg>
     <section id="startupSplash" aria-label="Anime Hair Studio loading" aria-busy="true">
       <svg class="startup-strand-wire" viewBox="0 0 428 270" fill="none" aria-hidden="true" focusable="false">
         <defs>
@@ -52,7 +67,7 @@
     <script src="./modules/startup-splash.js?v=20260905-1"></script>
     <main class="studio-shell" inert>
       <header class="app-topbar">
-        <nav class="app-menu-bar" aria-label="Application menu">
+        <nav id="appMenuBar" class="app-menu-bar" aria-label="Application menu">
             <div class="app-menu-shell">
               <button id="fileMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">File</button>
               <div id="fileMenu" class="app-menu-dropdown hidden" role="menu" aria-label="File">
@@ -120,7 +135,7 @@
               <div id="curvesMenu" class="app-menu-dropdown hidden" role="menu" aria-label="Curves">
                 <button id="openRebuildCurve" type="button" role="menuitem">Rebuild Curve...</button>
                 <button id="fixCurveNormals" type="button" role="menuitem" title="Correct reversed normals on selected strand, panel or braid curves, keeping the first valid normal as the reference. Undoable.">Fix Curve Normals</button>
-                <button id="openAutoRemeshStrands" type="button" role="menuitem">Auto Remesh Strands...</button>
+                <button id="openAutoRemeshStrands" type="button" role="menuitem">Auto Remesh...</button>
                 <button id="convertStrandsToMesh" type="button" role="menuitem" title="Bake selected strands into editable meshes. Original strands are kept and hidden. Undoable.">Convert to Mesh</button>
                 <button id="createStrandLattice" type="button" role="menuitem" title="Select at least two neighbouring strands. Curves are ordered spatially. Roots form the top edge; tips form the bottom. Originals are retained and hidden.">Create Lattice from Strands</button>
                 <button id="createStrandLatticeGuide" type="button" role="menuitem" title="Select 2–12 neighbouring strands to create a smooth live-surface guide. Originals remain visible.">Create Lattice Guide from Strands</button>
@@ -195,12 +210,17 @@
             <div class="app-menu-shell">
               <button id="helpMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">Help</button>
               <div id="helpMenu" class="app-menu-dropdown hidden" role="menu" aria-label="Help">
+                <button id="openGuide" type="button" role="menuitem"><span>Guide</span></button>
                 <button id="openShortcuts" type="button" role="menuitem"><span>Shortcuts</span></button>
                 <button id="openPatchNotes" type="button" role="menuitem"><span>Patch Notes</span></button>
                 <button id="joinDiscord" type="button" role="menuitem"><span>Join The Discord</span></button>
               </div>
             </div>
         </nav>
+        <div id="iosMenuFooter" class="ios-menu-footer" hidden>
+          <span>Experimental interface</span>
+          <button id="iosExit" type="button">Use Desktop UI</button>
+        </div>
         <div class="viewport-title">
           <strong>Anime Hair Studio</strong>
           <span id="strandCount" hidden>0 strands</span>
@@ -240,6 +260,7 @@
         <div class="panel-resize-handle" data-panel-resize="left" role="separator" tabindex="0" aria-label="Outliner width" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="520" title="Drag to resize; double-click to reset"></div>
         <div class="outliner-tabs" role="tablist" aria-label="Outliner content">
           <button id="strandOutlinerTab" class="outliner-tab active" type="button" role="tab" aria-selected="true" aria-controls="lockList">Strands</button>
+          <button id="riggingRigTab" class="outliner-tab" type="button" role="tab" aria-selected="false" aria-controls="riggingOutliner" tabindex="-1" data-rig-tab="rig">Rig</button>
           <button id="meshOutlinerTab" class="outliner-tab" type="button" role="tab" aria-selected="false" aria-controls="meshOutliner">Meshes</button>
           <button id="guideOutlinerTab" class="outliner-tab" type="button" role="tab" aria-selected="false" aria-controls="guideOutliner">Guides</button>
           <button id="referenceOutlinerTab" class="outliner-tab" type="button" role="tab" aria-selected="false" aria-controls="referenceOutliner" title="References" aria-label="References">Ref</button>
@@ -266,6 +287,7 @@
           </div>
         </section>
         <div id="lockList" class="lock-list outliner-content" role="tabpanel" aria-labelledby="strandOutlinerTab"></div>
+        <section id="riggingOutliner" class="rigging-workspace-section" role="tabpanel" aria-labelledby="riggingRigTab" hidden><div id="hairRigList"></div></section>
         <div id="guideOutliner" class="guide-outliner outliner-content hidden" role="tabpanel" aria-labelledby="guideOutlinerTab"></div>
         <div id="referenceOutliner" class="reference-outliner outliner-content hidden" role="tabpanel" aria-labelledby="referenceOutlinerTab"></div>
         <div id="meshOutliner" class="mesh-outliner outliner-content hidden" role="tabpanel" aria-labelledby="meshOutlinerTab">
@@ -276,6 +298,41 @@
 
       <section class="viewport-panel" aria-label="3D hair editor">
         <div id="viewport"></div>
+        <div id="iosWorkspaceBar" class="ios-workspace-bar" aria-label="Experimental iPad workspace" hidden>
+          <div class="ios-panel-actions">
+            <button id="iosMenuToggle" class="ios-icon-button" type="button" aria-expanded="false" aria-controls="appMenuBar" aria-label="App menu" title="App menu"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+            <span class="ios-lab-label">Anime Hair Studio<small>Creative workspace</small></span>
+          </div>
+          <div class="ios-workspace-segments" role="group" aria-label="Quick workspaces">
+            <button type="button" data-ios-workspace="style" aria-pressed="true">Style</button>
+            <button type="button" data-ios-workspace="sculpt" aria-pressed="false">Sculpt</button>
+            <button type="button" data-ios-workspace="rig" aria-pressed="false">Rig</button>
+          </div>
+          <div class="ios-panel-actions">
+            <div class="ios-history-actions" role="group" aria-label="History">
+              <button id="iosUndo" class="ios-icon-button" type="button" aria-label="Undo" title="Undo" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5-5 5 5 5M3 10h10a6 6 0 0 1 0 12" transform="translate(0 -2)"/></svg></button>
+              <button id="iosRedo" class="ios-icon-button" type="button" aria-label="Redo" title="Redo" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 5 5 5-5 5m5-5H11a6 6 0 0 0 0 12" transform="translate(0 -2)"/></svg></button>
+            </div>
+            <button id="iosOutlinerToggle" class="ios-icon-button" type="button" aria-expanded="true" aria-label="Regions" title="Show or hide Regions"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M9 4v16M5.5 8h1M5.5 12h1M5.5 16h1"/></svg></button>
+            <button id="iosInspectorToggle" class="ios-icon-button" type="button" aria-expanded="true" aria-label="Inspector" title="Show or hide Inspector"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="4"/><path d="M15 4v16M17.5 8h1M17.5 12h1M17.5 16h1"/></svg></button>
+            <button id="iosViewOptionsToggle" class="ios-icon-button" type="button" aria-expanded="false" aria-controls="iosViewOptions" aria-label="View options" title="Workspace and view options"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3v5m0 4v9M12 3v10m0 4v4M19 3v2m0 4v12M2 8h6M9 17h6M16 5h6"/></svg></button>
+            <button id="iosSave" class="ios-icon-button" type="button" aria-label="Save project" title="Save project"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-2M12 15V2m-4 4 4-4 4 4"/></svg></button>
+          </div>
+        </div>
+        <section id="iosViewOptions" class="ios-view-options" aria-label="Workspace and view options" hidden>
+          <div class="ios-sheet-heading"><strong>View options</strong><button id="iosViewOptionsDone" type="button">Done</button></div>
+        </section>
+        <section id="hairRigPathPreview" role="dialog" aria-modal="false" aria-labelledby="hairRigCreationTitle" hidden>
+          <div id="hairRigCreationTitle" class="section-head">Create Bone Chain</div>
+          <label class="rig-control">Name <input id="hairRigName" type="text" placeholder="Auto from source" maxlength="80" /></label>
+          <label class="rig-control">Bones <input id="hairRigCount" type="number" value="6" min="1" max="64" step="1" /></label>
+          <label class="rig-control">Path <select id="hairRigPathMode"><option value="average">Average selected strands</option><option value="end-to-end">Follow strands end-to-end</option></select></label>
+          <label class="rig-control">Auto Mirror <input id="hairRigAutoMirror" type="checkbox" checked /></label>
+          <p id="hairRigSourceCount" role="status"></p>
+          <p id="hairRigPathOrder"></p>
+          <p id="hairRigPathCount" role="status"></p>
+          <div class="dialog-actions"><button id="cancelHairRigPath" type="button">Cancel</button><button id="confirmHairRigPath" type="button">Apply</button></div>
+        </section>
         <template id="brushWorkspaceNodeEditorPrototype">
           <header class="brush-workspace-node-header">
             <div>
@@ -463,14 +520,15 @@
             <small id="standardExtrudeEaseStatus">No eased end</small>
           </div>
         </section>
-        <section id="autoRemeshStrandsPanel" class="auto-remesh-strands-panel hidden" aria-label="Auto Remesh Strands settings">
-          <h2>Auto Remesh Strands</h2>
+        <section id="autoRemeshStrandsPanel" class="auto-remesh-strands-panel hidden" aria-label="Auto Remesh settings">
+          <h2>Auto Remesh</h2>
           <label class="auto-remesh-setting-row">
-            <span>Effort</span>
-            <select id="autoRemeshMethod" aria-label="Curve Union effort">
+            <span>Method</span>
+            <select id="autoRemeshMethod" aria-label="Remeshing method">
               <option value="legacy">Low Effort</option>
               <option value="curve-union-v2" selected>Medium Effort</option>
               <option value="curve-union-v3">High Effort</option>
+              <option value="boolean">Boolean</option>
             </select>
           </label>
           <small id="autoRemeshMethodHint">Medium Effort balances speed and quality. All levels run in the background.</small>
@@ -495,7 +553,7 @@
             <input id="autoRemeshAdaptive" type="checkbox" />
           </label>
           <div class="auto-remesh-summary">
-            <span id="autoRemeshSelectionSummary">0 strands selected</span>
+            <span id="autoRemeshSelectionSummary">0 objects selected</span>
             <small id="autoRemeshStatus">Ready</small>
           </div>
           <div id="autoRemeshProgress" class="auto-remesh-progress" hidden>
@@ -578,8 +636,17 @@
               <option value="reference">References</option>
               <option value="brush">Brushes</option>
               <option value="preset">Presets</option>
+              <option value="rigging">Rigging</option>
             </select>
           </label>
+          <div id="rigSelectionModeControl" class="viewport-selection-mode" role="group" aria-label="Rigging selectable types">
+            <span>Selectable</span>
+            <div class="viewport-selection-mode-buttons">
+              <button type="button" data-rig-selectable="objects" aria-pressed="true" class="active" title="Allow source object picking; Tab cycles solo selection">Objects</button>
+              <button type="button" data-rig-selectable="bones" aria-pressed="true" class="active" title="Allow bone body picking; Tab cycles solo selection">Bones</button>
+              <button type="button" data-rig-selectable="handles" aria-pressed="true" class="active" title="Allow joint handle picking; Tab cycles solo selection">Handles</button>
+            </div>
+          </div>
           <div id="viewportSelectionModeControl" class="viewport-selection-mode" role="group" aria-label="Edit mode">
             <span>Edit Mode</span>
             <div class="viewport-selection-mode-buttons">
@@ -600,7 +667,11 @@
         <div class="viewport-top-controls">
           <div class="bar-actions viewport-display-actions" aria-label="Viewport display controls">
             <button id="presetLibraryToggle" class="tool-button preset-library-button" title="Open preset library" aria-label="Open preset library" aria-pressed="false"><span class="preset-library-glyph" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></span></button>
-            <button id="orthographicViewToggle" class="orthographic-view-button" title="Switch to orthographic view" aria-label="Toggle orthographic view" aria-pressed="false"><span class="tool-icon icon-ortho" aria-hidden="true"></span></button>
+            <button id="rigPhysicsToggle" class="tool-button" type="button" title="Play physics" aria-label="Play physics" aria-pressed="false">▶</button>
+            <button id="orthographicViewToggle" class="orthographic-view-button" title="Switch to orthographic view" aria-label="Toggle orthographic view" aria-pressed="false">
+              <svg class="projection-cube projection-perspective" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 4 13 1 21 4 20 15 9 22 3 15Z M2 4 9 8 21 4 M9 8V22" /></svg>
+              <svg class="projection-cube projection-orthographic" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 2 22 7 22 17 12 22 2 17 2 7Z M2 7 12 12 22 7 M12 12V22" /></svg>
+            </button>
             <button id="multiCameraViewToggle" class="multi-camera-view-button" type="button" title="Toggle four-view camera layout" aria-label="Toggle four-view camera layout" aria-pressed="false" hidden aria-hidden="true" tabindex="-1"><span class="tool-icon icon-multi-cam" aria-hidden="true"></span></button>
             <button id="toggleWire" title="Toggle strand topology" aria-label="Toggle strand topology" aria-pressed="false"><span class="tool-icon icon-wireframe-toggle" aria-hidden="true"></span></button>
             <button id="scalpGuideVisibilityToggle" class="scalp-guide-visibility-button" title="Choose visible guides and references" aria-label="Choose visible guides and references" aria-pressed="true" aria-haspopup="menu" aria-expanded="false"><span class="tool-icon icon-guide-toggle" aria-hidden="true"></span></button>
@@ -679,8 +750,9 @@
           </div>
         </div>
         <div class="viewport-tools" aria-label="Modelling tools">
-          <button class="tool-button active" data-tool="select" title="Select (Q)" aria-label="Select tool"><span class="tool-icon icon-select" aria-hidden="true"></span><kbd>Q</kbd></button>
-          <button class="tool-button" data-tool="move" title="Move curve point (W)" aria-label="Move tool"><span class="tool-icon icon-move" aria-hidden="true"></span><kbd>W</kbd></button>
+          <button id="iosMoreTools" class="ios-more-tools" type="button" aria-expanded="false" aria-label="Show more tools" title="More tools" hidden><span aria-hidden="true">•••</span><span>More</span></button>
+          <button id="viewportSelectTool" class="tool-button active" data-tool="select" title="Select (Q)" aria-label="Select tool"><span class="tool-icon icon-select" aria-hidden="true"></span><kbd>Q</kbd></button>
+          <button id="viewportMoveTool" class="tool-button" data-tool="move" title="Move curve point (W)" aria-label="Move tool"><span class="tool-icon icon-move" aria-hidden="true"></span><kbd>W</kbd></button>
           <button class="tool-button" data-tool="rotate" title="Rotate curve point (E)" aria-label="Rotate curve point tool"><span class="tool-icon icon-rotate" aria-hidden="true"></span><kbd>E</kbd></button>
           <button class="tool-button" data-tool="scale" title="Scale strand thickness (R)" aria-label="Scale tool"><span class="tool-icon icon-scale" aria-hidden="true"></span><kbd>R</kbd></button>
           <button id="greasePencilTool" class="tool-button edit-mode-tool-hidden" data-tool="grease-pencil" type="button" title="Draw reference strokes" aria-label="Grease Pencil tool"><span class="tool-icon icon-grease-pencil" aria-hidden="true"></span></button>
@@ -783,15 +855,103 @@
       </section>
 
       <aside class="tool-panel" aria-label="Hair controls" data-active-attribute-tab="main">
+        <section id="riggingWorkspacePanel" class="rigging-workspace-section" aria-label="Rigging controls" hidden>
+          <div class="section-head">Rigging</div>
+          <div class="transform-space-setting">
+            <span>Transform Space</span>
+            <div class="segmented-control" role="group" aria-label="Rigging transform space">
+              <button type="button" data-transform-space="world" class="active" aria-pressed="true">World</button>
+              <button type="button" data-transform-space="object" aria-pressed="false">Object</button>
+            </div>
+          </div>
+          <p id="hairRigMessage" role="status"></p>
+          <section id="hairRootWeightSettings" hidden>
+            <div class="subsection-label">Hair Root Weight</div>
+            <label class="rig-control">Root Influence <span class="rig-blend-controls"><input id="hairRootWeight" type="range" min="0" max="100" step="1" value="0" /><output id="hairRootWeightValue" for="hairRootWeight">0%</output></span></label>
+            <p>0% follows the chain; 100% follows Hair Root rigidly. Applies to selected bound strands, or all strands in the selected chain.</p>
+          </section>
+          <div id="hairRigSelection" hidden>
+            <div class="subsection-label">Selection</div>
+            <label class="rig-control">Chain name <input id="hairRigRename" type="text" maxlength="80" /></label>
+            <label class="rig-control">Naming Side <select id="hairRigNamingSide" title="Auto uses the whole rest chain, not just its root"><option value="auto">Auto</option><option value="L">Left</option><option value="C">Center</option><option value="R">Right</option></select></label>
+            <button id="refreshHairRigNames" type="button" title="Update generated bone names while preserving manual names">Update Bone Names</button>
+            <label id="hairRigBoneNameRow" class="rig-control" hidden>Bone name <input id="hairRigBoneName" type="text" maxlength="80" /></label>
+            <label id="hairBonePhysicsRow" class="rig-weight-toggle" hidden><input id="hairBonePhysics" type="checkbox" checked /> Physics Enabled <span title="Disabled bones follow their parent rigidly. Changes apply on the next simulation step.">ⓘ</span></label>
+            <section id="hairBoneLimits" hidden>
+              <div class="subsection-label">Rotation Limits</div>
+              <label class="rig-control">Movement <select data-limit-mode><option value="free">Free</option><option value="limited">Limited</option><option value="locked">Locked</option></select></label>
+              <label class="rig-control rig-limit-sideways">Sideways <span class="rig-limit-inputs"><input data-limit-angle="sideways" aria-label="Sideways limit in degrees" type="number" min="0" max="175" step="1" value="45" /><input data-limit-angle="sideways" aria-label="Sideways limit" type="range" min="0" max="175" step="1" value="45" /></span></label>
+              <label class="rig-control rig-limit-forward">Forward / Back <span class="rig-limit-inputs"><input data-limit-angle="forward" aria-label="Forward and back limit in degrees" type="number" min="0" max="175" step="1" value="45" /><input data-limit-angle="forward" aria-label="Forward and back limit" type="range" min="0" max="175" step="1" value="45" /></span></label>
+              <label class="rig-weight-toggle"><input data-limit-edit type="checkbox" checked /> Edit Limits in Viewport</label>
+              <div class="rig-actions"><label class="rig-weight-toggle"><input data-limit-rotate type="checkbox" /> Rotate Cone (Local)</label><button data-limit-reset type="button">Reset Orientation</button></div>
+              <p>Angles are ± degrees around the cone, relative to the parent. Drag cyan for sideways, purple for forward/back. Rotate Cone uses local X/Y/Z rings without moving the bone. Applies to physics only; no twist simulation.</p>
+            </section>
+            <p id="hairRigSelectionInfo"></p>
+            <section id="hairRigBindingSettings">
+            <div class="subsection-label">Binding</div>
+            <p id="hairRigBindingStatus"></p>
+            <label class="rig-control">Binding Blend <span class="rig-blend-controls"><input id="hairRigBindingBlend" type="range" min="0" max="300" step="1" value="100" title="0% rigid; 100% standard blend; 300% spreads the transition three times farther for softer bends" /><output id="hairRigBindingBlendValue" for="hairRigBindingBlend">100%</output></span></label>
+            <div class="rig-actions"><button id="bindHairRig" type="button">Bind Source Strands</button><button id="unbindHairRig" type="button">Unbind</button></div>
+            </section>
+            <button id="deleteHairRig" type="button">Delete Chain</button>
+          </div>
+          <section id="hairRootSettings" hidden>
+            <div class="subsection-label">Hair Root</div>
+            <label class="rig-control">Bone Name <input id="hairRootName" type="text" maxlength="80" value="Hair_Root" /></label>
+            <label class="rig-control">Pivot X <input id="hairRootX" type="number" step="0.01" /></label>
+            <label class="rig-control">Pivot Y <input id="hairRootY" type="number" step="0.01" /></label>
+            <label class="rig-control">Pivot Z <input id="hairRootZ" type="number" step="0.01" /></label>
+            <button id="previewHairRoot" type="button">Preview Root Motion</button>
+            <p>Shared parent for all hair chains. Pivot placement does not move rest hair. Preview moves the hairstyle through this root. Skeletal export is not available yet.</p>
+          </section>
+          <section id="hairPhysicsSettings">
+          <div class="subsection-label">Physics Preview</div>
+          <button id="selectHairPhysicsHead" type="button">Select Head Handle</button>
+          <p>During physics, use Move or Rotate on the head handle. Dragging resumes playback.</p>
+          <label class="rig-control">Gravity <input data-hair-physics="gravity" type="range" min="0" max="2" step="0.05" value="1" /></label>
+          <label class="rig-control">Stiffness <input data-hair-physics="stiffness" type="range" min="0" max="1" step="0.01" value="0.35" /></label>
+          <label class="rig-control">Damping <input data-hair-physics="damping" type="range" min="0" max="1" step="0.01" value="0.2" /></label>
+          <div class="rig-actions"><button id="playHairPhysics" type="button" aria-pressed="false">Play</button><button id="resetHairPhysics" type="button" disabled>Reset</button><button id="shakeHairPhysics" type="button" disabled>Shake</button><button id="stopHairPhysics" type="button" disabled>Stop</button></div>
+          <p>All bound chains · Fixed roots · No collision. Stop restores the starting pose. Simulation is not saved or exported.</p>
+          </section>
+          <section id="hairPoseSettings">
+          <div class="subsection-label">Pose Preview</div>
+          <div class="rig-actions"><button id="toggleHairPose" type="button" aria-pressed="false">Start Pose Preview</button><button id="resetHairPose" type="button" disabled>Reset Pose</button></div>
+          <label class="rig-weight-toggle"><input id="showHairBoneWeights" type="checkbox" disabled /> Show Bone Weights</label>
+          <div id="hairBoneWeightLegend" hidden>
+            <div class="rig-weight-gradient" aria-hidden="true"></div>
+            <div class="rig-weight-labels"><span>0%</span><span>50%</span><span>100%</span></div>
+            <p id="hairBoneWeightStatus" role="status"></p>
+            <p>Direct skin weights. Child bones still follow joint transforms.</p>
+          </div>
+          <p>Pose Preview is temporary. Exit to edit rest bones. Joint transforms include descendants.</p>
+          </section>
+        </section>
         <div class="panel-resize-handle" data-panel-resize="right" role="separator" tabindex="0" aria-label="Attribute editor width" aria-orientation="vertical" aria-valuemin="280" aria-valuemax="520" title="Drag to resize; double-click to reset"></div>
         <div class="attribute-editor-tabs" role="tablist" aria-label="Attribute editor">
           <button id="attributeMainTab" class="active" type="button" role="tab" aria-selected="true" data-attribute-tab="main">Main</button>
           <button id="attributeDisplayTab" type="button" role="tab" aria-selected="false" data-attribute-tab="display">Display</button>
           <button id="attributeMaterialsTab" type="button" role="tab" aria-selected="false" data-attribute-tab="materials">Materials</button>
+          <button id="attributeGuideTab" type="button" role="tab" aria-selected="false" data-attribute-tab="guide" hidden>Guide</button>
         </div>
         <button id="toggleAttributeEditorPanel" class="sidebar-collapse-toggle" type="button" title="Collapse attribute editor" aria-label="Collapse attribute editor" aria-expanded="true"><span aria-hidden="true">&#x2303;</span></button>
         <div class="attribute-editor-content">
-          <div id="attributeSelectionScope" class="attribute-selection-scope" aria-label="Selection scope">No object selected</div>
+        <section id="appGuidePanel" class="panel-section attribute-tab-hidden" data-attribute-panel="guide" aria-label="App guide">
+          <label for="appGuideSearch">Search tools and features</label>
+          <input id="appGuideSearch" type="search" placeholder="Try width, brush, or bones" autocomplete="off" />
+          <label for="appGuideCategory">Category</label>
+          <select id="appGuideCategory"><option value="">All topics</option></select>
+          <p id="appGuideStatus" role="status" aria-live="polite"></p>
+          <div id="appGuideResults"></div>
+          <article id="appGuideArticle" hidden>
+            <button id="appGuideBack" type="button">Back to topics</button>
+            <h2 id="appGuideTitle"></h2>
+            <p id="appGuideDescription"></p>
+            <ol id="appGuideSteps"></ol>
+            <p id="appGuideContext"></p>
+            <button id="startHeadImportGuide" type="button" hidden>Start Guide</button>
+          </article>
+        </section>
         <section id="strandEmptyState" class="panel-section attribute-empty-state hidden" data-attribute-panel="main">
           <h2>No strand selected</h2>
           <p>Select a strand in the viewport or outliner to edit its properties.</p>
@@ -967,7 +1127,6 @@
         <div id="selectedStrandPanel" class="panel-section" data-attribute-panel="strands">
           <div class="section-head">
             <span id="selectedStrandTitle">Selected Strand</span>
-            <button id="deleteLock" class="icon-danger" title="Delete selected strand" aria-label="Delete selected strand">X</button>
           </div>
           <label for="lockName">Name</label>
           <input id="lockName" type="text" value="" />
@@ -1108,6 +1267,7 @@
             <option value="standard-anisotropic">Standard Anisotropic</option>
             <option value="anime-anisotropic">Anime Anisotropic</option>
             <option value="lambert">Lambert</option>
+            <option value="gem-experimental">Gem (Experimental)</option>
           </select>
           <div class="material-gradient-control">
             <label class="toggle-row" for="hairMaterialGradientEnabled" title="Use a root-to-tip colour gradient instead of one solid base colour.">
@@ -1127,7 +1287,28 @@
               <output id="hairMaterialRoughnessValue" class="slider-value">0.72</output>
             </label>
           </div>
+          <div id="hairMaterialGemControls" class="hidden">
+            <label class="topology-control" for="hairMaterialGemDepthContrast">Depth Contrast<input id="hairMaterialGemDepthContrast" type="range" min="0" max="1" step="0.01" value="0.7" /><output id="hairMaterialGemDepthContrastValue" class="slider-value">0.70</output></label>
+            <label class="topology-control" for="hairMaterialGemInclusions">Inclusions<input id="hairMaterialGemInclusions" type="range" min="0" max="1" step="0.01" value="0.45" /><output id="hairMaterialGemInclusionsValue" class="slider-value">0.45</output></label>
+            <label class="topology-control" for="hairMaterialGemInclusionScale">Inclusions Scale<input id="hairMaterialGemInclusionScale" type="range" min="0.1" max="5" step="0.05" value="1" /><output id="hairMaterialGemInclusionScaleValue" class="slider-value">1.00</output></label>
+            <label class="topology-control" for="hairMaterialGemFracturing">Fracturing<input id="hairMaterialGemFracturing" type="range" min="0" max="1" step="0.01" value="0" /><output id="hairMaterialGemFracturingValue" class="slider-value">0.00</output></label>
+            <label class="topology-control" for="hairMaterialGemFracturingScale">Fracturing Scale<input id="hairMaterialGemFracturingScale" type="range" min="0.1" max="5" step="0.05" value="1" /><output id="hairMaterialGemFracturingScaleValue" class="slider-value">1.00</output></label>
+            <label class="topology-control" for="hairMaterialGemFractureDepth">Fracture Depth<input id="hairMaterialGemFractureDepth" type="range" min="0" max="1" step="0.01" value="0.5" /><output id="hairMaterialGemFractureDepthValue" class="slider-value">0.50</output></label>
+            <label class="topology-control" for="hairMaterialGemPearlescence">Pearlescence<input id="hairMaterialGemPearlescence" type="range" min="0" max="1" step="0.01" value="0" /><output id="hairMaterialGemPearlescenceValue" class="slider-value">0.00</output></label>
+            <label class="topology-control" for="hairMaterialGemRainbowReflections">Rainbow Reflections<input id="hairMaterialGemRainbowReflections" type="range" min="0" max="1" step="0.01" value="0" /><output id="hairMaterialGemRainbowReflectionsValue" class="slider-value">0.00</output></label>
+            <button id="hairMaterialGemMint" type="button">Mint Crystal</button>
+            <p class="anime-outline-hint">Depth Contrast adds dark internal pockets. Inclusions adds tiny shiny spots. Fracturing adds thin white internal cracks. Scale enlarges each pattern. These effects use 3D coordinates, not UVs. Mint Crystal resets the Gem controls and turns off the gradient.</p>
+          </div>
           <div id="hairMaterialAnimeControls" class="anime-shader-controls hidden">
+            <label class="toggle-row" for="hairMaterialAnimeOutlineEnabled"><span>Outline</span><input id="hairMaterialAnimeOutlineEnabled" type="checkbox" /></label>
+            <div id="hairMaterialAnimeOutlineSettings" hidden>
+              <label>Ink Colour<input id="hairMaterialAnimeOutlineColor" type="color" value="#211827" /></label>
+              <label class="topology-control">Outer Thickness (px)<input id="hairMaterialAnimeOutlineWidth" type="range" min="0.5" max="12" step="0.1" value="1.5" /><output id="hairMaterialAnimeOutlineWidthValue" class="slider-value">1.5</output></label>
+              <label class="toggle-row" for="hairMaterialAnimeOutlineOverlapEnabled"><span>Overlap Lines</span><input id="hairMaterialAnimeOutlineOverlapEnabled" type="checkbox" /></label>
+              <label class="topology-control">Overlap Thickness (px)<input id="hairMaterialAnimeOutlineOverlapWidth" type="range" min="0.5" max="12" step="0.1" value="1.5" /><output id="hairMaterialAnimeOutlineOverlapWidthValue" class="slider-value">1.5</output></label>
+              <label class="topology-control">Minimum Depth Gap<input id="hairMaterialAnimeOutlineDepthGap" type="range" min="0" max="0.5" step="0.005" value="0.03" /><output id="hairMaterialAnimeOutlineDepthGapValue" class="slider-value">0.030</output></label>
+              <p class="anime-outline-hint">Lower gaps reveal more overlaps; higher gaps ignore close surfaces. Measured in scene units.</p>
+            </div>
             <div class="subsection-label">Base &amp; Shadow</div>
             <div class="anime-shader-color-grid">
               <label>Base<input id="hairMaterialAnimeBaseColor" type="color" value="#dbc2aa" /></label>
@@ -1138,19 +1319,20 @@
             </div>
             <label class="topology-control">Shadow Line<input id="hairMaterialAnimeShadowThreshold" type="range" min="0" max="1" step="0.01" value="0.67" /><output id="hairMaterialAnimeShadowThresholdValue" class="slider-value">0.67</output></label>
             <label class="topology-control">Edge Softness<input id="hairMaterialAnimeShadowSoftness" type="range" min="0" max="0.25" step="0.01" value="0.05" /><output id="hairMaterialAnimeShadowSoftnessValue" class="slider-value">0.05</output></label>
+            <label class="toggle-row" for="hairMaterialAnimeShadowJaggednessEnabled"><span>Shadow Jaggedness</span><input id="hairMaterialAnimeShadowJaggednessEnabled" type="checkbox" /></label>
             <label class="topology-control">Soft Shadow Strength<input id="hairMaterialAnimeSoftShadowStrength" type="range" min="0" max="1" step="0.01" value="0.65" /><output id="hairMaterialAnimeSoftShadowStrengthValue" class="slider-value">0.65</output></label>
             <label class="topology-control">Soft Shadow Spread<input id="hairMaterialAnimeSoftShadowSpread" type="range" min="0" max="0.5" step="0.01" value="0.41" /><output id="hairMaterialAnimeSoftShadowSpreadValue" class="slider-value">0.41</output></label>
-            <label class="topology-control">Rim Strength<input id="hairMaterialAnimeRimStrength" type="range" min="0" max="1" step="0.01" value="0.35" /><output id="hairMaterialAnimeRimStrengthValue" class="slider-value">0.35</output></label>
+            <label class="topology-control" title="Rim colour and strength apply to the edge rim plus an anisotropic band across the shadows. The band shares the highlight shape and strength controls.">Rim Strength<input id="hairMaterialAnimeRimStrength" type="range" min="0" max="1" step="0.01" value="0.35" /><output id="hairMaterialAnimeRimStrengthValue" class="slider-value">0.35</output></label>
             <label class="topology-control">Rim Width<input id="hairMaterialAnimeRimWidth" type="range" min="0.02" max="1" step="0.01" value="0.3" /><output id="hairMaterialAnimeRimWidthValue" class="slider-value">0.30</output></label>
             <label class="topology-control">Highlight Strength<input id="hairMaterialAnimeHighlightStrength" type="range" min="0" max="1" step="0.01" value="0.41" /><output id="hairMaterialAnimeHighlightStrengthValue" class="slider-value">0.41</output></label>
             <label class="topology-control">Highlight Width<input id="hairMaterialAnimeHighlightWidth" type="range" min="0.002" max="0.15" step="0.001" value="0.051" /><output id="hairMaterialAnimeHighlightWidthValue" class="slider-value">0.051</output></label>
             <label class="topology-control">Anisotropy<input id="hairMaterialAnimeAnisotropy" type="range" min="0" max="1" step="0.01" value="0.9" /><output id="hairMaterialAnimeAnisotropyValue" class="slider-value">0.90</output></label>
-            <label class="topology-control">Jaggedness<input id="hairMaterialAnimeHighlightJaggedness" type="range" min="0" max="1" step="0.01" value="0.16" /><output id="hairMaterialAnimeHighlightJaggednessValue" class="slider-value">0.16</output></label>
+            <label class="topology-control" title="Shared by the highlights and shadow edge. Noise Scale and Noise Blur shape both; Edge Softness smooths the shadow edge.">Jaggedness<input id="hairMaterialAnimeHighlightJaggedness" type="range" min="0" max="1" step="0.01" value="0.16" /><output id="hairMaterialAnimeHighlightJaggednessValue" class="slider-value">0.16</output></label>
             <label class="topology-control">Noise Scale<input id="hairMaterialAnimeHighlightNoiseScale" type="range" min="10" max="200" step="1" value="69" /><output id="hairMaterialAnimeHighlightNoiseScaleValue" class="slider-value">69</output></label>
             <label class="topology-control">Noise Blur<input id="hairMaterialAnimeHighlightNoiseBlur" type="range" min="0" max="1" step="0.01" value="1" /><output id="hairMaterialAnimeHighlightNoiseBlurValue" class="slider-value">1.00</output></label>
             <label class="topology-control">Top Fade<input id="hairMaterialAnimeHighlightTopFade" type="range" min="0" max="1" step="0.01" value="1" /><output id="hairMaterialAnimeHighlightTopFadeValue" class="slider-value">1.00</output></label>
             <label class="topology-control">Top Blur<input id="hairMaterialAnimeHighlightTopBlur" type="range" min="0" max="1" step="0.01" value="0.72" /><output id="hairMaterialAnimeHighlightTopBlurValue" class="slider-value">0.72</output></label>
-            <label class="topology-control">Edge Suppression<input id="hairMaterialAnimeHighlightEdgeSuppression" type="range" min="0" max="1" step="0.01" value="1" /><output id="hairMaterialAnimeHighlightEdgeSuppressionValue" class="slider-value">1.00</output></label>
+            <label class="topology-control" title="Suppresses only the main highlight at grazing angles; the shadow anisotropic band remains visible.">Edge Suppression<input id="hairMaterialAnimeHighlightEdgeSuppression" type="range" min="0" max="1" step="0.01" value="1" /><output id="hairMaterialAnimeHighlightEdgeSuppressionValue" class="slider-value">1.00</output></label>
           </div>
         </div>
 
@@ -1871,13 +2053,13 @@
           </div>
           <button id="importHeadMesh" class="wide-action" type="button" title="Import head mesh from an OBJ file">Import Head Mesh</button>
           <button id="importFullBodyMesh" class="wide-action" type="button" title="Import a full body OBJ, scale it to seven head heights, and align its top to the scalp guide">Import Full Body Mesh</button>
-          <label class="topology-control head-transform-control axis-reset-control" title="Moves the reference head up or down without moving the hair or scalp guide.">Position Y <button data-reset-head-transform="positionY" type="button" title="Reset head Y position" aria-label="Reset head Y position">⟲</button><input id="headPositionY" type="range" min="-3" max="3" step="0.01" value="0" /><output id="headPositionYValue" class="slider-value">0.00</output></label>
-          <label class="topology-control head-transform-control axis-reset-control" title="Moves the reference head forward or backward without moving the hair or scalp guide.">Position Z <button data-reset-head-transform="positionZ" type="button" title="Reset head Z position" aria-label="Reset head Z position">⟲</button><input id="headPositionZ" type="range" min="-3" max="3" step="0.01" value="0" /><output id="headPositionZValue" class="slider-value">0.00</output></label>
-          <label class="topology-control head-transform-control axis-reset-control" title="Uniformly changes the overall size of the reference head.">Uniform Scale <button data-reset-head-transform="uniformScale" type="button" title="Reset head scale" aria-label="Reset head scale">⟲</button><input id="headUniformScale" type="range" min="0.25" max="3" step="0.01" value="1" /><output id="headUniformScaleValue" class="slider-value">1.00</output></label>
+          <label id="headPositionYGuideRow" class="topology-control head-transform-control axis-reset-control" title="Moves the reference head up or down without moving the hair or scalp guide.">Position Y <button data-reset-head-transform="positionY" type="button" title="Reset head Y position" aria-label="Reset head Y position">⟲</button><input id="headPositionY" type="range" min="-3" max="3" step="0.01" value="0" /><output id="headPositionYValue" class="slider-value">0.00</output></label>
+          <label id="headPositionZGuideRow" class="topology-control head-transform-control axis-reset-control" title="Moves the reference head forward or backward without moving the hair or scalp guide.">Position Z <button data-reset-head-transform="positionZ" type="button" title="Reset head Z position" aria-label="Reset head Z position">⟲</button><input id="headPositionZ" type="range" min="-3" max="3" step="0.01" value="0" /><output id="headPositionZValue" class="slider-value">0.00</output></label>
+          <label id="headUniformScaleGuideRow" class="topology-control head-transform-control axis-reset-control" title="Uniformly changes the overall size of the reference head.">Uniform Scale <button data-reset-head-transform="uniformScale" type="button" title="Reset head scale" aria-label="Reset head scale">⟲</button><input id="headUniformScale" type="range" min="0.25" max="3" step="0.01" value="1" /><output id="headUniformScaleValue" class="slider-value">1.00</output></label>
           <div class="subsection-label">Rough Scalp Fit</div>
-          <label class="topology-control scalp-rough-scale-control axis-reset-control" title="Changes the scalp guide width without changing the head mesh.">Scale X <button data-reset-scalp-rough-scale="x" type="button" title="Reset X scale" aria-label="Reset X scale">⟲</button><input data-scalp-rough-scale-axis="x" type="range" min="0.5" max="1.5" step="0.01" value="1" /><output data-scalp-rough-scale-value="x" class="slider-value">1.00</output></label>
-          <label class="topology-control scalp-rough-scale-control axis-reset-control" title="Changes the scalp guide height without changing the head mesh.">Scale Y <button data-reset-scalp-rough-scale="y" type="button" title="Reset Y scale" aria-label="Reset Y scale">⟲</button><input data-scalp-rough-scale-axis="y" type="range" min="0.5" max="1.5" step="0.01" value="1" /><output data-scalp-rough-scale-value="y" class="slider-value">1.00</output></label>
-          <label class="topology-control scalp-rough-scale-control axis-reset-control" title="Changes the scalp guide depth without changing the head mesh.">Scale Z <button data-reset-scalp-rough-scale="z" type="button" title="Reset Z scale" aria-label="Reset Z scale">⟲</button><input data-scalp-rough-scale-axis="z" type="range" min="0.5" max="1.5" step="0.01" value="1" /><output data-scalp-rough-scale-value="z" class="slider-value">1.00</output></label>
+          <label id="headRoughScalpXGuideRow" class="topology-control scalp-rough-scale-control axis-reset-control" title="Changes the scalp guide width without changing the head mesh.">Scale X <button data-reset-scalp-rough-scale="x" type="button" title="Reset X scale" aria-label="Reset X scale">⟲</button><input data-scalp-rough-scale-axis="x" type="range" min="0.5" max="1.5" step="0.01" value="1" /><output data-scalp-rough-scale-value="x" class="slider-value">1.00</output></label>
+          <label id="headRoughScalpYGuideRow" class="topology-control scalp-rough-scale-control axis-reset-control" title="Changes the scalp guide height without changing the head mesh.">Scale Y <button data-reset-scalp-rough-scale="y" type="button" title="Reset Y scale" aria-label="Reset Y scale">⟲</button><input data-scalp-rough-scale-axis="y" type="range" min="0.5" max="1.5" step="0.01" value="1" /><output data-scalp-rough-scale-value="y" class="slider-value">1.00</output></label>
+          <label id="headRoughScalpZGuideRow" class="topology-control scalp-rough-scale-control axis-reset-control" title="Changes the scalp guide depth without changing the head mesh.">Scale Z <button data-reset-scalp-rough-scale="z" type="button" title="Reset Z scale" aria-label="Reset Z scale">⟲</button><input data-scalp-rough-scale-axis="z" type="range" min="0.5" max="1.5" step="0.01" value="1" /><output data-scalp-rough-scale-value="z" class="slider-value">1.00</output></label>
           <button id="fineTuneScalpGuide" class="wide-action" type="button">Fine Tune Scalp Guide</button>
         </div>
 
@@ -1885,6 +2067,12 @@
           <div class="section-head">
             <span>Display</span>
           </div>
+          <div class="subsection-label">Camera</div>
+          <label class="topology-control" title="Perspective view only">
+            Field of View (°)
+            <input id="cameraFieldOfView" type="range" min="10" max="100" step="1" value="38" />
+            <output id="cameraFieldOfViewValue" class="slider-value">38</output>
+          </label>
           <div class="visibility-filter-box">
             <div class="visibility-filter-title">Strands by Region</div>
             <label class="visibility-filter-row visibility-filter-parent"><input id="allRegionsVisibility" type="checkbox" checked /><span>All Regions</span></label>
@@ -1952,6 +2140,9 @@
     </div>
 
     <div id="guideViewContextMenu" class="outliner-context-menu guide-view-context-menu hidden" role="menu" aria-label="Visible guides and references">
+      <label class="guide-view-check-row" hidden><input type="checkbox" data-rig-visibility="objects" checked /><span>Objects</span></label>
+      <label class="guide-view-check-row" hidden><input type="checkbox" data-rig-visibility="bones" checked /><span>Bones</span></label>
+      <label class="guide-view-check-row" hidden><input type="checkbox" data-rig-visibility="handles" checked /><span>Handles</span></label>
       <label class="guide-view-check-row"><input type="checkbox" data-guide-visibility="scalp" /><span>Scalp</span></label>
       <label class="guide-view-check-row"><input type="checkbox" data-guide-visibility="capsule" /><span>Capsule</span></label>
       <label class="guide-view-check-row"><input type="checkbox" data-guide-visibility="lattice" /><span>Lattice</span></label>
@@ -2120,8 +2311,8 @@
             <div class="shortcut-row hidden" data-navigation-style-shortcut="blender"><kbd>Scrollwheel</kbd><span>Zoom the camera</span></div>
             <div class="shortcut-row hidden" data-navigation-style-shortcut="blender"><span class="shortcut-key-group"><kbd>Alt</kbd><span>+</span><span>Middle Mouse drag</span></span><span>Snap the camera to cardinal views</span></div>
             <div class="shortcut-row"><kbd>F</kbd><span>Cycle selected and full-scene framing</span></div>
-            <div class="shortcut-row radial-shortcut-row"><kbd>Hold Spacebar</kbd><span>Choose from the contextual radial menu</span></div>
-            <div class="shortcut-row radial-shortcut-row"><kbd id="toolHoldShortcutLabel">Hold Q / W / E / R</kbd><span>Choose options for that tool</span></div>
+            <div class="shortcut-row"><kbd>Hold Spacebar</kbd><span>Choose from the contextual radial menu</span></div>
+            <div class="shortcut-row"><kbd id="toolHoldShortcutLabel">Hold Q / W / E / R</kbd><span>Choose options for that tool</span></div>
             <div class="shortcut-row"><kbd>Esc</kbd><span>Close the active menu or window</span></div>
           </section>
           </div>
@@ -2136,14 +2327,18 @@
       <div class="patch-notes-dialog-shell">
         <header class="patch-notes-dialog-head">
           <div>
-            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 1.0.1 Patch Notes</h2>
-            <p id="patchNotesDialogSummary">Mesh import and conversion, custom accent colours, standard hotkey settings, and interface fixes.</p>
+            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 1.0.2 Patch Notes</h2>
+            <p id="patchNotesDialogSummary">New Rigging workspace, physics and skeletal export, Gem shading, anime outlines, Boolean remeshing, and in-app guides.</p>
           </div>
           <button id="closePatchNotes" type="button" title="Close patch notes" aria-label="Close patch notes">X</button>
         </header>
         <div class="patch-notes-workspace">
           <nav class="patch-notes-sidebar" role="tablist" aria-label="Patch note versions">
-            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="1.0.1">
+            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="1.0.2">
+              <strong>1.0.2</strong>
+              <time datetime="2026-09-29">September 29, 2026</time>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-patch-notes-version="1.0.1">
               <strong>1.0.1</strong>
               <time datetime="2026-09-11">September 11, 2026</time>
             </button>
@@ -2173,7 +2368,59 @@
             </button>
           </nav>
           <div class="patch-notes-panels">
-            <article class="patch-notes-content" data-patch-notes-panel="1.0.1"
+            <article class="patch-notes-content" data-patch-notes-panel="1.0.2"
+              data-patch-notes-title="Anime Hair Studio Version 1.0.2 Patch Notes"
+              data-patch-notes-summary="New Rigging workspace, physics and skeletal export, Gem shading, anime outlines, Boolean remeshing, and in-app guides.">
+              <section class="patch-notes-section">
+                <h3>New features</h3>
+                <ul>
+                  <li><strong>Rigging Workspace</strong><br />A new workspace for building and editing hair rigs, with separate Strands and Rig outliner views, bone and joint selection filters, and standard transform tools. Rig data is saved with the project.</li>
+                  <li><strong>Bone Chain Creation</strong><br />Create automatically named bone chains from one or more strands, with automatic source binding and optional linked-mirror creation. Choose an averaged path or follow strands end-to-end, inspect a live bone preview, then Apply or Cancel.</li>
+                  <li><strong>Rig Hierarchy and Hair Root</strong><br />Organize chains under a shared Hair Root, create child chains, or drag chains onto another bone to attach them. Parent transforms carry attached chains while preserving their offsets; supported mirrored relationships update together.</li>
+                  <li><strong>Binding and Pose Preview</strong><br />Preview deformation without changing the source hairstyle. Adjust Binding Blend up to 300%, assign Hair Root influence, inspect selected-bone weights, and use pose Undo, Redo and Reset. Temporary poses are not saved as animation.</li>
+                  <li><strong>Hair Physics Preview</strong><br />Play, pause, shake, reset and stop simulated hair, with gravity, stiffness and damping controls. Move or rotate the head handle to test motion; unbound hair and meshes follow the head rigidly. Physics is a preview, not exported animation, and currently has no head collision.</li>
+                  <li><strong>Bone Rotation Limits</strong><br />Set bones to Free, Limited or Locked, adjust sideways and forward/back limits, and rotate the movement cone locally. Per-bone physics toggles control which segments simulate; supported mirrored pairs share limit edits.</li>
+                  <li><strong>USDA Skeleton and Weight Export</strong><br />Export the authored skeleton and bound meshes with skin weights through the USDA export dialog. Bone names, hierarchy and binding blends are retained; temporary poses, physics settings and animation are not exported.</li>
+                  <li><strong>Shared Mesh Scale Pivot</strong><br />Scale multiple selected meshes around their combined selection centre using Shared Selection Pivot in Mesh Object mode. Turn it off to return to individual pivots.</li>
+                  <li><strong>Pattern Profile Handles</strong><br />Show width and depth profile points directly on the active Pattern brush preview and drag them to shape the profile. Handles follow the selected root, body or tip section, including the middle repeat when neighbours are shown.</li>
+                  <li><strong>Anime Shader Outlines</strong><br />Add coloured outlines with separate silhouette and overlap thickness, adjustable up to 12 px. A depth-gap control suppresses shallow overlaps, and overlap lines taper as they approach the cutoff.</li>
+                  <li><strong>Experimental Gem Shader</strong><br />Try a stylized crystal material with saturated colour, dark internal depth, anisotropic highlights, shiny inclusions and parallax fractures. Separate controls adjust fracture depth and scale, inclusion scale, pearlescence and rainbow reflections. This is a viewport approximation, not physically accurate refraction.</li>
+                  <li><strong>Boolean Remeshing</strong><br />Remesh strands with the Cut and Stitch Boolean mode alongside Low, Medium and High Effort. Braids and strand-lattice meshes also support Boolean; open surfaces are cut and stitched without adding thickness. Mesh-source results use triangles and are not guaranteed watertight.</li>
+                  <li><strong>Searchable In-App Guide</strong><br />Open Help > Guide to search tools and features in the right-hand panel, including the Rigging workspace. Explanations use the app itself without adding video assets.</li>
+                  <li><strong>Guided Head Import</strong><br />Follow an interactive walkthrough for importing a head or full-body mesh, adjusting the head, fitting the scalp and fine-tuning it. The guide spotlights relevant controls and includes compact Back, Pause, Next and Exit controls.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>UI changes</h3>
+                <ul>
+                  <li><strong>Collapsible Settings Sections</strong><br />Collapse individual sections in the attribute editor and rigging panel to keep the controls you need in view. Section headings are more compact, and redundant selected-strand messages and the header delete button have been removed.</li>
+                  <li><strong>Cleaner Viewport and Outliner</strong><br />Visibility icons no longer use accent-coloured boxes. The view cube sits clear of the transform panel, and the large white cross on the physics-preview head handle has been removed.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Tweaks and quality of life</h3>
+                <ul>
+                  <li><strong>Wireframe Colour Preference</strong><br />Choose and reset the ordinary topology-overlay colour in Preferences. Selection, locked-strand and guide colours retain their distinct meanings.</li>
+                  <li><strong>Camera Field of View</strong><br />Adjust the perspective camera field of view from 10 to 100 degrees in Display. Orthographic views disable the control; returning to perspective retains the chosen value for the session.</li>
+                  <li><strong>Anime Shadow Highlights</strong><br />The rim colour can now contribute an anisotropic highlight within shadowed areas. An optional Shadow Jaggedness toggle adds strand-aligned variation using the existing highlight noise controls.</li>
+                  <li><strong>Physics Preview Performance</strong><br />Playback reuses rig display objects and buffers instead of rebuilding them every frame, with additional preview rendering optimizations. Performance still depends on scene complexity and material settings.</li>
+                  <li><strong>Rig Visibility and Controls</strong><br />Hide individual bones or entire chain folders without disabling their physics. Separate Objects, Bones and Handles filters control visibility and selection; World/Object transform space and side-aware bone naming are available in Rigging.</li>
+                  <li><strong>Remesh and Rigging Code Cleanup</strong><br />Separated remesh preview scheduling, worker cleanup and bone-chain proposals into focused modules. Cancellation and late results are guarded, and initial creation and live settings changes use the same proposal logic.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Bug fixes</h3>
+                <ul>
+                  <li><strong>Always-Available Radial Menus</strong><br />Radial menus are now a core feature and cannot be disabled in Preferences. Older disabled settings are ignored.</li>
+                  <li><strong>Gradient Colour Picker</strong><br />Fixed the gradient editor disappearing while choosing a colour. The shared colour picker also supports a screen eyedropper where the browser provides it.</li>
+                  <li><strong>Outline Occlusion and Selection</strong><br />Corrected ragged outline artifacts around head-mesh boundaries. Selection outlines render above material outlines while preserving scene occlusion.</li>
+                  <li><strong>Gem Effects During Physics Preview</strong><br />Inclusions and fractures now follow the deformed rigged hair instead of appearing to slide through it. Their procedural scale is independent of stretched UVs.</li>
+                  <li><strong>Pattern Width and Depth Continuity</strong><br />Corrected repeating width and depth profiles across root, body and tip sections, including asymmetric curves and sections with different point counts. Profile endpoints now stay linked for continuous repeats; previously baked scene strands are not rewritten.</li>
+                  <li><strong>Pattern Shape Settings</strong><br />Pattern Strand Shape settings now appear when entering Brushes with Select or transform tools, even without a scene strand selection. Retained scene selections no longer give the builder unrelated mesh or braid settings.</li>
+                </ul>
+              </section>
+            </article>
+            <article class="patch-notes-content hidden" data-patch-notes-panel="1.0.1"
               data-patch-notes-title="Anime Hair Studio Version 1.0.1 Patch Notes"
               data-patch-notes-summary="Mesh import and conversion, custom accent colours, standard hotkey settings, and interface fixes.">
               <section class="patch-notes-section">
@@ -2702,6 +2949,14 @@
                       <button id="resetViewportBackgroundColor" class="slider-reset-button" type="button" title="Reset background colour" aria-label="Reset viewport background colour">&#x21BA;</button>
                     </span>
                   </label>
+                  <label class="preference-color" for="wireframeColorPreference">
+                    <span><strong>Wireframe colour</strong><small>Strand and mesh topology colour. Locked strands retain their highlight.</small></span>
+                    <span class="preference-color-control">
+                      <input id="wireframeColorPreference" type="color" value="#66f5ff" />
+                      <output id="wireframeColorPreferenceValue" for="wireframeColorPreference">#66F5FF</output>
+                      <button id="resetWireframeColor" class="slider-reset-button" type="button" title="Reset wireframe colour" aria-label="Reset wireframe colour">&#x21BA;</button>
+                    </span>
+                  </label>
                   <label class="preference-toggle" for="layerColorShiftsPreference">
                     <span><strong>Layer colour and brightness shifts</strong><small>Tint and darken hair layers to make their depth easier to distinguish.</small></span>
                     <input id="layerColorShiftsPreference" type="checkbox" checked />
@@ -2750,10 +3005,6 @@
                   <label class="preference-toggle" for="toolTipsPreference">
                     <span><strong>Tool tips</strong><small>Show contextual modelling guidance in the viewport.</small></span>
                     <input id="toolTipsPreference" type="checkbox" checked />
-                  </label>
-                  <label class="preference-toggle" for="radialMenusPreference">
-                    <span><strong>Radial menus</strong><small>Enable the contextual Spacebar menu and tool shortcut hold menus.</small></span>
-                    <input id="radialMenusPreference" type="checkbox" checked />
                   </label>
                   <label class="preference-toggle" for="compactToolButtonsPreference">
                     <span><strong>Compact tool buttons</strong><small>Hide shortcut labels and reduce the size of viewport tool buttons.</small></span>
@@ -2860,6 +3111,10 @@
               <div class="experimental-dev-tests">
                 <h3>Dev tests</h3>
                 <p>Dev test features are not intended as functional tools and are included only for testing purposes.</p>
+                <label class="preference-toggle hidden" for="iosUiExperimentalPreference" data-dev-test-feature>
+                  <span><strong>iPad-style UI</strong><small>Try the canvas-first iOS layout with floating panels and a bottom tool dock. This session only; editing gestures are unchanged.</small></span>
+                  <input id="iosUiExperimentalPreference" type="checkbox" />
+                </label>
                 <label class="preference-toggle hidden" for="curvyPreference" data-dev-test-feature>
                   <span><strong>Curvy</strong><small>A wiggly curve companion with contextual tips. Experimental easter egg.</small></span>
                   <input id="curvyPreference" type="checkbox" />
@@ -3508,9 +3763,11 @@
       </div>
       <div class="app-color-picker-footer">
         <span id="appColorPreview" class="app-color-preview" aria-hidden="true"></span>
+        <button id="appColorEyedropper" type="button" title="Pick colour from screen" aria-label="Pick colour from screen"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m14 5 5 5M13 6l5-4 4 4-4 5M15 8 5 18l-1 3 3-1L17 10"/></svg></button>
         <input id="appColorHex" type="text" maxlength="7" spellcheck="false" aria-label="Hex colour" />
         <button id="confirmAppColorPicker" type="button">Done</button>
       </div>
+      <div id="appColorEyedropperStatus" class="app-color-eyedropper-status" role="status"></div>
     </div>
 
     <script type="importmap">
@@ -3534,6 +3791,20 @@
       <button id="referenceCurveConfirm" type="button" disabled>Create Strand</button>
     </div>
   </dialog>
-    <script id="ahsMainModule" type="module" src="./app.js?v=20260911-14"></script>
+    <div id="guidedWorkflowOverlay" hidden aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" /></svg></div>
+    <section id="guidedWorkflowPlayer" hidden aria-label="Guided workflow">
+      <div class="guided-player-heading">Import Your Own Head</div>
+      <h2 id="guidedWorkflowTitle"></h2>
+      <p id="guidedWorkflowText" aria-live="polite"></p>
+      <p id="guidedProportionalTip" hidden>Tip: Use <button id="guidedProportionalHint" type="button" title="Highlight Proportional Editing in the viewport" aria-label="Highlight Proportional Editing in the viewport"><span class="tool-icon icon-proportional" aria-hidden="true"></span></button> Proportional Editing (B) for broader adjustments.</p>
+      <div class="guided-player-actions">
+        <span id="guidedWorkflowProgress"></span>
+        <button id="backGuidedWorkflow" type="button">Back</button>
+        <button id="pauseGuidedWorkflow" type="button">Pause</button>
+        <button id="nextGuidedWorkflow" type="button">Next</button>
+        <button id="exitGuidedWorkflow" type="button">Exit Guide</button>
+      </div>
+    </section>
+    <script id="ahsMainModule" type="module" src="./app.js?v=20260912-1"></script>
   </body>
 </html>

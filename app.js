@@ -1,4 +1,32 @@
 import * as THREE from "three";
+import {createRigHeadOcclusionRenderer} from './modules/rig-head-occlusion.js';
+const renderRigHeadOcclusion=createRigHeadOcclusionRenderer(THREE);
+import { createAnimeOutlineRenderer } from './modules/anime-outline.js';
+const renderAnimeOutlineScene = createAnimeOutlineRenderer(THREE);
+import {createChainSimulation, stepChainSimulation, shakeChainSimulation} from './modules/hair-physics.js';
+import {boneLimitFrame, mirrorBoneLimit} from './modules/hair-bone-limits.js';
+import {createBoneLimitEditor} from './modules/hair-bone-limit-editor.js';
+import {canParentRig, normalizeRigHierarchy, orderedHairRigs, descendantHairRigs, wireRigHierarchy} from './modules/hair-rig-hierarchy.js';
+import { normalizeHairRigs, normalizeHairRigRoot, transformRigJoints, rigJointFrame, transformRigNormals, hairBoneDisplayShape, automaticHairBoneNames, inferHairRigSide } from './modules/hair-rig.js';
+import { automaticHairWeights, skinHairPoints, hairJointWeightColors, MAX_HAIR_BINDING_BLEND } from './modules/hair-skinning.js';
+let hairPosePreview = null;
+let hairRigCreationPreview = null;
+let hairRigRoot = null;
+let hairWeightPreviewEnabled = false;
+let hairBindingBlendEdit = null;
+let hairRootWeightEdit = null;
+let hairRigs = [];
+let selectedHairRigId = null;
+let selectedHairJoint = -1;
+let rigSourceIds = new Set();
+let rigOutlinerTab = 'strands';
+let rigSelectable = {objects: true, bones: true, handles: true};
+let rigVisible = {objects: true, bones: true, handles: true};
+const rigChainOpen = new Map();
+const rigHiddenBones = new Set();
+let rigVisuals = null;
+let rigTransformHandle = null;
+let rigTransformEdit = null;
 import { accentIconImages } from './modules/accent-icons.js';
 import { splitMeshParts } from './modules/mesh-parts.js';
 import { parseEditableOBJ, parseEditableUSDA, scaleImportedMeshes, centerImportedMeshes, fitImportedMeshesToSize, validateImportedMeshes } from './modules/editable-mesh-import.js?v=20260911-2';
@@ -17,7 +45,18 @@ let showBackfacesEnabled = false;
 import { strandBundleTemplate, ponytailBundleRecipe } from './modules/strand-bundle.js?v=20260907-7';
 import { bundlePreviewPaths } from './modules/bundle-preview.js?v=20260907-1';
 import { mountStrandBundleEditor } from './modules/strand-bundle-editor.js?v=20260907-7';
-import { editingContextLabel, meshOperationReasons, singleTargetMarqueeSelection, selectionScopeLabel } from './modules/editing-context.js?v=20260905-2';
+import { editingContextLabel, meshOperationReasons, singleTargetMarqueeSelection } from './modules/editing-context.js?v=20260905-2';
+import { guideTopics, searchGuideTopics } from './modules/guide-topics.js';
+import { importHeadGuideSteps, advanceImportHeadGuide } from './modules/import-head-guide.js';
+
+let headImportGuide = null;
+let headImportGuideFrame = null;
+let headImportGuideHintTimer = null;
+let headImportGuideLayoutKey = '';
+// Register before application shortcuts: dimmed controls must not receive input.
+for (const eventName of ['pointerdown', 'click', 'contextmenu', 'wheel', 'keydown', 'focusin']) {
+  window.addEventListener(eventName, gateHeadImportGuideInput, { capture: true, passive: false });
+}
 import { mountCurvy, CURVY_PREFERENCE_KEY } from './modules/curvy.js?v=20260905-2';
 const curvy = mountCurvy(document.querySelector('#curvy'));
 import { syncSliderFill } from "./modules/slider-fill.js?v=20260905-1";
@@ -25,8 +64,10 @@ import { PANEL_DEFAULTS, normalizePanelWidths, draggedPanelWidth, panelDragShoul
 import { markStartup, reportStartupFailure } from "./modules/startup-timing.js?v=20260905-2";
 import { createReferenceCurveEditor } from "./modules/reference-curve-editor.js?v=20260905-1";
 import { renderRemeshProgress } from "./modules/remesh-progress.js?v=20260904-1";
-import { effectiveRemeshMethod, remeshOutputAcceptable, remeshQualityChecksPassed } from "./modules/remesh-method.js?v=20260908-1";
-import { startCurveUnionJob, unionSweeps as unionAutoRemeshSweeps } from "./modules/lazy-remesh-job.js?v=20260908-1";
+import { effectiveRemeshMethod, remeshOutputAcceptable, remeshQualityChecksPassed, remeshSourceSupported } from "./modules/remesh-method.js?v=20260925-1";
+import { startCurveUnionJob, unionSweeps as unionAutoRemeshSweeps } from "./modules/lazy-remesh-job.js?v=20260922-1";
+import { scheduleRemeshPreview, closeRemeshPreview, isCurrentRemeshPreview, finishRemeshPreview } from "./modules/remesh-preview-lifecycle.js";
+import { buildHairRigProposals } from "./modules/hair-rig-proposals.js";
 import { strokeSettingsOwner, createStrokeSettingsState, switchStrokeSettingsOwner } from "./modules/brush-settings-state.js?v=20260904-1";
 import { brushToolContext, brushStyleTransition } from "./modules/brush-tool-context.js?v=20260904-1";
 import { meshComponentSelectionAfterPick, meshComponentSelectionAfterMatches } from "./modules/mesh-selection.js?v=20260904-2";
@@ -64,10 +105,12 @@ import {
   normalizeProceduralBrushPatternPoints,
   normalizeProceduralBrushSectionPatterns,
   normalizeProceduralBrushStrandProfiles,
+  linkProceduralBrushCurveEndpoints,
   normalizeProceduralBrushStrandPatterns,
   normalizeProceduralBrushRecipe,
   proceduralBrushBraidPreset,
   proceduralBrushCenteredPatternSections,
+  proceduralBrushRepeatedProfile,
   proceduralBrushPatternPreset,
   proceduralBrushRepeatCountForCurve,
   proceduralBrushTopologySegments,
@@ -75,7 +118,7 @@ import {
   proceduralBrushSectionPointLocked,
   proceduralBrushLayoutOffsets,
   proceduralBrushTemplateData
-} from "./modules/procedural-brush.js?v=20260902-18";
+} from "./modules/procedural-brush.js?v=20260912-1";
 import {
   crownGrowCoverageRadius,
   crownGrowGravityStrength,
@@ -282,6 +325,9 @@ import {
 } from "./modules/radial-layout.js?v=20260812-22";
 import {
   APP_VERSION,
+  CAMERA_FOV_DEFAULT,
+  CAMERA_FOV_MIN,
+  CAMERA_FOV_MAX,
   CURVE_LATTICE_FEATURE_ENABLED,
   DEFAULT_BRAID_DEPTH_CURVE,
   DEFAULT_BRAID_MESH_PRESET,
@@ -349,9 +395,11 @@ import {
   ANIME_ANISOTROPIC_SHADER,
   ANIME_ANISOTROPIC_VERTEX_SHADER,
   LAMBERT_SHADER,
+  normalizeAnimeAnisotropicSettings,
   normalizeHairShader,
   STANDARD_ANISOTROPIC_SHADER
 } from "./modules/anime-hair-shaders.js?v=20260806-9";
+import { GEM_SHADER, createGemHairMaterial, applyMintCrystalLook, normalizeGemFracturing, setGemHairFracturing, normalizeGemDepth, setGemHairDepth, captureGemRestPosition } from "./modules/gem-hair-shader.js";
 import {
   defaultMaterialIdForGeometry,
   ensureRequiredMaterialDefinitions,
@@ -432,7 +480,7 @@ import {
 import {
   ensureOutwardWinding as ensureAutoRemeshOutwardWinding
 } from "./modules/strand-remesh.js?v=20260902-1";
-import { buildSweep as buildAutoRemeshSweep } from "./modules/strand-remesh-source.js?v=20260908-1";
+import { buildSweep as buildAutoRemeshSweep } from "./modules/strand-remesh-source.js?v=20260922-1";
 import {
   buildHairShellExtrusionPreviewTopology,
   buildHairShellRegionExtrusionPreviewTopology,
@@ -484,7 +532,6 @@ function saveLanguage(language) {
   writeStoredPreference(window, LANGUAGE_STORAGE_KEY, language);
 }
 
-const RADIAL_MENUS_PREFERENCE_KEY = "anime-hair-studio-radial-menus";
 const MULTI_CAMERA_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-multi-camera";
 const FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-floating-tool-settings";
 const PROCEDURAL_DRAW_EXPERIMENTAL_PREFERENCE_KEY = "anime-hair-studio-experimental-procedural-draw";
@@ -517,6 +564,8 @@ const UI_SCALE_PREFERENCE_KEY = "anime-hair-studio-ui-scale";
 const CONTROL_POINT_DISPLAY_SIZE_PREFERENCE_KEY = "anime-hair-studio-control-point-display-size";
 const VIEWPORT_BACKGROUND_COLOR_PREFERENCE_KEY = "anime-hair-studio-viewport-background-color";
 const DEFAULT_VIEWPORT_BACKGROUND_COLOR = "#2b2730";
+const WIREFRAME_COLOR_PREFERENCE_KEY = "anime-hair-studio-wireframe-color";
+const DEFAULT_WIREFRAME_COLOR = "#66f5ff";
 const SIDE_NAMING_PERSPECTIVE_PREFERENCE_KEY = "anime-hair-studio-side-naming-perspective";
 const DEFAULT_HAIR_SHADER_PREFERENCE_KEY = "anime-hair-studio-default-hair-shader";
 const AUTOSAVE_ENABLED_PREFERENCE_KEY = "anime-hair-studio-autosave-enabled";
@@ -557,6 +606,11 @@ function normalizeScaleSensitivity(value) {
 function normalizeViewportBackgroundColor(value) {
   const color = String(value || "").trim().toLowerCase();
   return /^#[0-9a-f]{6}$/.test(color) ? color : DEFAULT_VIEWPORT_BACKGROUND_COLOR;
+}
+
+function normalizeWireframeColor(value) {
+  const color = String(value || "").trim().toLowerCase();
+  return /^#[0-9a-f]{6}$/.test(color) ? color : DEFAULT_WIREFRAME_COLOR;
 }
 
 function normalizeGlassPanelColor(value) {
@@ -805,8 +859,11 @@ viewport.appendChild(renderer.domElement);
 renderer.domElement.tabIndex = -1;
 renderer.domElement.setAttribute("aria-label", "3D viewport");
 
-function focusViewportForHotkeys() {
+function focusViewportForHotkeys(event) {
   if (document.querySelector("dialog[open]")) return;
+  // Native dropdowns can overlap the canvas. Hover must not close their popup
+  // by stealing focus; an intentional viewport click still takes focus.
+  if (event?.type === "pointerenter" && document.activeElement?.tagName === "SELECT") return;
   renderer.domElement.focus({ preventScroll: true });
 }
 
@@ -887,7 +944,7 @@ sculptBrushViabilityPlaneFill.renderOrder = 9997;
 sculptBrushViabilityPlane.add(sculptBrushViabilityPlaneFill);
 scene.add(sculptBrushViabilityPlane);
 
-const perspectiveCamera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
+const perspectiveCamera = new THREE.PerspectiveCamera(CAMERA_FOV_DEFAULT, 1, 0.1, 100);
 const orthographicCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
 const multiCameraPreviewCameras = {
   front: new THREE.OrthographicCamera(-1, 1, 1, -1, 0.05, 200),
@@ -1019,7 +1076,7 @@ function renderNextInactiveMultiCameraPreview() {
     multiCameraPreviewRenderCursor % inactivePreviews.length
   ];
   multiCameraPreviewRenderCursor = (multiCameraPreviewRenderCursor + 1) % inactivePreviews.length;
-  previewRenderer.render(scene, multiCameraForView(view));
+  renderSceneWithHairPose(previewRenderer, multiCameraForView(view));
 }
 
 function setMultiCameraActiveView(view, { resizeViewport = true } = {}) {
@@ -1043,6 +1100,7 @@ function setMultiCameraActiveView(view, { resizeViewport = true } = {}) {
   controls.update();
   updateReferencePlaneVisibility();
   if (resizeViewport) resize();
+  syncCameraFieldOfViewControl();
 }
 
 function setMultiCameraEnabled(enabled) {
@@ -1058,6 +1116,8 @@ function setMultiCameraEnabled(enabled) {
   if (multiCameraEnabled) {
     ensureMultiCameraPreviewRenderers();
     initializeMultiCameraOrthographicViews();
+  } else {
+    Object.values(multiCameraPreviewRenderers || {}).forEach(renderAnimeOutlineScene.dispose);
   }
   setMultiCameraActiveView("perspective", { resizeViewport: false });
   resize();
@@ -1085,7 +1145,8 @@ function updateCameraProjectionForViewport() {
 }
 
 function floatingPanelsCoverViewport() {
-  return sidePanelStyle !== "default" && !document.body.classList.contains("compact-sidebar-docked");
+  return document.body.classList.contains("ios-ui-experiment")
+    || (sidePanelStyle !== "default" && !document.body.classList.contains("compact-sidebar-docked"));
 }
 
 function floatingPanelWidths() {
@@ -1125,6 +1186,24 @@ function applyViewportProjectionOffset(targetCamera, width, height, offsetX = fl
   targetCamera.setViewOffset(width, height, offsetX, 0, width, height);
 }
 
+function syncCameraFieldOfViewControl() {
+  cameraFieldOfViewInput.value = String(perspectiveCamera.fov);
+  cameraFieldOfViewValue.textContent = String(perspectiveCamera.fov);
+  cameraFieldOfViewInput.closest("label").querySelectorAll("input, button").forEach((control) => {
+    control.disabled = camera !== perspectiveCamera;
+  });
+}
+
+function setCameraFieldOfView(value) {
+  if (camera !== perspectiveCamera) return;
+  const numeric = Number(value);
+  perspectiveCamera.fov = Number.isFinite(numeric)
+    ? Math.round(Math.max(CAMERA_FOV_MIN, Math.min(CAMERA_FOV_MAX, numeric)))
+    : CAMERA_FOV_DEFAULT;
+  updateCameraProjectionForViewport();
+  syncCameraFieldOfViewControl();
+}
+
 function syncOrthographicFramingFromDistance() {
   const distance = Math.max(0.01, camera.position.distanceTo(controls.target));
   orthographicHalfHeight = distance * Math.tan(THREE.MathUtils.degToRad(perspectiveCamera.fov * 0.5));
@@ -1159,6 +1238,7 @@ function setOrthographicView(enabled) {
     : "Switch to orthographic view";
   controls.update();
   updateReferencePlaneVisibility();
+  syncCameraFieldOfViewControl();
 }
 const TRANSFORM_GIZMO_PICKER_DEFLATION = 0.5;
 const TRANSFORM_GIZMO_AXIS_PICKER_DEFLATION = 0.35;
@@ -1316,6 +1396,12 @@ pullGuide.renderOrder = 90;
 scene.add(pullTarget, pullGuide, capsuleGuideLoopHandle, strandObjectTransformHandle, guideObjectTransformHandle);
 transformControls.addEventListener("dragging-changed", (event) => {
   transformDragging = event.value;
+  if (transformControls.object === rigTransformHandle && rigTransformHandle) {
+    if (event.value) beginHairRigTransform();
+    else finishHairRigTransform();
+    updateInteractionLocks();
+    return;
+  }
   if (event.value && ["translate", "rotate"].includes(transformControls.mode)) {
     const object = transformControls.object;
     transformPrecisionDrag = object
@@ -1496,6 +1582,10 @@ transformControls.addEventListener("dragging-changed", (event) => {
   }
 });
 transformControls.addEventListener("objectChange", () => {
+  if (transformControls.object === rigTransformHandle && rigTransformHandle) {
+    updateHairRigTransform();
+    return;
+  }
   if (proportionalSizeEdit) return;
   const handle = transformControls.object;
   if (!handle) return;
@@ -3236,7 +3326,6 @@ let emptySelectionPointer = null;
 let proportionalSizeEdit = null;
 let proportionalHotkeyPress = null;
 let toolShortcutPress = null;
-let radialMenusEnabled = readStoredBooleanPreference(window, RADIAL_MENUS_PREFERENCE_KEY, true);
 let multiCameraExperimentalEnabled = readStoredBooleanPreference(
   window,
   MULTI_CAMERA_EXPERIMENTAL_PREFERENCE_KEY,
@@ -3263,6 +3352,9 @@ let showDevTestFeatures = readStoredBooleanPreference(
   SHOW_DEV_TEST_FEATURES_PREFERENCE_KEY,
   false
 );
+// Removable UI experiment: never persisted into projects or preference backups.
+let iosUiExperimentalEnabled = false;
+const iosViewOptionHomes = new Map();
 let compoundStrandExperimentalEnabled = readStoredBooleanPreference(
   window,
   COMPOUND_STRAND_EXPERIMENTAL_PREFERENCE_KEY,
@@ -3336,6 +3428,10 @@ let controlPointDisplaySize = readStoredPreference(window, CONTROL_POINT_DISPLAY
 let viewportBackgroundColor = readStoredPreference(window, VIEWPORT_BACKGROUND_COLOR_PREFERENCE_KEY, {
   fallback: DEFAULT_VIEWPORT_BACKGROUND_COLOR,
   normalize: normalizeViewportBackgroundColor
+});
+let wireframeColor = readStoredPreference(window, WIREFRAME_COLOR_PREFERENCE_KEY, {
+  fallback: DEFAULT_WIREFRAME_COLOR,
+  normalize: normalizeWireframeColor
 });
 if (viewportBackgroundColor === "#17151c") {
   viewportBackgroundColor = DEFAULT_VIEWPORT_BACKGROUND_COLOR;
@@ -3478,6 +3574,7 @@ const restoreRefreshes = new RestoreRefreshRegistry()
   .register("placement-status", updatePlacementStatus)
   .register("display-visibility", applyDisplayVisibilityFilters)
   .register("sculpt-brush-debug", refreshSculptBrushDebugAfterStateRestore)
+  .register("hair-rigs", ({state}) => restoreHairRigs(state.hairRigs, state.hairRigRoot))
   .register("curve-editors", refreshTaperCurveEditorAfterStateRestore);
 const strandGroupOpen = new Map(STRAND_GROUPS.map((group) => [group.id, true]));
 let selectionSetsOpen = true;
@@ -3565,8 +3662,31 @@ const saveHairMaterialPresetButton = document.querySelector("#saveHairMaterialPr
 const removeHairMaterialPresetButton = document.querySelector("#removeHairMaterialPreset");
 const hairMaterialNameInput = document.querySelector("#hairMaterialName");
 const hairMaterialShaderInput = document.querySelector("#hairMaterialShader");
+const hairMaterialGemControls = document.querySelector("#hairMaterialGemControls");
+const hairMaterialGemMintButton = document.querySelector("#hairMaterialGemMint");
+const hairMaterialGemFracturingInput = document.querySelector("#hairMaterialGemFracturing");
+const hairMaterialGemFracturingValue = document.querySelector("#hairMaterialGemFracturingValue");
+const hairMaterialGemDepthControls = {
+  gemDepthContrast: { input: document.querySelector("#hairMaterialGemDepthContrast"), output: document.querySelector("#hairMaterialGemDepthContrastValue") },
+  gemInclusions: { input: document.querySelector("#hairMaterialGemInclusions"), output: document.querySelector("#hairMaterialGemInclusionsValue") },
+  gemInclusionScale: { input: document.querySelector("#hairMaterialGemInclusionScale"), output: document.querySelector("#hairMaterialGemInclusionScaleValue") },
+  gemFracturingScale: { input: document.querySelector("#hairMaterialGemFracturingScale"), output: document.querySelector("#hairMaterialGemFracturingScaleValue") },
+  gemFractureDepth: { input: document.querySelector("#hairMaterialGemFractureDepth"), output: document.querySelector("#hairMaterialGemFractureDepthValue") },
+  gemPearlescence: { input: document.querySelector("#hairMaterialGemPearlescence"), output: document.querySelector("#hairMaterialGemPearlescenceValue") },
+  gemRainbowReflections: { input: document.querySelector("#hairMaterialGemRainbowReflections"), output: document.querySelector("#hairMaterialGemRainbowReflectionsValue") }
+};
 const hairMaterialStandardControls = document.querySelector("#hairMaterialStandardControls");
 const hairMaterialAnimeControls = document.querySelector("#hairMaterialAnimeControls");
+const hairMaterialAnimeOutlineEnabledInput = document.querySelector("#hairMaterialAnimeOutlineEnabled");
+const hairMaterialAnimeShadowJaggednessEnabledInput = document.querySelector("#hairMaterialAnimeShadowJaggednessEnabled");
+const hairMaterialAnimeOutlineSettings = document.querySelector("#hairMaterialAnimeOutlineSettings");
+const hairMaterialAnimeOutlineWidthInput = document.querySelector("#hairMaterialAnimeOutlineWidth");
+const hairMaterialAnimeOutlineWidthValue = document.querySelector("#hairMaterialAnimeOutlineWidthValue");
+const hairMaterialAnimeOutlineOverlapEnabledInput = document.querySelector("#hairMaterialAnimeOutlineOverlapEnabled");
+const hairMaterialAnimeOutlineOverlapWidthInput = document.querySelector("#hairMaterialAnimeOutlineOverlapWidth");
+const hairMaterialAnimeOutlineOverlapWidthValue = document.querySelector("#hairMaterialAnimeOutlineOverlapWidthValue");
+const hairMaterialAnimeOutlineDepthGapInput = document.querySelector("#hairMaterialAnimeOutlineDepthGap");
+const hairMaterialAnimeOutlineDepthGapValue = document.querySelector("#hairMaterialAnimeOutlineDepthGapValue");
 const hairMaterialColorInput = document.querySelector("#hairMaterialColor");
 const hairMaterialGradientEnabledInput = document.querySelector("#hairMaterialGradientEnabled");
 const editHairMaterialGradientButton = document.querySelector("#editHairMaterialGradient");
@@ -3589,7 +3709,8 @@ const hairMaterialAnimeColorInputs = {
   animeShadowColor: document.querySelector("#hairMaterialAnimeShadowColor"),
   animeSoftShadowColor: document.querySelector("#hairMaterialAnimeSoftShadowColor"),
   animeHighlightColor: document.querySelector("#hairMaterialAnimeHighlightColor"),
-  animeRimColor: document.querySelector("#hairMaterialAnimeRimColor")
+  animeRimColor: document.querySelector("#hairMaterialAnimeRimColor"),
+  animeOutlineColor: document.querySelector("#hairMaterialAnimeOutlineColor")
 };
 const hairMaterialAnimeNumericControls = Object.fromEntries(
   Object.keys(ANIME_ANISOTROPIC_NUMERIC_FIELDS).map((key) => {
@@ -3653,7 +3774,6 @@ const preferenceCategoryButtons = [...document.querySelectorAll("[data-preferenc
 const preferenceCategoryGroups = [...document.querySelectorAll("[data-preference-category-group]")];
 const preferenceAnchorButtons = [...document.querySelectorAll("[data-preference-anchor]")];
 const preferencePanels = [...document.querySelectorAll("[data-preference-panel]")];
-const radialMenusPreferenceInput = document.querySelector("#radialMenusPreference");
 const multiCameraExperimentalPreferenceInput = document.querySelector("#multiCameraExperimentalPreference");
 const floatingToolSettingsExperimentalPreferenceInput = document.querySelector("#floatingToolSettingsExperimentalPreference");
 const proceduralDrawExperimentalPreferenceInput = document.querySelector("#proceduralDrawExperimentalPreference");
@@ -3694,6 +3814,9 @@ const controlPointDisplaySizePreferenceNumberInput = controlPointDisplaySizePref
 const viewportBackgroundColorPreferenceInput = document.querySelector("#viewportBackgroundColorPreference");
 const viewportBackgroundColorPreferenceValue = document.querySelector("#viewportBackgroundColorPreferenceValue");
 const resetViewportBackgroundColorButton = document.querySelector("#resetViewportBackgroundColor");
+const wireframeColorPreferenceInput = document.querySelector("#wireframeColorPreference");
+const wireframeColorPreferenceValue = document.querySelector("#wireframeColorPreferenceValue");
+const resetWireframeColorButton = document.querySelector("#resetWireframeColor");
 const defaultHairShaderPreferenceInput = document.querySelector("#defaultHairShaderPreference");
 const loadPreferencesAndPresetsButton = document.querySelector("#loadPreferencesAndPresets");
 const downloadPreferencesAndPresetsButton = document.querySelector("#downloadPreferencesAndPresets");
@@ -3708,7 +3831,6 @@ const recoveryStatus = document.querySelector("#recoveryStatus");
 const discardRecoveryButton = document.querySelector("#discardRecovery");
 const downloadRecoveryButton = document.querySelector("#downloadRecovery");
 const recoverProjectButton = document.querySelector("#recoverProject");
-const radialShortcutRows = [...document.querySelectorAll(".radial-shortcut-row")];
 const openShortcutsButton = document.querySelector("#openShortcuts");
 const shortcutsDialog = document.querySelector("#shortcutsDialog");
 const closeShortcutsButton = document.querySelector("#closeShortcuts");
@@ -3759,6 +3881,9 @@ const appColorHue = document.querySelector("#appColorHue");
 const appColorHueThumb = document.querySelector("#appColorHueThumb");
 const appColorPreview = document.querySelector("#appColorPreview");
 const appColorHex = document.querySelector("#appColorHex");
+const appColorEyedropperButton = document.querySelector("#appColorEyedropper");
+const appColorEyedropperStatus = document.querySelector("#appColorEyedropperStatus");
+let appColorEyedropperController = null;
 const closeAppColorPickerButton = document.querySelector("#closeAppColorPicker");
 const confirmAppColorPickerButton = document.querySelector("#confirmAppColorPicker");
 const appColorPickerHome = appColorPicker.parentElement;
@@ -3842,6 +3967,8 @@ function applyAppColorPickerValue() {
 }
 
 function closeAppColorPicker({ commit = true } = {}) {
+  appColorEyedropperController?.abort();
+  appColorEyedropperController = null;
   if (appColorPickerTarget && !commit && appColorPickerChanged) {
     appColorPickerTarget.value = appColorPickerStartValue;
     appColorPickerTarget.dispatchEvent(new Event("input", { bubbles: true }));
@@ -3883,6 +4010,11 @@ function positionAppColorPicker(target) {
 }
 
 function openAppColorPicker(target) {
+  appColorEyedropperController?.abort();
+  appColorEyedropperController = null;
+  appColorEyedropperButton.disabled = typeof window.EyeDropper !== "function";
+  appColorEyedropperStatus.textContent = appColorEyedropperButton.disabled
+    ? "Screen colour sampling is unavailable in this browser." : "";
   if (appColorPickerTarget && appColorPickerTarget !== target) closeAppColorPicker();
   const ownerDialog = target.closest("dialog[open]");
   const pickerHost = ownerDialog || appColorPickerHome;
@@ -3896,6 +4028,35 @@ function openAppColorPicker(target) {
   appColorBrightnessValue = hsv.brightness;
   renderAppColorPicker();
   positionAppColorPicker(target);
+}
+
+async function sampleAppScreenColor() {
+  if (!appColorPickerTarget || appColorEyedropperController || typeof window.EyeDropper !== "function") return;
+  const target = appColorPickerTarget;
+  const controller = new AbortController();
+  appColorEyedropperController = controller;
+  appColorEyedropperButton.disabled = true;
+  appColorEyedropperStatus.textContent = "";
+  try {
+    const result = await new window.EyeDropper().open({ signal: controller.signal });
+    if (controller.signal.aborted || appColorPickerTarget !== target || !target.isConnected) return;
+    const hex = normalizeAppColorHex(result.sRGBHex);
+    if (!hex) return;
+    const hsv = appColorHexToHsv(hex);
+    appColorHueValue = hsv.hue;
+    appColorSaturationValue = hsv.saturation;
+    appColorBrightnessValue = hsv.brightness;
+    applyAppColorPickerValue();
+  } catch (error) {
+    if (!controller.signal.aborted && appColorPickerTarget === target && error.name !== "AbortError") {
+      appColorEyedropperStatus.textContent = "Could not sample a screen colour. Please try again.";
+    }
+  } finally {
+    if (appColorEyedropperController === controller) {
+      appColorEyedropperController = null;
+      appColorEyedropperButton.disabled = false;
+    }
+  }
 }
 
 function bindAppColorDrag(surface, update, apply = applyAppColorPickerValue) {
@@ -4025,6 +4186,7 @@ appColorHex.addEventListener("input", () => {
 appColorHex.addEventListener("change", () => renderAppColorPicker());
 closeAppColorPickerButton.addEventListener("click", () => closeAppColorPicker());
 confirmAppColorPickerButton.addEventListener("click", () => closeAppColorPicker());
+appColorEyedropperButton.addEventListener("click", sampleAppScreenColor);
 document.addEventListener("pointerdown", (event) => {
   if (appColorPicker.classList.contains("hidden")) return;
   if (appColorPicker.contains(event.target) || event.target === appColorPickerTarget) return;
@@ -4072,6 +4234,8 @@ const orthographicViewToggle = document.querySelector("#orthographicViewToggle")
 const multiCameraViewToggle = document.querySelector("#multiCameraViewToggle");
 const groupColorToggle = document.querySelector("#groupColorToggle");
 const lightAzimuthInput = document.querySelector("#lightAzimuth");
+const cameraFieldOfViewInput = document.querySelector("#cameraFieldOfView");
+const cameraFieldOfViewValue = document.querySelector("#cameraFieldOfViewValue");
 const lightElevationInput = document.querySelector("#lightElevation");
 const lightAzimuthValue = document.querySelector("#lightAzimuthValue");
 const lightElevationValue = document.querySelector("#lightElevationValue");
@@ -4300,6 +4464,36 @@ const outlinerPanel = document.querySelector(".outliner-panel");
 const toolPanel = document.querySelector(".tool-panel");
 const attributeEditorTabs = [...document.querySelectorAll("[data-attribute-tab]")];
 const attributeEditorPanels = [...document.querySelectorAll(".attribute-editor-content > .panel-section")];
+initializeAttributeSectionDisclosure();
+
+function initializeAttributeSectionDisclosure() {
+  // Keep the existing children in place: contextual visibility and tool reparenting
+  // still own these panels. Disclosure is session-only presentation state.
+  const headers = document.querySelectorAll(
+    '.attribute-editor-content > .panel-section > .section-head, #riggingWorkspacePanel section > .subsection-label, #hairRigSelection > .subsection-label:first-child'
+  );
+  for (const header of headers) {
+    if (header.querySelector('.attribute-section-toggle')) continue;
+    const title = [...header.childNodes].find(node =>
+      (node.nodeType === 3 && node.textContent.trim()) || node.nodeName === 'SPAN'
+    );
+    if (!title) continue;
+    const panel = header.parentElement;
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'attribute-section-toggle';
+    toggle.setAttribute('aria-expanded', 'true');
+    header.insertBefore(toggle, title);
+    toggle.append(title);
+    header.classList.add('attribute-section-heading');
+    panel.classList.add('attribute-disclosure-section');
+    toggle.addEventListener('click', () => {
+      const collapsed = panel.classList.toggle('attribute-section-collapsed');
+      toggle.setAttribute('aria-expanded', String(!collapsed));
+    });
+  }
+}
+
 const toggleAttributeEditorPanelButton = document.querySelector("#toggleAttributeEditorPanel");
 const toggleOutlinerPanelButton = document.querySelector("#toggleOutlinerPanel");
 const hairMaterialPanel = document.querySelector("#hairMaterialPanel");
@@ -6719,6 +6913,8 @@ function selectScalpBuilderCurveLatticePoint(index) {
   if (!scalpBuilderCurveLattice) return;
   scalpBuilderCurveLattice.selectedIndex = index;
   updateScalpBuilderHandleColors();
+  transformControls.detach();
+  if (activeTool !== "move") return;
   const handle = scalpBuilderCurveLattice.handles[index];
   if (!handle) return;
   transformControls.attach(handle);
@@ -8077,6 +8273,7 @@ function setAppMenuOpen(trigger, menu, open) {
   menu.classList.toggle("hidden", !open);
   trigger.setAttribute("aria-expanded", String(open));
   syncAppMenuVisibility();
+  if (open && menu.id === 'fileMenu') signalHeadImportGuide('file-open');
 }
 
 function setTurntableActive(enabled) {
@@ -8249,7 +8446,7 @@ function refreshGreasePencilEyedropperFromRenderedFrame() {
 function commitGreasePencilEyedropper(event) {
   if (!greasePencilEyedropperActive || event.button !== 0) return;
   updateGreasePencilEyedropper(event);
-  renderer.render(scene, camera);
+  renderSceneWithHairPose(renderer, camera);
   refreshGreasePencilEyedropperFromRenderedFrame();
   greasePencilColorInput.value = greasePencilEyedropperHex;
   greasePencilColorInput.dispatchEvent(new Event("input", { bubbles: true }));
@@ -9402,6 +9599,7 @@ function attachReferenceImageTransform() {
 }
 
 function selectReferenceImage(id) {
+  if (viewportEditMode === "rigging" && id) return;
   setViewportEditMode("reference", { clearSelection: false, activateSelect: false });
   selectedReferenceImageId = referenceImages.some((reference) => reference.id === id) ? id : null;
   clearStrandSelectionState();
@@ -9531,6 +9729,7 @@ const REFERENCE_OUTLINER_GROUPS = Object.freeze([
 ]);
 
 function setOutlinerTab(tab) {
+  if (viewportEditMode === 'rigging') { setHairRigOutlinerTab(tab === 'rig' ? 'rig' : 'strands'); return; }
   activeOutlinerTab = ["strands", "guides", "references", "meshes"].includes(tab) ? tab : "strands";
   const guidesActive = activeOutlinerTab === "guides";
   const referencesActive = activeOutlinerTab === "references";
@@ -9930,7 +10129,7 @@ function renderMeshOutliner() {
 }
 
 function effectiveViewportSelectionMode() {
-  if (["reference", "preset"].includes(viewportEditMode)) return "object";
+  if (["reference", "preset", "rigging"].includes(viewportEditMode)) return "object";
   if (viewportEditMode === "mesh") return meshEditMode;
   return viewportSelectionMode;
 }
@@ -9950,6 +10149,7 @@ function meshEditModeActive(mode) {
 }
 
 function selectionToolSupportsPicking(tool = activeTool) {
+  if (viewportEditMode === "rigging") return false;
   return ["select", "move", "rotate", "scale"].includes(tool)
     || (tool === "relax" && strandWorkspaceActive());
 }
@@ -9960,7 +10160,7 @@ function syncViewportSelectionModeControl() {
   const objectOnlyWorkspace = referenceWorkspace;
   const meshWorkspace = viewportEditMode === "mesh";
   const presetWorkspace = viewportEditMode === "preset";
-  viewportSelectionModeControl?.classList.toggle("hidden", presetWorkspace);
+  viewportSelectionModeControl?.classList.toggle("hidden", presetWorkspace || viewportEditMode === "rigging");
   viewportSelectionModeControl?.classList.toggle("object-only", objectOnlyWorkspace);
   viewportSelectionModeControl?.classList.toggle("mesh-edit-mode", meshWorkspace);
   if (viewportMeshSelectionModeInput) viewportMeshSelectionModeInput.value = meshEditMode;
@@ -10016,6 +10216,7 @@ function refreshSelectionModeVisuals() {
 }
 
 function setViewportSelectionMode(mode) {
+  if (viewportEditMode === "rigging") return;
   if (viewportEditMode === "mesh") {
     setMeshEditMode(mode);
     return;
@@ -10070,11 +10271,12 @@ function setMeshEditMode(mode) {
 }
 
 function setViewportEditMode(mode, options = {}) {
+  cancelHairRigCreationPreview();
   cancelMeshToStrand();
   finishAccessoryStrand(null, true);
   cancelMeshBevelPreview();
   clearCurvePointTopologyCursor();
-  const nextMode = ["strand", "brush", "preset", "guide", "reference", "mesh"].includes(mode) ? mode : "strand";
+  const nextMode = ["strand", "brush", "preset", "guide", "reference", "mesh", "rigging"].includes(mode) ? mode : "strand";
   const switchingMode = nextMode !== viewportEditMode;
   const enteringBrushWorkspace = switchingMode && nextMode === "brush";
   const leavingBrushWorkspace = switchingMode && viewportEditMode === "brush";
@@ -10083,7 +10285,36 @@ function setViewportEditMode(mode, options = {}) {
   if (switchingMode && options.exitSetupEditors !== false) exitSetupEditors();
   if (leavingBrushWorkspace) restoreBrushWorkspaceViewport();
   if (enteringBrushWorkspace) captureBrushWorkspaceViewport();
+  if (switchingMode) {
+    exitHairPosePreview();
+    finishHairRigTransform(true);
+    if (viewportEditMode === 'rigging') transformControls.detach();
+    if (nextMode === 'rigging') {
+      rigSourceIds = new Set(selectedLocksInOrder().map(lock => hairRigSourceForLock(lock).id));
+      rigOutlinerTab = 'strands';
+      selectedHairRigId = null;
+      selectedHairJoint = -1;
+      setActiveTool('select');
+    }
+  }
   viewportEditMode = nextMode;
+  if (rigVisuals) rigVisuals.visible = nextMode === 'rigging';
+  document.body.classList.toggle("rigging-workspace-active", nextMode === "rigging");
+  document.querySelector('#riggingOutliner').hidden = nextMode !== 'rigging';
+  document.querySelector('#riggingWorkspacePanel').hidden = nextMode !== 'rigging';
+  if (nextMode === 'rigging') {
+    if (taperCurveEdit) closeTaperCurveEditor();
+    if (sweepProfileEditor.open) closeSweepProfileEditor();
+    hideStrandRadialMenu();
+    hideToolRadialMenu();
+    deselectStrands();
+    selectedGuideId = null;
+    selectedReferenceImageId = null;
+    transformControls.detach();
+    setAttributeEditorTab('main');
+    renderHairRigUI();
+    rebuildHairRigVisuals();
+  }
   syncStrokeSettingsOwner();
   const presetWorkspaceActive = nextMode === "preset";
   document.body.classList.toggle("preset-workspace-active", presetWorkspaceActive);
@@ -11282,6 +11513,22 @@ function setScalpGuideVisibility(visible) {
 }
 
 function updateGuideViewToggle() {
+  const rigging = viewportEditMode === 'rigging';
+  guideViewVisibilityInputs.forEach(input => { input.closest('label').hidden = rigging; });
+  document.querySelectorAll('[data-rig-visibility]').forEach(input => {
+    input.closest('label').hidden = !rigging;
+    input.checked = rigVisible[input.dataset.rigVisibility];
+  });
+  guideViewContextMenu.setAttribute('aria-label', rigging ? 'Rigging visibility' : 'Visible guides and references');
+  if (rigging) {
+    const any = Object.values(rigVisible).some(Boolean);
+    scalpGuideVisibilityToggle.classList.toggle('active', any);
+    scalpGuideVisibilityToggle.setAttribute('aria-pressed', String(any));
+    scalpGuideVisibilityToggle.setAttribute('aria-expanded', String(!guideViewContextMenu.classList.contains('hidden')));
+    scalpGuideVisibilityToggle.title = 'Choose visible Objects, Bones and Handles';
+    scalpGuideVisibilityToggle.setAttribute('aria-label', scalpGuideVisibilityToggle.title);
+    return;
+  }
   const anyVisible = scalpGuideVisible || capsuleGuidesVisible || curveLatticeGuidesVisible || referencesVisible;
   const visibleLabels = [
     scalpGuideVisible && "Scalp",
@@ -11330,7 +11577,7 @@ function showGuideViewContextMenu(event) {
   const top = Math.min(anchor.bottom + 4, window.innerHeight - guideViewContextMenu.offsetHeight - margin);
   guideViewContextMenu.style.left = `${Math.max(margin, left)}px`;
   guideViewContextMenu.style.top = `${Math.max(margin, top)}px`;
-  guideViewVisibilityInputs[0]?.focus();
+  (viewportEditMode === 'rigging' ? document.querySelector('[data-rig-visibility]') : guideViewVisibilityInputs[0])?.focus();
 }
 
 function strandPassesDisplayFilters(lock) {
@@ -14367,6 +14614,7 @@ function setGuideSelectionXray(guide, selected) {
 }
 
 function selectGuide(id) {
+  if (viewportEditMode === "rigging" && id) return;
   setViewportEditMode("guide", { clearSelection: false, activateSelect: false });
   setCurveLatticeLoopHover(null);
   capsuleGuideLoopSelection = null;
@@ -14539,13 +14787,13 @@ function updateViewportToolVisibility() {
         || surfaceToolBlocked
     );
   });
-  viewportCapsuleGuideTool.classList.toggle("hidden", !guideMode);
+  viewportCapsuleGuideTool.classList.toggle("hidden", !guideMode || scalpBuilderEditing);
   viewportCapsuleGuideTool.classList.toggle("active", guideMode && capsuleGuideEditing);
   viewportCapsuleGuideTool.setAttribute("aria-pressed", String(guideMode && capsuleGuideEditing));
-  viewportDrawCapsuleGuideTool.classList.toggle("hidden", !guideMode);
+  viewportDrawCapsuleGuideTool.classList.toggle("hidden", !guideMode || scalpBuilderEditing);
   viewportDrawCapsuleGuideTool.classList.toggle("active", guideMode && activeTool === "draw-capsule-guide");
   viewportDrawCapsuleGuideTool.setAttribute("aria-pressed", String(guideMode && activeTool === "draw-capsule-guide"));
-  viewportCurveLatticeGuideTool.classList.toggle("hidden", !guideMode || !CURVE_LATTICE_FEATURE_ENABLED);
+  viewportCurveLatticeGuideTool.classList.toggle("hidden", !guideMode || scalpBuilderEditing || !CURVE_LATTICE_FEATURE_ENABLED);
   viewportCurveLatticeGuideTool.classList.toggle("active", guideMode && latticeSelected);
   viewportCurveLatticeGuideTool.setAttribute("aria-pressed", String(guideMode && latticeSelected));
   sculptBrushDock.classList.toggle("hidden", viewportEditMode !== "strand" || setupEditorActive);
@@ -14767,6 +15015,15 @@ function setSculptBrushShiftSmoothHeld(held) {
 }
 
 function setActiveTool(tool) {
+  if (scalpBuilderEditing && !["select", "move"].includes(tool)) return;
+  if (viewportEditMode === "rigging") {
+    finishHairRigTransform(true);
+    activeTool = ['select', 'move', 'rotate', 'scale'].includes(tool) ? tool : 'select';
+    modeToolButtons.forEach(button => button.classList.toggle('active', button.dataset.tool === activeTool));
+    attachHairRigTransform();
+    updatePlacementStatus();
+    return;
+  }
   if (tool !== activeTool) finishAccessoryStrand(null, true);
   if (tool === "add-accessory" && (!strandWorkspaceActive() || !showDevTestFeatures || !accessoryStrandExperimentalEnabled)) tool = "select";
   cancelMeshBevelPreview();
@@ -14925,8 +15182,7 @@ function setActiveTool(tool) {
     attachReferenceImageTransform();
   }
   if (scalpBuilderEditing && tool === "move") {
-    const handle = scalpBuilderCurveLattice?.handles[scalpBuilderCurveLattice.selectedIndex];
-    if (handle) transformControls.attach(handle);
+    selectScalpBuilderCurveLatticePoint(scalpBuilderCurveLattice?.selectedIndex);
   }
   if (capsuleGuideEditing && capsuleGuideLoopSelection) attachCapsuleGuideLoopTransform();
   locks.forEach((lock) => updateCurveObjects(lock, { visible: lock.id === selectedId }));
@@ -15035,6 +15291,7 @@ function setTransformSpaceEditing(space) {
   objectSpaceEditing = transformSpaceEditing === "object";
   syncTransformSpaceControls();
   configureTransformControls(activeTool);
+  if (viewportEditMode === 'rigging') attachHairRigTransform();
   updateHairShellComponentOverlays();
   if (!componentEditModeActive() && (strandWorkspaceActive() || viewportEditMode === "mesh")) attachStrandObjectTransform();
   if (!componentEditModeActive() && viewportEditMode === "guide") attachGuideObjectTransform();
@@ -20508,6 +20765,7 @@ function createAnimeAnisotropicMaterial(lock) {
       uLightDirection: { value: animeAnisotropicLightDirection },
       uShadowThreshold: { value: definition.animeShadowThreshold },
       uShadowSoftness: { value: definition.animeShadowSoftness },
+      uShadowJaggednessEnabled: { value: definition.animeShadowJaggednessEnabled },
       uSoftShadowStrength: { value: definition.animeSoftShadowStrength },
       uSoftShadowSpread: { value: definition.animeSoftShadowSpread },
       uRimStrength: { value: definition.animeRimStrength },
@@ -20554,6 +20812,25 @@ function createHairMaterial(lock) {
       depthTest: true
     });
     material.userData.hairShader = LAMBERT_SHADER;
+    material.userData.definition = definition;
+    return material;
+  }
+  if (definition.shader === GEM_SHADER) {
+    const material = createGemHairMaterial(THREE, {
+      gemFracturing: definition.gemFracturing,
+      gemDepthContrast: definition.gemDepthContrast,
+      gemInclusions: definition.gemInclusions,
+      gemInclusionScale: definition.gemInclusionScale,
+      gemFracturingScale: definition.gemFracturingScale,
+      gemFractureDepth: definition.gemFractureDepth,
+      gemPearlescence: definition.gemPearlescence,
+      gemRainbowReflections: definition.gemRainbowReflections,
+      color: hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandDisplayColor(lock),
+      map: hairMaterialGradientActive(lock) ? syncHairGradientTexture(definition) : null,
+      roughness: definition.roughness,
+      vertexColors: true,
+      side: THREE.FrontSide
+    }, animeAnisotropicLightDirection);
     material.userData.definition = definition;
     return material;
   }
@@ -20645,6 +20922,7 @@ function createStrandSelectionOutline(geometry) {
   });
   const outline = new THREE.Mesh(geometry, material);
   outline.name = "StrandSelectionOutline";
+  outline.userData.selectionOutlineOverlay = true;
   outline.visible = false;
   outline.renderOrder = 2;
   outline.raycast = () => {};
@@ -20689,14 +20967,17 @@ function applyMaterialDefinitionToLock(lock) {
     previousMaterial.dispose();
   }
   lock.mesh.material.userData.definition = definition;
+  setGemHairFracturing(lock.mesh.material, definition.gemFracturing);
+  setGemHairDepth(lock.mesh.material, definition);
   setAnimeHairBaseColor(
     lock.mesh.material,
     hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandViewportBaseColor(lock)
   );
   applyHairBaseGradient(lock.mesh.material, lock);
-  if (lock.mesh.material.userData.hairShader === STANDARD_ANISOTROPIC_SHADER) {
+  if (lock.mesh.material.userData.hairShader === STANDARD_ANISOTROPIC_SHADER || lock.mesh.material.userData.hairShader === GEM_SHADER) {
     lock.mesh.material.roughness = definition.roughness;
   } else if (lock.mesh.material.userData.hairShader === ANIME_ANISOTROPIC_SHADER) {
+    lock.mesh.material.uniforms.uShadowJaggednessEnabled.value = definition.animeShadowJaggednessEnabled;
     Object.keys(ANIME_ANISOTROPIC_NUMERIC_FIELDS).forEach((key) => {
       const uniformName = `u${key.slice("anime".length)}`;
       lock.mesh.material.uniforms[uniformName].value = definition[key];
@@ -20957,8 +21238,27 @@ function syncHairMaterialEditor(lock = null) {
   syncHairMaterialGradientEditor();
   const animeShader = definition.shader === ANIME_ANISOTROPIC_SHADER;
   hairMaterialStandardControls.classList.toggle("hidden", animeShader);
-  hairMaterialRoughnessControl.classList.toggle("hidden", definition.shader !== STANDARD_ANISOTROPIC_SHADER);
+  hairMaterialRoughnessControl.classList.toggle("hidden", definition.shader !== STANDARD_ANISOTROPIC_SHADER && definition.shader !== GEM_SHADER);
+  hairMaterialGemControls.classList.toggle("hidden", definition.shader !== GEM_SHADER);
+  hairMaterialGemFracturingInput.value = String(definition.gemFracturing);
+  hairMaterialGemFracturingValue.textContent = definition.gemFracturing.toFixed(2);
+  Object.entries(hairMaterialGemDepthControls).forEach(([key, control]) => {
+    control.input.value = String(definition[key]);
+    control.output.textContent = definition[key].toFixed(2);
+  });
   hairMaterialAnimeControls.classList.toggle("hidden", !animeShader);
+  hairMaterialAnimeOutlineEnabledInput.checked = definition.animeOutlineEnabled;
+  hairMaterialAnimeShadowJaggednessEnabledInput.checked = definition.animeShadowJaggednessEnabled;
+  hairMaterialAnimeOutlineSettings.hidden = !definition.animeOutlineEnabled;
+  hairMaterialAnimeOutlineWidthInput.value = String(definition.animeOutlineWidth);
+  hairMaterialAnimeOutlineWidthValue.textContent = definition.animeOutlineWidth.toFixed(1);
+  hairMaterialAnimeOutlineOverlapEnabledInput.checked = definition.animeOutlineOverlapEnabled;
+  hairMaterialAnimeOutlineOverlapWidthInput.disabled = !definition.animeOutlineOverlapEnabled;
+  hairMaterialAnimeOutlineOverlapWidthInput.value = String(definition.animeOutlineOverlapWidth);
+  hairMaterialAnimeOutlineOverlapWidthValue.textContent = definition.animeOutlineOverlapWidth.toFixed(1);
+  hairMaterialAnimeOutlineDepthGapInput.disabled = !definition.animeOutlineOverlapEnabled;
+  hairMaterialAnimeOutlineDepthGapInput.value = String(definition.animeOutlineDepthGap);
+  hairMaterialAnimeOutlineDepthGapValue.textContent = definition.animeOutlineDepthGap.toFixed(3);
   Object.entries(hairMaterialAnimeColorInputs).forEach(([key, input]) => {
     input.value = definition[key];
   });
@@ -21037,7 +21337,7 @@ function syncBranchKnifeOverlay(overlay, sourceGeometry) {
     knifeOverlay = new THREE.LineSegments(
       createBranchKnifeOverlayGeometry(sourceGeometry),
       new THREE.LineBasicMaterial({
-        color: 0x66f5ff,
+        color: wireframeColor,
         transparent: true,
         opacity: 0.9,
         depthTest: true,
@@ -21068,7 +21368,7 @@ function createHairTopologyOverlay(sourceGeometry) {
     createHairTopologyGeometry(sourceGeometry),
     new THREE.ShaderMaterial({
       uniforms: {
-        lineColor: { value: new THREE.Color(0x66f5ff) },
+        lineColor: { value: new THREE.Color(wireframeColor) },
         opacity: { value: 0.72 }
       },
       vertexShader: `
@@ -21107,8 +21407,15 @@ function createHairTopologyOverlay(sourceGeometry) {
   );
   overlay.visible = hairTopologyVisible;
   overlay.renderOrder = 3;
+  overlay.userData.hairTopologyOverlay = true;
   syncBranchKnifeOverlay(overlay, sourceGeometry);
   return overlay;
+}
+
+function syncHairTopologyOverlayColor(overlay, locked = overlay.userData.lockedWireframe === true) {
+  overlay.userData.lockedWireframe = Boolean(locked);
+  overlay.material.uniforms.lineColor.value.set(locked ? 0xff4fd8 : wireframeColor);
+  overlay.userData.branchKnifeOverlay?.material.color.set(wireframeColor);
 }
 
 function groupDefaultsFor(region) {
@@ -22199,6 +22506,15 @@ function moveGrabHandleVisible(dimension) {
 
 function visibleTaperMeshCurveEdits() {
   const edits = [];
+  if (viewportEditMode === "brush") {
+    const lock = brushWorkspacePreviewLocks[brushWorkspaceActiveStrandIndex];
+    if (brushWorkspaceStyle === "pattern" && taperMeshPointsVisible
+      && taperCurveEdit?.type === "brush-pattern"
+      && ["taperCurve", "depthCurve"].includes(taperCurveEdit.curveKey) && lock) {
+      edits.push({ lock, curveKey: taperCurveEdit.curveKey });
+    }
+    return edits;
+  }
   const selectedLock = getSelectedLock();
   if (moveCurveControlsApplicable(selectedLock)) {
     Object.entries(moveCurveControlVisibility).forEach(([curveKey, visible]) => {
@@ -22219,15 +22535,20 @@ function visibleTaperMeshCurveEdits() {
 }
 
 function addTaperMeshPointsForCurve(lock, curveKey) {
+  const brushProfile = viewportEditMode === "brush" && taperCurveEdit?.type === "brush-pattern"
+    ? activeBrushWorkspaceStrandProfile() : null;
+  const profile = brushProfile || lock;
+  const range = brushProfile ? lock.brushProfileRange : null;
+  const meshPosition = position => range ? range[0] + position * (range[1] - range[0]) : position;
   const editingTwist = twistCurveEditing(curveKey);
   const axis = editingTwist ? "twist" : curveKey === "depthCurve" ? "z" : "x";
   const frameAxis = axis === "z" ? "z" : "x";
   const asymmetric = Boolean(
-    axis === "z" ? lock.asymmetricDepthCurve : lock.asymmetricWidthCurve
+    axis === "z" ? profile.asymmetricDepthCurve : profile.asymmetricWidthCurve
   );
   const primaryCurve = editingTwist
-    ? lock.twistCurve
-    : axis === "z" ? lock.depthCurve : lock.taperCurve;
+    ? profile.twistCurve
+    : axis === "z" ? profile.depthCurve : profile.taperCurve;
   if (!primaryCurve?.length) return;
   const curve = strandGeometryCurve(lock);
   const twistDisplayRange = editingTwist
@@ -22243,7 +22564,7 @@ function addTaperMeshPointsForCurve(lock, curveKey) {
     ? [
         { curvePoints: primaryCurve, sides: [1], curveSide: "primary" },
         {
-          curvePoints: ensureSecondaryTaperCurve(lock, curveKey),
+          curvePoints: ensureSecondaryTaperCurve(profile, curveKey),
           sides: [-1],
           curveSide: "secondary"
         }
@@ -22251,9 +22572,10 @@ function addTaperMeshPointsForCurve(lock, curveKey) {
     : [{ curvePoints: primaryCurve, sides: [-1, 1], curveSide: "primary" }];
   if (editingTwist) addTwistMeshCurvePath(lock, curve, primaryCurve, twistDisplayRange);
   curveSides.forEach(({ curvePoints: sideCurvePoints, sides, curveSide }) => sideCurvePoints.forEach((point, pointIndex) => {
-    const frame = taperMeshPointFrame(lock, curve, point.position, curveKey);
+    const position = meshPosition(point.position);
+    const frame = taperMeshPointFrame(lock, curve, position, curveKey);
     sides.forEach((side) => {
-      const selected = taperCurveEdit?.id === lock.id
+      const selected = (brushProfile || taperCurveEdit?.id === lock.id)
         && taperCurveEdit.curveKey === curveKey
         && curveSide === taperCurveEdit.side
         && pointIndex === taperCurveEdit.selectedIndex;
@@ -22263,7 +22585,7 @@ function addTaperMeshPointsForCurve(lock, curveKey) {
       );
       const extent = editingTwist
         ? twistMeshPointDistancePerDegree(lock, point.position, twistDisplayRange) * point.value
-        : taperMeshPointExtentPerValue(lock, point.position, side, axis) * point.value;
+        : taperMeshPointExtentPerValue(lock, position, side, axis) * point.value;
       handle.position.copy(frame.point).addScaledVector(
         editingTwist ? twistMeshGraphAxis(frame) : frame[frameAxis],
         editingTwist ? extent : side * extent
@@ -22275,6 +22597,7 @@ function addTaperMeshPointsForCurve(lock, curveKey) {
       handle.userData.side = side;
       handle.userData.curveSide = curveSide;
       handle.userData.curveKey = curveKey;
+      handle.userData.brushProfile = Boolean(brushProfile);
       if (selected) {
         const center = new THREE.Mesh(taperMeshPointGeometry, taperMeshPointCenterMaterial);
         center.scale.setScalar(0.46);
@@ -22297,7 +22620,9 @@ function updateTaperMeshPoints() {
 function setTaperMeshPointsVisible(visible) {
   taperMeshPointsVisible = Boolean(
     visible
-    && taperCurveEdit?.type === "strand"
+    && (taperCurveEdit?.type === "strand" || (viewportEditMode === "brush"
+      && brushWorkspaceStyle === "pattern" && taperCurveEdit?.type === "brush-pattern"
+      && ["taperCurve", "depthCurve"].includes(taperCurveEdit.curveKey)))
     && ["taperCurve", "depthCurve", "twistCurve"].includes(taperCurveEdit?.curveKey)
   );
   if (taperMeshPointsVisible && ["draw", "radial-draw", "procedural-draw", "braid", "panel"].includes(activeTool)) {
@@ -22575,6 +22900,9 @@ function applyTaperCurveEdit({ interactive = false } = {}) {
   if (taperCurveEdit.type === "brush-pattern") {
     const profile = activeBrushWorkspaceStrandProfile();
     if (profile) {
+      if (["taperCurve", "depthCurve"].includes(taperCurveEdit.curveKey)) {
+        linkProceduralBrushCurveEndpoints(activeTaperCurve(), taperCurveEdit.selectedIndex);
+      }
       if (taperCurveEdit.curveKey === "twistCurve") {
         renderTwistCurvePreview(strandTwistCurvePreview, profile);
       } else {
@@ -22797,7 +23125,9 @@ function openTaperCurveEditor(curveKey = "taperCurve") {
   setTaperMeshPointsVisible(false);
   taperMeshPointsToggleRow.classList.toggle(
     "hidden",
-    nextEdit.type !== "strand" || proceduralBranchCurveEditing(curveKey) || radialDrawSizeCurveEditing(curveKey)
+    !(nextEdit.type === "strand" || (nextEdit.type === "brush-pattern"
+      && brushWorkspaceStyle === "pattern" && ["taperCurve", "depthCurve"].includes(curveKey)))
+      || proceduralBranchCurveEditing(curveKey) || radialDrawSizeCurveEditing(curveKey)
   );
   renderTaperCurveEditor();
   taperCurveEditor.show();
@@ -23630,6 +23960,7 @@ const BRUSH_PATTERN_SECTION_COLORS = Object.freeze({
 });
 
 function disposeBrushWorkspacePreview() {
+  if (viewportEditMode === "brush" || taperCurveEdit?.type === "brush-pattern") clearTaperMeshPoints();
   if (brushWorkspacePreviewFrame !== null) {
     cancelAnimationFrame(brushWorkspacePreviewFrame);
     brushWorkspacePreviewFrame = null;
@@ -23726,7 +24057,8 @@ function rebuildBrushWorkspacePreview() {
   normalizeBrushWorkspacePatternSections(placements.length);
   brushWorkspacePreviewLocks = placements.map((placement, index) => {
     const profile = brushWorkspaceStrandProfiles[index] || activeBrushWorkspaceStrandProfile();
-    const points = brushWorkspacePreviewPoints(index, placement);
+    const composed = brushWorkspaceComposedPreview(index, placement, brushWorkspaceViewportRepeatCount());
+    const points = composed.points;
     const pointSurfaceNormals = brushWorkspaceForwardNormals(points);
     const preview = addLock("front", {
       ...defaults,
@@ -23738,7 +24070,7 @@ function rebuildBrushWorkspacePreview() {
       depth,
       widthScale: 1,
       depthScale: 1,
-      ...profile,
+      ...proceduralBrushRepeatedProfile(profile, composed.sections),
       points,
       pointSurfaceNormals,
       surfaceNormalInfluence: 1,
@@ -23759,11 +24091,20 @@ function rebuildBrushWorkspacePreview() {
       name: `Brush Preview ${index + 1}`
     });
     preview.mesh.userData.brushWorkspacePatternStrandIndex = index;
+    const editableSection = composed.sections.find(section => section.section === brushWorkspaceActivePatternSection
+      && (section.section !== "body" || section.repeatIndex === Math.floor(brushWorkspaceViewportRepeatCount() / 2)))
+      || composed.sections.find(section => section.section === "body");
+    preview.brushProfileRange = editableSection
+      ? [editableSection.placementTs[0], editableSection.placementTs.at(-1)] : [0, 1];
     brushWorkspacePreviewGroup.add(preview.mesh);
     return preview;
   });
   rebuildBrushWorkspacePatternEditor(placements);
   brushWorkspacePreviewGroup.visible = true;
+  if (taperMeshPointDrag && taperCurveEdit?.type === "brush-pattern") {
+    taperMeshPointDrag.point = activeTaperCurve()?.[taperCurveEdit.selectedIndex];
+  }
+  updateTaperMeshPoints();
   requestShadowMapRefresh();
 }
 
@@ -24146,6 +24487,7 @@ function activateBrushWorkspaceViewport() {
 }
 
 function restoreBrushWorkspaceViewport() {
+  if (taperCurveEdit?.type === "brush-pattern") closeTaperCurveEditor();
   finishBrushWorkspacePatternDrag(null, { cancel: false });
   disposeBrushWorkspacePreview();
   brushWorkspacePreviewGroup.visible = false;
@@ -24696,8 +25038,1389 @@ function setMirrorXEditing(enabled) {
   }
 }
 
+function hairRigSourceForLock(lock) {
+  const guide = clumpGuideForLock(lock);
+  return proceduralGuideForLock(lock) || (guide?.proceduralBrushGuide ? guide : lock);
+}
+
+function hairRigSources() {
+  const sources = new Map();
+  locks.filter(lock => !isModelingMesh(lock) && !['surface', 'curve-surface'].includes(lock.geometryType) && lock.points?.length > 1).forEach(lock => {
+    const source = hairRigSourceForLock(lock);
+    sources.set(source.id, source);
+  });
+  return [...sources.values()];
+}
+
+function setHairRigOutlinerTab(tab) {
+  finishHairRigTransform(true);
+  rigOutlinerTab = tab === 'rig' ? 'rig' : 'strands';
+  renderHairRigUI(); rebuildHairRigVisuals(); attachHairRigTransform();
+}
+
+function selectHairRigSource(id, event = {}) {
+  if (viewportEditMode !== 'rigging') return;
+  const lock = locks.find(item => item.id === id);
+  id = lock ? hairRigSourceForLock(lock).id : id;
+  const selection = resolveStrandSelection({selectedIds: [...rigSourceIds], requestedId: id, requestedIds: [id],
+    validIds: hairRigSources().map(source => source.id),
+    selectionMode: event.shiftKey ? 'remove' : event.ctrlKey || event.metaKey ? 'add' : 'replace'});
+  rigSourceIds = new Set(selection.selectedIds);
+  if (!event.ctrlKey && !event.metaKey && !event.shiftKey) { selectedHairRigId = null; selectedHairJoint = -1; }
+  setHairRigOutlinerTab('strands');
+}
+
+function ensureHairRigRoot() {
+  const fallback = guideModel ? guideHeadBounds(guideModel).getCenter(new THREE.Vector3()).toArray() : null;
+  hairRigRoot = normalizeHairRigRoot(hairRigRoot, hairRigs, fallback);
+  hairRigs.forEach(rig => { rig.parentId = hairRigRoot.id; });
+}
+
+function editHairRigRoot() {
+  if (viewportEditMode !== 'rigging' || hairPosePreview || !hairRigRoot) return;
+  const position = ['X','Y','Z'].map(axis => Number(document.querySelector(`#hairRoot${axis}`).value));
+  if (!position.every(Number.isFinite)) { renderHairRigUI(); return; }
+  const next = normalizeHairRigRoot({position, name: document.querySelector('#hairRootName').value}, hairRigs);
+  if (hairRigs.some(rig => rig.boneNames?.includes(next.name))) {
+    document.querySelector('#hairRigMessage').textContent = 'That name is already used by a chain bone.'; renderHairRigUI(); return;
+  }
+  if (JSON.stringify(next) === JSON.stringify(hairRigRoot)) return;
+  pushUndoState(); hairRigRoot = next; renderHairRigUI(); rebuildHairRigVisuals();
+}
+
+function hairRootWeightTargets() {
+  return hairRigs.flatMap(rig => (rig.boundStrandIds || []).filter(id => {
+    const lock = locks.find(item => item.id === id);
+    return lock && (rigSourceIds.size ? rigSourceIds.has(hairRigSourceForLock(lock).id) : rig.id === selectedHairRigId);
+  }).map(id => ({rig, id})));
+}
+
+function setHairRootWeight(value) {
+  if (viewportEditMode !== 'rigging') return;
+  const weight = Math.max(0, Math.min(1, Number(value) / 100)), targets = hairRootWeightTargets();
+  if (!Number.isFinite(weight) || !targets.length || targets.every(({rig,id}) => (rig.rootWeights?.[id] || 0) === weight)) return;
+  finishHairRigTransform(true);
+  const key = targets.map(({rig,id}) => `${rig.id}:${id}`).sort().join('|');
+  if (hairRootWeightEdit !== key) {
+    pushUndoState(); hairRootWeightEdit = key;
+    if (hairPosePreview) { hairPosePreview.undo.push({bindingUndo:true}); hairPosePreview.undo = hairPosePreview.undo.slice(-40); hairPosePreview.redo = []; }
+  }
+  targets.forEach(({rig,id}) => { rig.rootWeights = {...rig.rootWeights, [id]:weight}; });
+  if (hairPosePreview) updateHairPoseMeshes();
+  renderHairRigUI();
+}
+
+function setHairBonePhysics(enabled, rigId = selectedHairRigId, jointIndex = selectedHairJoint) {
+  const rig = hairRigs.find(r => r.id === rigId);
+  if (viewportEditMode !== 'rigging' || !rig || jointIndex < 0 || jointIndex >= rig.joints.length - 1) return;
+  if ((rig.physicsEnabled?.[jointIndex] !== false) === enabled) return;
+  finishHairRigTransform(true); pushUndoState();
+  rig.physicsEnabled = rig.joints.slice(0,-1).map((_,i)=>i === jointIndex ? enabled : rig.physicsEnabled?.[i] !== false);
+  if (hairPosePreview) { hairPosePreview.undo.push({bindingUndo:true}); hairPosePreview.undo=hairPosePreview.undo.slice(-40); hairPosePreview.redo=[]; }
+  renderHairRigUI();
+}
+
+function hairRigBoneVisible(rig, index) {
+  return !rigHiddenBones.has(`${rig.id}:${index}`);
+}
+
+function setHairRigBoneVisibility(rig, index, visible) {
+  finishHairRigTransform(true);
+  rig.joints.slice(0,-1).forEach((_,i) => {
+    if (index >= 0 && i !== index) return;
+    const key = `${rig.id}:${i}`;
+    if (visible) rigHiddenBones.delete(key); else rigHiddenBones.add(key);
+  });
+  rebuildHairRigVisuals(); renderHairRigUI(); attachHairRigTransform();
+}
+
+function renderHairRigUI() {
+  updateGuideViewToggle();
+  const rootTargets = hairRootWeightTargets();
+  document.querySelector('#hairRootWeightSettings').hidden = !rootTargets.length;
+  const rootWeights = rootTargets.map(({rig,id}) => rig.rootWeights?.[id] || 0);
+  const mixedRootWeights = rootWeights.some(value => value !== rootWeights[0]);
+  document.querySelector('#hairRootWeight').value = Math.round((rootWeights[0] || 0) * 100);
+  document.querySelector('#hairRootWeightValue').textContent = mixedRootWeights ? 'Mixed' : `${Math.round((rootWeights[0] || 0) * 100)}%`;
+  document.querySelectorAll('[data-rig-selectable]').forEach(button => {
+    const active = rigSelectable[button.dataset.rigSelectable];
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  locks.forEach(syncStrandSelectionOutline);
+  [strandOutlinerTab, document.querySelector('#riggingRigTab')].forEach(button => {
+    const active = (button === strandOutlinerTab ? 'strands' : 'rig') === rigOutlinerTab;
+    button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active));
+    button.tabIndex = button === strandOutlinerTab || active ? 0 : -1;
+  });
+  lockList.classList.toggle('hidden', rigOutlinerTab !== 'strands');
+  document.querySelector('#riggingOutliner').hidden = rigOutlinerTab !== 'rig';
+  activeOutlinerTab = 'strands';
+  renderLockList();
+  let list = document.querySelector('#hairRigList');
+  list.replaceChildren();
+  document.querySelector('#hairRootSettings').hidden = !hairRigRoot || selectedHairRigId !== hairRigRoot.id;
+  if (hairRigRoot) {
+    document.querySelector('#hairRootName').value = hairRigRoot.name;
+    ['X','Y','Z'].forEach((axis,i) => { document.querySelector(`#hairRoot${axis}`).value = hairRigRoot.position[i]; });
+    for (const id of ['hairRootName','hairRootX','hairRootY','hairRootZ']) document.getElementById(id).disabled = Boolean(hairPosePreview);
+    const root = document.createElement('div'); root.className = 'rig-root-branch';
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'outliner-group-select';
+    button.textContent = hairRigRoot.name; button.title = 'Shared parent bone · Edit placement in Hair Root settings';
+    button.classList.toggle('active', selectedHairRigId === hairRigRoot.id);
+    button.onclick = selectHairRoot;
+    button.setAttribute('data-rig-root-drop','');
+    const children = document.createElement('div'); children.className = 'rig-root-chains';
+    root.append(button,children); list.append(root); list = children;
+  }
+  if (!hairRigs.length) list.textContent = 'No bone chains yet.';
+  for (const rig of hairRigs) {
+    const open = rigChainOpen.get(rig.id) !== false;
+    const folder = document.createElement('div');
+    folder.className = `outliner-group${open ? ' open' : ''}`;
+    folder.setAttribute('data-rig-chain',rig.id);
+    const source = locks.find(lock => rig.sourceIds.includes(lock.id));
+    const color = SCALP_REGIONS[source?.scalpRegion]?.color;
+    if (color != null) folder.style.setProperty('--outliner-region-color', `#${new THREE.Color(color).getHexString()}`);
+    const header = document.createElement('div'); header.className = 'outliner-group-head';
+    const disclosure = document.createElement('button'); disclosure.type = 'button'; disclosure.className = 'outliner-disclosure';
+    disclosure.setAttribute('aria-expanded', String(open));
+    disclosure.setAttribute('aria-label', `${open ? 'Collapse' : 'Expand'} ${rig.name}`);
+    disclosure.setAttribute('data-rig-drag',rig.id);
+    disclosure.onclick = () => { rigChainOpen.set(rig.id, !open); renderHairRigUI(); };
+    header.classList.toggle('selected', rig.id === selectedHairRigId);
+    const chain = document.createElement('button'); chain.type='button';chain.className='outliner-group-select';
+    chain.setAttribute('data-rig-drag',rig.id);
+    const folderIcon=document.createElement('span');folderIcon.className='outliner-folder-icon';folderIcon.setAttribute('aria-hidden','true');
+    disclosure.append(folderIcon);
+    const label=document.createElement('span');label.className='outliner-group-label';label.textContent=rig.name;
+    const count=document.createElement('span');count.className='outliner-group-count';count.textContent=rig.joints.length-1;
+    chain.append(label,count);chain.onclick=event=>selectHairRig(rig.id,-1,event);
+    chain.classList.toggle('active',rig.id===selectedHairRigId&&selectedHairJoint<0);
+    const visibleBones=rig.joints.slice(0,-1).filter((_,i)=>hairRigBoneVisible(rig,i)).length;
+    const groupVisibility=createOutlinerVisibilityToggle({visible:visibleBones>0,
+      partial:visibleBones>0&&visibleBones<rig.joints.length-1,label:rig.name,
+      onToggle:()=>setHairRigBoneVisibility(rig,-1,visibleBones===0)});
+    header.append(disclosure,groupVisibility,chain);
+    const children = document.createElement('div'); children.className = 'outliner-group-items';
+    folder.append(header, children); list.append(folder);
+    rig.joints.slice(0, -1).forEach((_, i) => {
+      const shell = document.createElement('div'); shell.className = 'lock-item-shell';
+      const joint = document.createElement('button');
+      joint.type = 'button'; joint.className = 'lock-item';
+      joint.setAttribute('data-rig-owner',rig.id);joint.setAttribute('data-rig-bone',String(i));
+      const jointLabel = document.createElement('span'); jointLabel.className = 'outliner-rename-label';
+      jointLabel.textContent = rig.boneNames?.[i] || (i === 0 ? 'Root' : 'Joint ' + i);
+      joint.append(jointLabel);
+      const physicsState = document.createElement('button'); physicsState.className = 'rig-bone-physics-toggle'; physicsState.type = 'button';
+      physicsState.textContent = 'P';
+      const enabled = rig.physicsEnabled?.[i] !== false;
+      physicsState.setAttribute('aria-pressed', String(enabled));
+      physicsState.setAttribute('aria-label', `Physics for ${jointLabel.textContent}`);
+      physicsState.title = enabled ? 'Physics on · Click to disable' : 'Physics off · Click to enable';
+      physicsState.onclick = event => { event.stopPropagation(); setHairBonePhysics(!enabled, rig.id, i); };
+      joint.classList.toggle('active', selectedHairRigId === rig.id && selectedHairJoint === i);
+      joint.setAttribute('aria-pressed', String(selectedHairRigId === rig.id && selectedHairJoint === i));
+      joint.onclick = event => selectHairRig(rig.id, i, event);
+      const visibility = createOutlinerVisibilityToggle({visible:hairRigBoneVisible(rig,i),label:jointLabel.textContent,
+        onToggle:()=>setHairRigBoneVisibility(rig,i,!hairRigBoneVisible(rig,i))});
+      shell.append(visibility, physicsState, joint); children.append(shell);
+    });
+  }
+  wireRigHierarchy(document.querySelector('#hairRigList'),hairRigs,{enabled:!hairPosePreview||Boolean(hairPosePreview.physics),onParent:parentHairRig});
+  const selected = hairRigs.find(rig => rig.id === selectedHairRigId);
+  document.querySelector('#hairRigSelection').hidden = !selected;
+  document.querySelector('#hairRigRename').value = selected?.name || '';
+  document.querySelector('#hairRigRename').disabled = Boolean(hairPosePreview);
+  document.querySelector('#hairRigNamingSide').value = selected?.boneSide || 'auto';
+  document.querySelector('#hairRigNamingSide').disabled = !selected || Boolean(hairPosePreview);
+  document.querySelector('#refreshHairRigNames').disabled = !selected || Boolean(hairPosePreview);
+  document.querySelector('#hairRigBoneNameRow').hidden = !selected || selectedHairJoint < 0;
+  document.querySelector('#hairBonePhysicsRow').hidden = !selected || selectedHairJoint < 0;
+  document.querySelector('#hairBonePhysics').checked = selected?.physicsEnabled?.[selectedHairJoint] !== false;
+  document.querySelector('#hairRigBoneName').value = selected?.boneNames?.[selectedHairJoint] || (selectedHairJoint === 0 ? 'Root' : 'Joint ' + selectedHairJoint);
+  document.querySelector('#hairRigBoneName').disabled = !selected || selectedHairJoint < 0 || Boolean(hairPosePreview);
+  document.querySelector('#hairRigSelectionInfo').textContent = selected
+    ? `${selectedHairJoint < 0 ? 'Whole chain' : 'Joint ' + selectedHairJoint} · ${selected.joints.length - 1} bones` : '';
+  document.querySelector('#hairRigBindingStatus').textContent = selected?.boundStrandIds?.length
+    ? `${selected.boundStrandIds.length} strand meshes bound` : 'Not bound';
+  document.querySelector('#hairRigBindingBlend').value = Math.round((selected?.bindingBlend ?? 1) * 100);
+  document.querySelector('#hairRigBindingBlend').disabled = !selected;
+  document.querySelector('#hairRigBindingBlendValue').textContent = `${Math.round((selected?.bindingBlend ?? 1) * 100)}%`;
+  document.querySelector('#bindHairRig').disabled = !selected || Boolean(hairPosePreview);
+  document.querySelector('#unbindHairRig').disabled = !selected?.boundStrandIds?.length || Boolean(hairPosePreview);
+  document.querySelector('#deleteHairRig').disabled = Boolean(hairPosePreview);
+  document.querySelector('#toggleHairPose').textContent = hairPosePreview ? 'Exit Pose Preview' : 'Start Pose Preview';
+  document.querySelector('#toggleHairPose').setAttribute('aria-pressed', String(Boolean(hairPosePreview)));
+  document.querySelector('#resetHairPose').disabled = !hairPosePreview || Boolean(hairPosePreview.physics);
+  document.querySelector('#playHairPhysics').textContent = hairPosePreview?.physics?.playing ? 'Pause' : 'Play';
+  document.querySelector('#playHairPhysics').setAttribute('aria-pressed', String(Boolean(hairPosePreview?.physics?.playing)));
+  const physicsToggle = document.querySelector('#rigPhysicsToggle');
+  const physicsActive = Boolean(hairPosePreview?.physics);
+  physicsToggle.textContent = physicsActive ? '■' : '▶';
+  physicsToggle.title = physicsActive ? 'Stop physics' : 'Play physics';
+  physicsToggle.setAttribute('aria-label', physicsToggle.title);
+  physicsToggle.setAttribute('aria-pressed', String(physicsActive));
+  physicsToggle.classList.toggle('active', physicsActive);
+  for (const id of ['resetHairPhysics', 'stopHairPhysics', 'shakeHairPhysics']) document.getElementById(id).disabled = !hairPosePreview?.physics;
+  document.querySelector('#showHairBoneWeights').disabled = !hairPosePreview;
+  document.querySelector('#showHairBoneWeights').checked = hairWeightPreviewEnabled;
+  document.querySelector('#hairBoneWeightLegend').hidden = !hairWeightPreviewEnabled;
+  document.querySelector('#hairBoneWeightStatus').textContent = selectedHairJoint >= 0 && hairPosePreview?.rigs.has(selectedHairRigId)
+    ? `${selected?.name || 'Chain'} · ${selected?.boneNames?.[selectedHairJoint] || (selectedHairJoint === 0 ? 'Root' : 'Joint ' + selectedHairJoint)}`
+    : 'Select an individual joint on a bound chain.';
+  updateHairWeightPreview();
+  updateHistoryButtons();
+}
+
+function setHairBindingBlend(value) {
+  const rig = hairRigs.find(item => item.id === selectedHairRigId);
+  if (viewportEditMode !== 'rigging' || !rig || !Number.isFinite(Number(value))) return;
+  const blend = Math.max(0, Math.min(MAX_HAIR_BINDING_BLEND, Number(value) / 100));
+  const mirror=mirroredHairBoneLimitTarget({rig,index:0})?.rig;
+  const targets=mirror?[rig,mirror]:[rig];
+  if (targets.every(target=>blend === (target.bindingBlend ?? 1))) return;
+  finishHairRigTransform(true);
+  if (hairBindingBlendEdit !== rig.id) {
+    pushUndoState(); hairBindingBlendEdit = rig.id;
+    if (hairPosePreview) {
+      hairPosePreview.undo.push({bindingUndo: true});
+      hairPosePreview.undo = hairPosePreview.undo.slice(-40); hairPosePreview.redo = [];
+    }
+  }
+  targets.forEach(target=>{target.bindingBlend=blend;});
+  if (hairPosePreview) {
+    hairPosePreview.meshes.forEach(entry => {
+      const target=targets.find(item=>item.id===entry.rigId);if(!target)return;
+      entry.weights = automaticHairWeights(entry.points, target.joints, blend);
+      // Preserve the original color attribute while invalidating only the heatmap cache.
+      if (entry.weightColorKey != null) entry.weightColorKey = '';
+    });
+    updateHairPoseMeshes();
+  }
+  renderHairRigUI();
+}
+
+function hairRigBindingTargets(rig) {
+  const targets = locks.filter(lock => lock.mesh?.geometry?.attributes.position
+    && rig.sourceIds.includes(hairRigSourceForLock(lock).id) && !isModelingMesh(lock)).map(lock => lock.id);
+  if (!targets.length) throw new Error('This chain has no remaining source strands.');
+  if (hairRigs.some(other => other.id !== rig.id && other.boundStrandIds?.some(id => targets.includes(id)))) {
+    throw new Error('A source strand is already bound to another chain. Unbind it first.');
+  }
+  return targets;
+}
+
+function bindHairRig(unbind = false) {
+  exitHairPosePreview();
+  const rig = hairRigs.find(item => item.id === selectedHairRigId);
+  if (!rig) return;
+  const message = document.querySelector('#hairRigMessage');
+  let targets;
+  try { targets = unbind ? [] : hairRigBindingTargets(rig); }
+  catch (error) { message.textContent = error.message; return; }
+  pushUndoState(); rig.boundStrandIds = targets;
+  renderHairRigUI(); message.textContent = unbind ? 'Chain unbound.' : `Bound ${targets.length} strand meshes. Start Pose Preview to test.`;
+}
+
+function captureHairPose() {
+  return [...hairPosePreview.rigs.values()].map(rig => ({id: rig.id, joints: rig.joints.map(p => [...p]), matrices: rig.matrices.map(m => [...m])}));
+}
+
+function applyHairPose(snapshot) {
+  for (const rig of snapshot) hairPosePreview.rigs.set(rig.id, {...rig, joints: rig.joints.map(p => [...p]), matrices: rig.matrices.map(m => [...m])});
+  updateHairPoseMeshes(); rebuildHairRigVisuals(); attachHairRigTransform();
+  updateHistoryButtons();
+}
+
+function stepHairPoseHistory(redo) {
+  if (hairPosePreview.physics) stopHairPhysics();
+  finishHairRigTransform(true);
+  const from = redo ? hairPosePreview.redo : hairPosePreview.undo;
+  if (!from.length) return;
+  if (!redo && from.at(-1)?.bindingUndo) {
+    exitHairPosePreview(); undoLastAction(); return;
+  }
+  (redo ? hairPosePreview.undo : hairPosePreview.redo).push(captureHairPose());
+  applyHairPose(from.pop());
+}
+
+function exitHairPosePreview() {
+  if (!hairPosePreview) return;
+  finishHairRigTransform(true);
+  disposeHairPhysicsHead();
+  const preview = hairPosePreview; hairPosePreview = null;
+  hairWeightPreviewEnabled = false;
+  hairBindingBlendEdit = null;
+  hairRootWeightEdit = null;
+  scene.remove(preview.group);
+  preview.meshes.forEach(entry => { entry.clone.geometry.dispose(); entry.weightMaterial?.dispose(); });
+  requestShadowMapRefresh();
+  rebuildHairRigVisuals();
+  if (viewportEditMode === 'rigging') { renderHairRigUI(); attachHairRigTransform(); }
+}
+
+function startHairPosePreview() {
+  cancelHairRigCreationPreview();
+  if (viewportEditMode !== 'rigging' || hairPosePreview) return;
+  finishHairRigTransform(true);
+  const preview = {rigs: new Map(), meshes: [], undo: [], redo: [], group: new THREE.Group()};
+  const owners = new Set();
+  try {
+    for (const rig of hairRigs) {
+      preview.rigs.set(rig.id, {id: rig.id, joints: rig.joints.map(p => [...p]), matrices: rig.joints.map(() => new THREE.Matrix4().toArray())});
+      if (!rig.boundStrandIds?.length) continue;
+      for (const id of rig.boundStrandIds) {
+        const lock = locks.find(item => item.id === id);
+        if (!lock?.mesh?.geometry?.attributes.position) continue;
+        if (owners.has(id)) throw new Error('A strand belongs to multiple chains. Unbind the conflicting chain first.');
+        owners.add(id);
+        for (const object of [lock.mesh, lock.wireOverlay].filter(object => object?.geometry?.attributes.position)) {
+          object.updateWorldMatrix(true, false);
+          const geometry = object.geometry.clone();
+          captureGemRestPosition(THREE, geometry);
+          const clone = object.isLineSegments ? new THREE.LineSegments(geometry, object.material) : new THREE.Mesh(geometry, object.material);
+          clone.matrixAutoUpdate = false; clone.matrix.copy(object.matrixWorld); clone.renderOrder = object.renderOrder;
+          clone.castShadow = object.castShadow; clone.receiveShadow = object.receiveShadow;
+          preview.group.add(clone);
+          const position = object.geometry.attributes.position;
+          const points = Array.from({length: position.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(object.matrixWorld).toArray());
+          const entry = {rigId: rig.id, lock, object, clone, sourceGeometry: object.geometry, points,
+            inverse: object.matrixWorld.clone().invert(), weights: automaticHairWeights(points, rig.joints, rig.bindingBlend ?? 1)};
+          const tangent = object.geometry.attributes.tangent;
+          if (tangent) entry.tangents = Array.from({length: tangent.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(tangent, i).transformDirection(object.matrixWorld).toArray());
+          preview.meshes.push(entry);
+        }
+      }
+    }
+    if (!preview.meshes.length) throw new Error('Bind a chain to source strands first.');
+    preview.group.visible = false; scene.add(preview.group); hairPosePreview = preview;
+    updateHairPoseMeshes(); rebuildHairRigVisuals(); renderHairRigUI(); attachHairRigTransform();
+    document.querySelector('#hairRigMessage').textContent = 'Pose Preview · Temporary poses are not saved or exported.';
+  } catch (error) {
+    if (hairPosePreview) exitHairPosePreview();
+    else preview.group.traverse(object => object.geometry?.dispose());
+    document.querySelector('#hairRigMessage').textContent = error.message;
+  }
+}
+
+function toggleHairPhysics() {
+  if (viewportEditMode !== 'rigging') return;
+  finishHairRigTransform(true);
+  if (!hairPosePreview) startHairPosePreview();
+  if (!hairPosePreview) return;
+  if (!hairPosePreview.physics) {
+    const initial = captureHairPose();
+    hairPosePreview.physics = {initial, playing: false, chains: new Map(initial.map(rig => [rig.id, createChainSimulation(rig.joints)]))};
+    createHairPhysicsHead();
+  }
+  hairPosePreview.physics.playing = !hairPosePreview.physics.playing;
+  attachHairRigTransform(); renderHairRigUI();
+}
+
+function toggleHairPhysicsFromToolbar() {
+  if (viewportEditMode !== 'rigging') return;
+  if (hairPosePreview?.physics) exitHairPosePreview();
+  else toggleHairPhysics();
+}
+
+function stopHairPhysics() {
+  const physics = hairPosePreview?.physics;
+  if (!physics) return;
+  finishHairRigTransform(true);
+  disposeHairPhysicsHead();
+  delete hairPosePreview.physics;
+  applyHairPose(physics.initial); renderHairRigUI();
+}
+
+function resetHairPhysics() {
+  const physics = hairPosePreview?.physics;
+  if (!physics) return;
+  finishHairRigTransform(true);
+  if (physics.head) {
+    physics.head.position.copy(physics.head.center); physics.head.rotation.identity();
+    syncHairPhysicsHead();
+  }
+  physics.chains = new Map(physics.initial.map(rig => [rig.id, createChainSimulation(rig.joints)]));
+  physics.playing = false;
+  applyHairPose(physics.initial); renderHairRigUI();
+}
+
+function updateHairPhysics(elapsed) {
+  const physics = hairPosePreview?.physics;
+  if (!physics?.playing || viewportEditMode !== 'rigging') return;
+  const options = Object.fromEntries(['gravity', 'stiffness', 'damping'].map(key => [key, Number(document.querySelector(`[data-hair-physics="${key}"]`).value)]));
+  const headDelta = physics.head ? syncHairPhysicsHead() : new THREE.Matrix4();
+  const headRotation = physics.head?.rotation || new THREE.Quaternion();
+  for (const authored of orderedHairRigs(hairRigs)) {
+    const initial=physics.initial.find(rig=>rig.id===authored.id);if(!initial)continue;
+    const chain = physics.chains.get(initial.id);
+    let attachmentDelta=headDelta,attachmentRotation=headRotation;
+    if(authored.parentBone) {
+      const parent=hairPosePreview.rigs.get(authored.parentBone.rigId),original=physics.initial.find(rig=>rig.id===authored.parentBone.rigId);
+      const index=authored.parentBone.joint;
+      if(parent&&original) {
+        attachmentDelta=new THREE.Matrix4().fromArray(parent.matrices[index]).multiply(new THREE.Matrix4().fromArray(original.matrices[index]).invert());
+        attachmentRotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(attachmentDelta));
+      }
+    }
+    chain.rest = initial.joints.map(p => new THREE.Vector3(...p).applyMatrix4(attachmentDelta).toArray());
+    const enabled = authored?.physicsEnabled || [];
+    chain.normals = initial.joints.map((_,i) => {
+      const normal = authored?.normals?.[i] || rigJointFrame(authored?.joints || initial.joints,[],i).z;
+      const posed = transformRigNormals([normal],initial.matrices[i])[0];
+      return new THREE.Vector3(...posed).applyQuaternion(attachmentRotation).toArray();
+    });
+    const points = stepChainSimulation(chain, elapsed, {...options, enabled, limits:authored?.rotationLimits || [], normals:chain.normals});
+    const matrices = points.map((point, i) => {
+      const bone = Math.min(i, points.length - 2);
+      const from = new THREE.Vector3(...initial.joints[bone + 1]).sub(new THREE.Vector3(...initial.joints[bone])).normalize().applyQuaternion(attachmentRotation);
+      const to = new THREE.Vector3(...points[bone + 1]).sub(new THREE.Vector3(...points[bone])).normalize();
+      const rotation = from.lengthSq() && to.lengthSq() ? new THREE.Quaternion().setFromUnitVectors(from, to) : new THREE.Quaternion();
+      rotation.multiply(attachmentRotation);
+      return new THREE.Matrix4().makeTranslation(...point)
+        .multiply(new THREE.Matrix4().makeRotationFromQuaternion(rotation))
+        .multiply(new THREE.Matrix4().makeTranslation(...initial.joints[i].map(v => -v)))
+        .multiply(new THREE.Matrix4().fromArray(initial.matrices[i])).toArray();
+    });
+    hairPosePreview.rigs.set(initial.id, {id: initial.id, joints: points.map(p => [...p]), matrices});
+  }
+  updateHairPoseMeshes(); updateHairRigVisualPose();
+}
+
+function createHairPhysicsHead() {
+  const physics = hairPosePreview.physics;
+  const bounds = guideModel ? guideHeadBounds(guideModel) : new THREE.Box3().setFromPoints(physics.initial.flatMap(rig => rig.joints.map(p => new THREE.Vector3(...p))));
+  const center = hairRigRoot ? new THREE.Vector3(...hairRigRoot.position) : bounds.getCenter(new THREE.Vector3());
+  const radius = Math.max(0.02, bounds.getSize(new THREE.Vector3()).length() * 0.045);
+  const marker = new THREE.Mesh(new THREE.SphereGeometry(radius, 16, 12), new THREE.MeshBasicMaterial({color: '#55c5f4', wireframe: true, depthTest: false, depthWrite: false}));
+  marker.renderOrder = 120; marker.position.copy(center); scene.add(marker);
+  const head = {center, position: center.clone(), rotation: new THREE.Quaternion(), marker, selected: true};
+  if (guideModel) {
+    guideModel.updateWorldMatrix(true, false);
+    head.source = guideModel; head.original = guideModel.matrixWorld.clone();
+    head.clone = guideModel.clone(true); head.clone.matrixAutoUpdate = false; head.clone.visible = false;
+    scene.add(head.clone);
+  }
+  physics.head = head;
+  createHairPhysicsFollowers(head);
+  syncHairPhysicsHead();
+}
+
+function createHairPhysicsFollowers(head) {
+  head.followers = [];
+  head.followerGroup = new THREE.Group(); head.followerGroup.visible = false; scene.add(head.followerGroup);
+  const bound = new Set(hairPosePreview.meshes.map(entry => entry.lock.id));
+  const seen = new Set();
+  for (const lock of locks) {
+    const strandLatticeMesh = lock.geometryType === 'curve-surface' && lock.curveSurfaceLoft;
+    if (bound.has(lock.id) || (!strandLatticeMesh && ['surface', 'curve-surface'].includes(lock.geometryType))) continue;
+    for (const object of [lock.mesh, lock.wireOverlay, lock.selectionOutline, lock.backfaceDebugOverlay].filter(Boolean)) {
+      if (seen.has(object)) continue;
+      seen.add(object); object.updateWorldMatrix(true, false);
+      const clone = object.clone(false); clone.matrixAutoUpdate = false;
+      head.followerGroup.add(clone);
+      head.followers.push({lock, object, clone, original: object.matrixWorld.clone(), sourceGeometry: object.geometry});
+    }
+  }
+}
+
+function syncHairPhysicsHeadHandle() {
+  const head = hairPosePreview?.physics?.head;
+  if (!head) return;
+  head.marker.visible = rigVisible.handles;
+  if (head.drag) { head.marker.position.copy(rigTransformHandle.position); return; }
+  camera.updateMatrixWorld(true);
+  const depth = head.position.clone().project(camera).z;
+  head.marker.position.set(-0.42, 0, Math.max(-0.95, Math.min(0.9999, depth))).unproject(camera);
+  if (transformControls.object === rigTransformHandle && head.selected) rigTransformHandle.position.copy(head.marker.position);
+}
+
+function syncHairPhysicsHeadGizmoHelpers() {
+  const gizmo = transformControls._gizmo;
+  if (!gizmo?.helper) return;
+  const hidden = viewportEditMode === 'rigging' && Boolean(hairPosePreview?.physics?.head?.selected)
+    && transformControls.object === rigTransformHandle;
+  let wrapper = gizmo.userData.physicsHeadHelperWrapper;
+  if (!wrapper && hidden) {
+    // TransformControls resets its helper visibility during updateMatrixWorld.
+    // A parent wrapper suppresses decoration without modifying pickers/drag planes.
+    wrapper = new THREE.Group();
+    gizmo.add(wrapper);
+    Object.values(gizmo.helper).forEach(group => wrapper.add(group));
+    gizmo.userData.physicsHeadHelperWrapper = wrapper;
+  }
+  if (wrapper) wrapper.visible = !hidden;
+}
+
+function syncHairPhysicsHead() {
+  const head = hairPosePreview.physics.head;
+  const delta = new THREE.Matrix4().makeTranslation(...head.position.toArray())
+    .multiply(new THREE.Matrix4().makeRotationFromQuaternion(head.rotation))
+    .multiply(new THREE.Matrix4().makeTranslation(...head.center.toArray().map(v => -v)));
+  syncHairPhysicsHeadHandle();
+  head.delta = delta.toArray();
+  if (head.clone) { head.clone.matrix.copy(delta).multiply(head.original); head.clone.updateMatrixWorld(true); }
+  for (const entry of head.followers || []) {
+    entry.clone.matrix.copy(delta).multiply(entry.original); entry.clone.updateMatrixWorld(true);
+  }
+  return delta;
+}
+
+function disposeHairPhysicsHead() {
+  const head = hairPosePreview?.physics?.head;
+  if (!head) return;
+  scene.remove(head.marker); head.marker.geometry.dispose(); head.marker.material.dispose();
+  if (head.clone) scene.remove(head.clone); // The clone borrows the source's geometry/materials.
+  if (head.followerGroup) scene.remove(head.followerGroup); // Followers also borrow assets; do not dispose them.
+}
+
+function selectHairPhysicsHead() {
+  const head = hairPosePreview?.physics?.head;
+  if (!head) return;
+  finishHairRigTransform(true); head.selected = true;
+  if (!['move', 'rotate'].includes(activeTool)) setActiveTool('move');
+  attachHairRigTransform();
+}
+
+function updateHairWeightPreview() {
+  if (!hairPosePreview) return;
+  const active = hairWeightPreviewEnabled && selectedHairJoint >= 0 && hairPosePreview.rigs.has(selectedHairRigId);
+  for (const entry of hairPosePreview.meshes) {
+    if (!entry.clone.isMesh) continue;
+    const geometry = entry.clone.geometry;
+    if (!active) {
+      entry.clone.material = entry.object.material;
+      if (entry.weightColorKey != null) {
+        if (entry.originalColorAttribute) geometry.setAttribute('color', entry.originalColorAttribute);
+        else geometry.deleteAttribute('color');
+        entry.weightColorKey = null;
+      }
+      continue;
+    }
+    const joint = entry.rigId === selectedHairRigId ? selectedHairJoint : -1;
+    const rootWeight = hairRigs.find(rig => rig.id === entry.rigId)?.rootWeights?.[entry.lock.id] || 0;
+    const key = `${selectedHairRigId}:${joint}:${rootWeight}`;
+    if (entry.weightColorKey !== key) {
+      if (entry.weightColorKey == null) entry.originalColorAttribute = geometry.getAttribute('color');
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(hairJointWeightColors(entry.weights, joint, rootWeight), 3));
+      entry.weightColorKey = key;
+    }
+    if (!entry.weightMaterial) {
+      const sourceMaterial = Array.isArray(entry.object.material) ? entry.object.material[0] : entry.object.material;
+      entry.weightMaterial = new THREE.MeshBasicMaterial({vertexColors: true, toneMapped: false, side: sourceMaterial.side});
+    }
+    entry.clone.material = entry.weightMaterial;
+  }
+}
+
+function updateHairPoseMeshes() {
+  if (!hairPosePreview) return;
+  for (const entry of hairPosePreview.meshes) {
+    const matrices = hairPosePreview.rigs.get(entry.rigId).matrices;
+    const rootWeight = hairRigs.find(rig => rig.id === entry.rigId)?.rootWeights?.[entry.lock.id] || 0;
+    const rootMatrix = hairPosePreview.physics?.head?.delta || null;
+    const position = entry.clone.geometry.attributes.position;
+    skinHairPoints(entry.points, entry.weights, matrices, false, rootWeight, rootMatrix).forEach((p, i) => {
+      const point = new THREE.Vector3(...p).applyMatrix4(entry.inverse); position.setXYZ(i, point.x, point.y, point.z);
+    });
+    position.needsUpdate = true;
+    if (entry.clone.isMesh) entry.clone.geometry.computeVertexNormals();
+    if (entry.tangents) {
+      const tangent = entry.clone.geometry.attributes.tangent;
+      skinHairPoints(entry.tangents, entry.weights, matrices, true, rootWeight, rootMatrix).forEach((p, i) => {
+        const direction = new THREE.Vector3(...p).transformDirection(entry.inverse); tangent.setXYZ(i, direction.x, direction.y, direction.z);
+      });
+      tangent.needsUpdate = true;
+    }
+    entry.clone.geometry.computeBoundingSphere();
+  }
+  requestShadowMapRefresh();
+}
+
+function renderRigScene(targetRenderer,targetCamera) {
+  if(viewportEditMode!=='rigging'){renderAnimeOutlineScene(targetRenderer,scene,targetCamera);return;}
+  renderRigHeadOcclusion(targetRenderer,scene,targetCamera,hairPosePreview?.physics?.head?.clone||guideModel,[rigVisuals,hairRigCreationPreview?.group],renderAnimeOutlineScene);
+}
+
+function renderRigVisibleScene(targetRenderer, targetCamera) {
+  if (viewportEditMode !== 'rigging' || rigVisible.objects) { renderRigScene(targetRenderer, targetCamera); return; }
+  const hidden = new Map();
+  const hide = object => { if (object && !hidden.has(object)) { hidden.set(object, object.visible); object.visible = false; } };
+  try {
+    locks.forEach(lock => { hide(lock.mesh); hide(lock.wireOverlay); hide(lock.selectionOutline); hide(lock.curveObjects?.group); hide(lock.backfaceDebugOverlay); });
+    hide(hairPosePreview?.group);
+    renderRigScene(targetRenderer, targetCamera);
+  } finally { hidden.forEach((visible, object) => { object.visible = visible; }); }
+}
+
+function renderSceneWithHairPose(targetRenderer, targetCamera) {
+  const preview = hairPosePreview;
+  if (!preview) { renderRigVisibleScene(targetRenderer, targetCamera); return; }
+  if ([...preview.meshes, ...(preview.physics?.head?.followers || [])].some(entry => entry.object.geometry !== entry.sourceGeometry)) {
+    exitHairPosePreview(); renderRigVisibleScene(targetRenderer, targetCamera); return;
+  }
+  const visibility = new Map();
+  const hide = object => { if (object && !visibility.has(object)) { visibility.set(object, object.visible); object.visible = false; } };
+  try {
+    // Determine inherited visibility before temporarily hiding any source.
+    const followers = preview.physics?.head?.followers || [];
+    [...preview.meshes, ...followers].forEach(entry => {
+      let visible = true;
+      for (let object = entry.object; object; object = object.parent) if (!object.visible) visible = false;
+      entry.clone.visible = visible;
+    });
+    [...preview.meshes, ...followers].forEach(entry => { hide(entry.object); hide(entry.lock.curveObjects?.group); });
+    preview.group.visible = true;
+    const head = preview.physics?.head;
+    if (head?.followerGroup) head.followerGroup.visible = rigVisible.objects;
+    if (head?.clone) { head.clone.visible = head.source.visible; hide(head.source); }
+    renderRigVisibleScene(targetRenderer, targetCamera);
+  } finally {
+    if (preview.physics?.head?.followerGroup) preview.physics.head.followerGroup.visible = false;
+    if (preview.physics?.head?.clone) preview.physics.head.clone.visible = false;
+    preview.group.visible = false;
+    visibility.forEach((visible, object) => { object.visible = visible; });
+  }
+}
+
+function displayHairRig(rig) {
+  return hairPosePreview?.rigs.get(rig?.id) || rig;
+}
+
+function hairRigJointQuaternion(rig, index) {
+  const rest = hairRigs.find(item => item.id === rig.id) || rig;
+  let normals = rest.normals || rest.joints.map((_, i) => rigJointFrame(rest.joints, [], i).z);
+  if (rig.matrices) normals = normals.map((normal, i) => transformRigNormals([normal], rig.matrices[i])[0]);
+  const frame = rigJointFrame(rig.joints, normals, index);
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(
+    new THREE.Vector3(...frame.x), new THREE.Vector3(...frame.y), new THREE.Vector3(...frame.z)));
+}
+
+function selectHairRoot() {
+  if (!hairRigRoot || viewportEditMode !== 'rigging') return;
+  finishHairRigTransform(true); rigSourceIds.clear();
+  selectedHairRigId = hairRigRoot.id; selectedHairJoint = -1; rigOutlinerTab = 'rig';
+  renderHairRigUI(); rebuildHairRigVisuals(); attachHairRigTransform();
+  document.querySelector('#hairRootSettings').scrollIntoView({block:'nearest'});
+}
+
+function addHairRootVisual(accent) {
+  if (!hairRigRoot || !hairRigs.length) return;
+  const position = hairPosePreview?.physics?.head?.position || new THREE.Vector3(...hairRigRoot.position);
+  const size = Math.max(0.025, ...hairRigs.map(rig => {
+    const points = rig.joints.map(p => new THREE.Vector3(...p));
+    return points.slice(1).reduce((sum,p,i) => sum + p.distanceTo(points[i]),0) * 0.035;
+  }));
+  const marker = new THREE.Mesh(new THREE.OctahedronGeometry(size), new THREE.MeshBasicMaterial({
+    color: selectedHairRigId === hairRigRoot.id ? accent : '#8294aa', depthTest:false, depthWrite:false, toneMapped:false}));
+  marker.position.copy(position); marker.renderOrder = 112; marker.visible = rigVisible.bones;
+  marker.userData = {hairRigId:hairRigRoot.id, hairJoint:-1, rigPickType:'bones',rigHighlighted:selectedHairRigId===hairRigRoot.id};
+  marker.rigPoseRoot = true;
+  rigVisuals.add(marker);
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(marker.geometry), new THREE.LineBasicMaterial({color:'#202a38',depthTest:false,depthWrite:false,toneMapped:false}));
+  edges.userData={rigHighlighted:selectedHairRigId===hairRigRoot.id};
+  edges.rigPoseRoot = true;
+  edges.position.copy(position); edges.renderOrder=113; edges.visible=rigVisible.bones; edges.raycast=()=>{}; rigVisuals.add(edges);
+  const links = hairRigs.filter(rig=>hairRigBoneVisible(rig,0)).flatMap(rig => {
+    const parent=hairRigs.find(item=>item.id===rig.parentBone?.rigId);
+    const start=parent?new THREE.Vector3(...displayHairRig(parent).joints[rig.parentBone.joint]):position.clone();
+    return [start,new THREE.Vector3(...displayHairRig(rig).joints[0])];
+  });
+  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(links), new THREE.LineDashedMaterial({color:'#8294aa',dashSize:size,gapSize:size,transparent:true,opacity:0.4,depthTest:false,depthWrite:false}));
+  lines.rigPoseLinks = hairRigs.filter(rig=>hairRigBoneVisible(rig,0)).map(rig=>rig.id);
+  lines.computeLineDistances(); lines.renderOrder=108; lines.visible=rigVisible.bones; lines.raycast=()=>{}; rigVisuals.add(lines);
+}
+
+function rebuildHairRigVisuals() {
+  if (!rigVisuals) { rigVisuals = new THREE.Group(); scene.add(rigVisuals); }
+  rigVisuals.traverse(object => { object.geometry?.dispose(); object.material?.dispose(); });
+  rigVisuals.clear();
+  rigVisuals.visible = viewportEditMode === 'rigging';
+  const accent = getComputedStyle(document.body).getPropertyValue('--ui-accent').trim() || '#55c5f4';
+  addHairRootVisual(accent);
+  for (const rig of hairRigs) {
+    const source = locks.find(lock => rig.sourceIds.includes(lock.id));
+    const regionColor = SCALP_REGIONS[source?.scalpRegion]?.color ?? '#8294aa';
+    const points = displayHairRig(rig).joints.map(point => new THREE.Vector3(...point));
+    const length = points.slice(1).reduce((sum, p, i) => sum + p.distanceTo(points[i]), 0);
+    const radius = Math.max(0.004, length * 0.012);
+    points.slice(0, -1).forEach((point, i) => {
+      if (!hairRigBoneVisible(rig,i)) return;
+      const selected = rig.id === selectedHairRigId && (selectedHairJoint < 0 || i >= selectedHairJoint);
+      const material = new THREE.MeshBasicMaterial({color: selected ? accent : regionColor, depthTest: false, depthWrite: false, toneMapped: false});
+      const joint = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 8), material);
+      joint.position.copy(point); joint.renderOrder = 110;
+      joint.userData = {hairRigId: rig.id, hairJoint: i, rigPickType: 'handles',rigHighlighted:selected};
+      joint.rigPose = {rigId:rig.id, joint:i, radius};
+      joint.visible = rigVisible.handles;
+      rigVisuals.add(joint);
+      if (i < points.length - 1) {
+        const direction = points[i + 1].clone().sub(point);
+        const shape = hairBoneDisplayShape(direction.length(), radius * 2);
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(shape.positions, 3));
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(shape.shades, 3));
+        geometry.computeVertexNormals();
+        const bodyMaterial = material.clone(); bodyMaterial.vertexColors = true;
+        const bone = new THREE.Mesh(geometry, bodyMaterial);
+        bone.position.copy(point).addScaledVector(direction, 0.5);
+        bone.quaternion.copy(hairRigJointQuaternion(displayHairRig(rig), i));
+        bone.renderOrder = 109; bone.userData = {hairRigId: rig.id, hairJoint: i, rigPickType: 'bones',rigHighlighted:selected}; rigVisuals.add(bone);
+        bone.rigPose = {rigId:rig.id, joint:i, radius, length:direction.length(), body:true};
+        bone.visible = rigVisible.bones;
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry),
+          new THREE.LineBasicMaterial({color: '#202a38', depthTest: false, depthWrite: false, toneMapped: false}));
+        edges.position.copy(bone.position); edges.quaternion.copy(bone.quaternion);
+        edges.userData={rigHighlighted:selected};
+        edges.rigPose = bone.rigPose;
+        edges.renderOrder = 110;
+        edges.visible = rigVisible.bones;
+        // Decoration must not steal ray hits from the actual bone.
+        edges.raycast = () => {};
+        rigVisuals.add(edges);
+      }
+    });
+  }
+}
+
+// Playback changes poses, not display topology. Keep GPU resources and pick objects alive.
+function updateHairRigVisualPose() {
+  if (!rigVisuals) { rebuildHairRigVisuals(); return; }
+  const poses = new Map();
+  for (const rig of hairRigs) {
+    const pose = displayHairRig(rig);
+    const points = pose.joints.map(point => new THREE.Vector3(...point));
+    const length = points.slice(1).reduce((sum, point, i) => sum + point.distanceTo(points[i]), 0);
+    poses.set(rig.id, {rig, pose, points, radius:Math.max(0.004, length * 0.012), frames:new Map()});
+  }
+  const root = hairPosePreview?.physics?.head?.position || (hairRigRoot && new THREE.Vector3(...hairRigRoot.position));
+  for (const object of rigVisuals.children) {
+    if (object.rigPoseRoot && root) object.position.copy(root);
+    if (object.rigPoseLinks) {
+      const position = object.geometry.attributes.position;
+      const distances = object.geometry.attributes.lineDistance;
+      let distance = 0;
+      object.rigPoseLinks.forEach((id, i) => {
+        const entry = poses.get(id);
+        const parent = poses.get(entry.rig.parentBone?.rigId);
+        const start = parent ? parent.points[entry.rig.parentBone.joint] : root;
+        const end = entry.points[0];
+        position.setXYZ(i * 2, start.x, start.y, start.z);
+        position.setXYZ(i * 2 + 1, end.x, end.y, end.z);
+        distances.setX(i * 2, distance);
+        distance += start.distanceTo(end);
+        distances.setX(i * 2 + 1, distance);
+      });
+      position.needsUpdate = true; distances.needsUpdate = true;
+      object.geometry.computeBoundingSphere();
+    }
+    const binding = object.rigPose;
+    if (!binding) continue;
+    const entry = poses.get(binding.rigId), point = entry.points[binding.joint];
+    const radiusScale = entry.radius / binding.radius;
+    object.position.copy(point);
+    if (!binding.body) { object.scale.setScalar(radiusScale); continue; }
+    const direction = entry.points[binding.joint + 1].clone().sub(point);
+    object.position.addScaledVector(direction, 0.5);
+    if (!entry.frames.has(binding.joint)) entry.frames.set(binding.joint, hairRigJointQuaternion(entry.pose, binding.joint));
+    object.quaternion.copy(entry.frames.get(binding.joint));
+    object.scale.set(radiusScale, binding.length > 0 ? direction.length() / binding.length : 1, radiusScale);
+  }
+}
+
+function selectHairRig(id, joint = -1, event = {}) {
+  finishHairRigTransform(true);
+  if (hairPosePreview?.physics?.head) hairPosePreview.physics.head.selected = false;
+  if (!event.ctrlKey && !event.metaKey) rigSourceIds.clear();
+  const rig = hairRigs.find(item => item.id === id);
+  selectedHairRigId = rig ? id : null;
+  if (selectedHairRigId) rigOutlinerTab = 'rig';
+  selectedHairJoint = rig && Number.isInteger(joint) ? Math.max(-1, Math.min(joint, rig.joints.length - 2)) : -1;
+  rebuildHairRigVisuals(); renderHairRigUI(); attachHairRigTransform();
+}
+
+function attachHairRigTransform() {
+  if (hairPosePreview?.physics) {
+    transformControls.detach();
+    const head = hairPosePreview.physics.head;
+    if (!head?.selected || !['move', 'rotate'].includes(activeTool)) return;
+    if (!rigTransformHandle) { rigTransformHandle = new THREE.Object3D(); scene.add(rigTransformHandle); }
+    syncHairPhysicsHeadHandle();
+    rigTransformHandle.position.copy(head.marker.position); rigTransformHandle.quaternion.copy(head.rotation); rigTransformHandle.scale.setScalar(1);
+    configureTransformControls(activeTool); transformControls.attach(rigTransformHandle); return;
+  }
+  transformControls.detach();
+  const rig = displayHairRig(hairRigs.find(item => item.id === selectedHairRigId));
+  if (viewportEditMode !== 'rigging' || !rig || !['move', 'rotate', 'scale'].includes(activeTool)) return;
+  if (selectedHairJoint >= 0 ? !hairRigBoneVisible(rig,selectedHairJoint) : rig.joints.slice(0,-1).every((_,i)=>!hairRigBoneVisible(rig,i))) return;
+  if (hairPosePreview && !hairPosePreview.rigs.has(rig.id)) return;
+  if (!rigTransformHandle) { rigTransformHandle = new THREE.Object3D(); scene.add(rigTransformHandle); }
+  const index = Math.max(0, selectedHairJoint);
+  rigTransformHandle.position.fromArray(rig.joints[index]);
+  rigTransformHandle.quaternion.identity(); rigTransformHandle.scale.setScalar(1);
+  rigTransformHandle.quaternion.copy(hairRigJointQuaternion(rig, index));
+  configureTransformControls(activeTool);
+  transformControls.attach(rigTransformHandle);
+}
+
+function beginHairRigTransform() {
+  const head = hairPosePreview?.physics?.head;
+  if (head?.selected) {
+    head.drag = {position: head.position.clone(), rotation: head.rotation.clone(),
+      offset: rigTransformHandle.position.clone().sub(head.position), pointerId: activeViewportPointer?.pointerId}; return;
+  }
+  const rig = displayHairRig(hairRigs.find(item => item.id === selectedHairRigId));
+  if (!rig) return;
+  rigTransformHandle.updateMatrixWorld(true);
+  rigTransformEdit = {rig, joints: rig.joints.map(p => [...p]), inverse: rigTransformHandle.matrixWorld.clone().invert(),
+    descendants:descendantHairRigs(hairRigs,rig.id,Math.max(0,selectedHairJoint)).map(source=>{
+      const child=displayHairRig(source);return {rig:child,joints:child.joints.map(p=>[...p]),normals:child.normals?.map(p=>[...p]),matrices:child.matrices?.map(m=>[...m])};
+    }),
+    normals: rig.normals?.map(n => [...n]),
+    pointerId: activeViewportPointer?.pointerId, changed: false,
+    poseBefore: hairPosePreview ? captureHairPose() : null,
+    matrices: rig.matrices?.map(m => [...m])};
+}
+
+function updateHairRigTransform() {
+  const head = hairPosePreview?.physics?.head;
+  if (head?.drag) {
+    head.position.copy(rigTransformHandle.position).sub(head.drag.offset); head.rotation.copy(rigTransformHandle.quaternion);
+    syncHairPhysicsHead();
+    // Head motion changes no outliner/settings data. Only a paused -> playing
+    // transition needs a UI update; rebuilding the panel on pointermove is costly.
+    if (!hairPosePreview.physics.playing) {
+      hairPosePreview.physics.playing = true;
+      const playButton = document.querySelector('#playHairPhysics');
+      playButton.textContent = 'Pause';
+      playButton.setAttribute('aria-pressed', 'true');
+    }
+    return;
+  }
+  if (!rigTransformEdit) return;
+  rigTransformHandle.scale.clampScalar(0.001, 1000);
+  rigTransformHandle.updateMatrixWorld(true);
+  const delta = rigTransformHandle.matrixWorld.clone().multiply(rigTransformEdit.inverse);
+  rigTransformEdit.rig.joints = transformRigJoints(rigTransformEdit.joints, delta.elements, Math.max(0, selectedHairJoint));
+  for(const child of rigTransformEdit.descendants||[]) {
+    child.rig.joints=transformRigJoints(child.joints,delta.elements,0);
+    if(child.matrices)child.rig.matrices=child.matrices.map(m=>delta.clone().multiply(new THREE.Matrix4().fromArray(m)).toArray());
+    else if(child.normals)child.rig.normals=transformRigNormals(child.normals,delta.elements,0);
+  }
+  if (!rigTransformEdit.matrices) {
+    const normals = rigTransformEdit.normals || rigTransformEdit.joints.map((_, i) => rigJointFrame(rigTransformEdit.joints, [], i).z);
+    rigTransformEdit.rig.normals = transformRigNormals(normals, delta.elements, Math.max(0, selectedHairJoint));
+  }
+  if (rigTransformEdit.matrices) {
+    rigTransformEdit.rig.matrices = rigTransformEdit.matrices.map((m, i) => i < Math.max(0, selectedHairJoint)
+      ? [...m] : delta.clone().multiply(new THREE.Matrix4().fromArray(m)).toArray());
+    updateHairPoseMeshes();
+  }
+  rigTransformEdit.changed = true;
+  rebuildHairRigVisuals();
+}
+
+function finishHairRigTransform(cancel = false) {
+  const head = hairPosePreview?.physics?.head;
+  if (head?.drag) {
+    const drag = head.drag; delete head.drag;
+    if (cancel) { head.position.copy(drag.position); head.rotation.copy(drag.rotation); syncHairPhysicsHead(); }
+    transformDragging = false;
+    if (cancel) {
+      transformControls.dragging = false; transformControls.axis = null;
+      if (drag.pointerId != null && renderer.domElement.hasPointerCapture(drag.pointerId)) renderer.domElement.releasePointerCapture(drag.pointerId);
+      attachHairRigTransform();
+    }
+    updateInteractionLocks(); return;
+  }
+  if (!rigTransformEdit) return;
+  const edit = rigTransformEdit;
+  rigTransformEdit = null;
+  const result = edit.rig.joints;
+  const resultNormals = edit.rig.normals;
+  const descendantResults=(edit.descendants||[]).map(child=>({child,joints:child.rig.joints,normals:child.rig.normals,matrices:child.rig.matrices}));
+  for(const {child} of descendantResults){child.rig.joints=child.joints;if(child.normals)child.rig.normals=child.normals;if(child.matrices)child.rig.matrices=child.matrices;}
+  if (edit.normals) edit.rig.normals = edit.normals;
+  else delete edit.rig.normals;
+  edit.rig.joints = edit.joints;
+  if (edit.poseBefore) {
+    if (cancel) { edit.rig.matrices = edit.matrices; }
+    else if (edit.changed) { hairPosePreview.undo.push(edit.poseBefore); hairPosePreview.undo = hairPosePreview.undo.slice(-40); hairPosePreview.redo = []; edit.rig.joints = result; }
+    if(!cancel)for(const result of descendantResults){result.child.rig.joints=result.joints;if(result.matrices)result.child.rig.matrices=result.matrices;}
+    updateHairPoseMeshes();
+  } else if (!cancel && edit.changed) { pushUndoState(); edit.rig.joints = result; if (resultNormals) edit.rig.normals = resultNormals; }
+  if(!cancel&&edit.changed&&!edit.poseBefore)for(const result of descendantResults){result.child.rig.joints=result.joints;if(result.normals)result.child.rig.normals=result.normals;}
+  if (edit.poseBefore) updateHistoryButtons();
+  transformDragging = false;
+  if (cancel && transformControls.dragging) {
+    transformControls.reset();
+    transformControls.dragging = false;
+    transformControls.axis = null;
+  }
+  if (cancel) {
+    if (edit.pointerId != null && renderer.domElement.hasPointerCapture(edit.pointerId)) renderer.domElement.releasePointerCapture(edit.pointerId);
+    attachHairRigTransform();
+  }
+  rebuildHairRigVisuals();
+  updateInteractionLocks();
+}
+
+function restoreHairRigs(value, root = null) {
+  cancelHairRigCreationPreview();
+  exitHairPosePreview();
+  finishHairRigTransform(true);
+  hairRigs = normalizeHairRigs(value);
+  rigHiddenBones.clear();
+  hairRigRoot = root; ensureHairRigRoot();
+  selectedHairRigId = null; selectedHairJoint = -1;
+  if (transformControls.object === rigTransformHandle) transformControls.detach();
+  rebuildHairRigVisuals();
+  if (viewportEditMode === 'rigging') renderHairRigUI();
+}
+
+function deleteHairRig() {
+  if (!selectedHairRigId || hairPosePreview) return;
+  exitHairPosePreview();
+  finishHairRigTransform(true); pushUndoState();
+  hairRigs = hairRigs.filter(rig => rig.id !== selectedHairRigId);
+  normalizeRigHierarchy(hairRigs);
+  ensureHairRigRoot();
+  selectHairRig(null);
+}
+
+[strandOutlinerTab, document.querySelector('#riggingRigTab')].forEach(button => {
+  if (button !== strandOutlinerTab) button.addEventListener('click', () => setHairRigOutlinerTab('rig'));
+  button.addEventListener('keydown', event => {
+    if (viewportEditMode !== 'rigging') return;
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const tab = event.key === 'Home' ? 'strands' : event.key === 'End' ? 'rig' : rigOutlinerTab === 'rig' ? 'strands' : 'rig';
+    setHairRigOutlinerTab(tab);
+    (tab === 'strands' ? strandOutlinerTab : document.querySelector('#riggingRigTab')).focus();
+  });
+});
+document.querySelector('#bindHairRig').addEventListener('click', () => bindHairRig());
+document.querySelector('#unbindHairRig').addEventListener('click', () => bindHairRig(true));
+document.querySelector('#toggleHairPose').addEventListener('click', () => hairPosePreview ? exitHairPosePreview() : startHairPosePreview());
+document.querySelector('#playHairPhysics').addEventListener('click', toggleHairPhysics);
+document.querySelector('#rigPhysicsToggle').addEventListener('click', toggleHairPhysicsFromToolbar);
+document.querySelector('#hairBonePhysics').addEventListener('change', event => setHairBonePhysics(event.target.checked));
+function planHairPhysicsReparent(rigs, editedIds) {
+  const physics=hairPosePreview?.physics;if(!physics)return null;
+  const affected=new Set(editedIds);
+  for(const id of editedIds)for(const child of descendantHairRigs(rigs,id))affected.add(child.id);
+  const initials=new Map(physics.initial.map(rig=>[rig.id,rig]));
+  const poses=new Map(hairPosePreview.rigs),updates=[];
+  const headDelta=physics.head ? physics.head.delta.clone() : new THREE.Matrix4();
+  for(const rig of orderedHairRigs(rigs)) {
+    if(!affected.has(rig.id))continue;
+    const initial={id:rig.id,joints:rig.joints.map(p=>[...p]),matrices:rig.joints.map(()=>new THREE.Matrix4().toArray())};
+    let delta=headDelta;
+    if(rig.parentBone) {
+      const parent=poses.get(rig.parentBone.rigId),original=initials.get(rig.parentBone.rigId),index=rig.parentBone.joint;
+      if(parent&&original)delta=new THREE.Matrix4().fromArray(parent.matrices[index]).multiply(new THREE.Matrix4().fromArray(original.matrices[index]).invert());
+    }
+    const joints=transformRigJoints(initial.joints,delta.toArray(),0);
+    const pose={id:rig.id,joints,matrices:joints.map(()=>delta.toArray())};
+    updates.push({initial,pose,chain:createChainSimulation(joints)});
+    initials.set(rig.id,initial);poses.set(rig.id,pose);
+  }
+  return updates;
+}
+
+function parentHairRig(id,parentBone) {
+  if(viewportEditMode!=='rigging'||hairPosePreview&&!hairPosePreview.physics)return;
+  const rig=hairRigs.find(item=>item.id===id);if(!rig)return;
+  const edits=[{rig,parentBone}];
+  const mirrored=mirroredHairBoneLimitTarget({rig,index:0});
+  const parent=parentBone?hairRigs.find(item=>item.id===parentBone.rigId):null;
+  const mirroredParent=parent?mirroredHairBoneLimitTarget({rig:parent,index:parentBone.joint}):null;
+  if(mirrored&&(!parentBone||mirroredParent))edits.push({rig:mirrored.rig,parentBone:parentBone?{rigId:mirroredParent.rig.id,joint:parentBone.joint}:null});
+  const proposed=hairRigs.map(item=>{
+    const edit=edits.find(entry=>entry.rig===item);return edit?{...item,parentBone:edit.parentBone}:item;
+  });
+  if(edits.some(edit=>!canParentRig(proposed,edit.rig.id,edit.parentBone))) {
+    document.querySelector('#hairRigMessage').textContent='Cannot parent a chain to itself, its descendants, or an invalid bone.';return;
+  }
+  if(edits.every(edit=>JSON.stringify(edit.rig.parentBone||null)===JSON.stringify(edit.parentBone)))return;
+  finishHairRigTransform(true);
+  const physics=hairPosePreview?.physics;
+  const updates=planHairPhysicsReparent(proposed,edits.map(edit=>edit.rig.id));
+  pushUndoState();
+  for(const edit of edits){if(edit.parentBone)edit.rig.parentBone={...edit.parentBone};else delete edit.rig.parentBone;}
+  if(physics) {
+    const playing=physics.playing;physics.playing=false;
+    try {
+      for(const {initial,pose,chain} of updates) {
+        physics.initial=physics.initial.filter(item=>item.id!==initial.id);physics.initial.push(initial);
+        physics.chains.set(initial.id,chain);hairPosePreview.rigs.set(initial.id,pose);
+      }
+      // Route the next preview Undo through the authored hierarchy transaction.
+      hairPosePreview.undo.push({bindingUndo:true});hairPosePreview.redo=[];
+      updateHairPoseMeshes();
+    } finally { physics.playing=playing; }
+  }
+  if(parentBone)rigChainOpen.set(parentBone.rigId,true);
+  if(mirroredParent)rigChainOpen.set(mirroredParent.rig.id,true);
+  selectHairRig(id,0);
+  document.querySelector('#hairRigMessage').textContent=`${parentBone?'Chain parented':'Chain returned to Hair_Root'} without moving its rest position.${edits.length>1?' Mirrored hierarchy updated too.':''}`;
+}
+
+function mirroredHairBoneLimitTarget({rig,index}) {
+  const ids=rig.sourceIds.map(id=>{
+    const source=locks.find(lock=>lock.id===id),partner=mirrorPartnerFor(source);
+    return partner&&mirrorPartnerFor(partner)?.id===id?hairRigSourceForLock(partner).id:null;
+  });
+  if(!ids.length||ids.some(id=>!id))return null;
+  const targets=hairRigs.filter(other=>other!==rig&&other.joints.length===rig.joints.length
+    &&other.sourceIds.length===ids.length&&ids.every(id=>other.sourceIds.includes(id)));
+  if(targets.length!==1)return null;
+  const target=targets[0];
+  const from=rigJointFrame(rig.joints,rig.normals,index),to=rigJointFrame(target.joints,target.normals,index);
+  return {rig:target,index,convert:value=>mirrorBoneLimit(value,from,to)};
+}
+
+const hairBoneLimitEditor = createBoneLimitEditor({THREE,scene,camera,canvas:renderer.domElement,
+  getMirror:mirroredHairBoneLimitTarget,
+  panel:document.querySelector('#hairBoneLimits'),
+  setRotationEditing:active=>{if(active){if(transformControls.object)transformControls.detach();}else attachHairRigTransform();},
+  getContext:()=>{
+    const rig=hairRigs.find(r=>r.id===selectedHairRigId),index=selectedHairJoint;
+    if(viewportEditMode!=='rigging'||!rig||index<0||index>=rig.joints.length-1)return null;
+    const physics=hairPosePreview?.physics,chain=physics?.chains.get(rig.id);
+    const initial=physics?.initial.find(r=>r.id===rig.id);
+    const rest=chain?.rest || rig.joints,points=displayHairRig(rig).joints;
+    let normals=chain?.normals || rig.normals;
+    if(chain&&!chain.normals&&initial)normals=initial.joints.map((_,i)=>transformRigNormals(
+      [rig.normals?.[i] || rigJointFrame(rig.joints,[],i).z],initial.matrices[i])[0]);
+    const visible=rigVisible.bones&&hairRigBoneVisible(rig,index);
+    return {rig,index,physics,origin:points[index],length:new THREE.Vector3(...rest[index+1]).distanceTo(new THREE.Vector3(...rest[index])),
+      frame:boneLimitFrame(rest,points,rigJointFrame(rest,normals,index),index),visible,
+      interactive:visible&&rigVisible.handles&&rigSelectable.handles&&rig.physicsEnabled?.[index]!==false,
+      key:`${activeTool}:${rig.id}:${index}:${visible}:${rigSelectable.handles}:${rig.physicsEnabled?.[index]!==false}`};
+  },
+  beforeCommit:()=>pushUndoState(),
+  afterCommit:()=>{
+    if(hairPosePreview){hairPosePreview.undo.push({bindingUndo:true});hairPosePreview.undo=hairPosePreview.undo.slice(-40);hairPosePreview.redo=[];}
+    renderHairRigUI();
+  },
+  setDragging:active=>{
+    rigPickPointer=null;transformDragging=active;
+    if(active){transformControls.detach();controls.enabled=false;transformControls.enabled=false;}
+    else {updateInteractionLocks();attachHairRigTransform();}
+  }
+});
+document.querySelector('#hairRootWeight').addEventListener('input', event => setHairRootWeight(event.target.value));
+for (const type of ['change','blur']) document.querySelector('#hairRootWeight').addEventListener(type, () => { hairRootWeightEdit = null; });
+for (const id of ['hairRootName','hairRootX','hairRootY','hairRootZ']) document.getElementById(id).addEventListener('change', editHairRigRoot);
+document.querySelector('#previewHairRoot').addEventListener('click', () => {
+  if (!hairPosePreview?.physics) toggleHairPhysics();
+  selectHairPhysicsHead();
+});
+document.querySelector('#selectHairPhysicsHead').addEventListener('click', selectHairPhysicsHead);
+document.querySelector('#stopHairPhysics').addEventListener('click', stopHairPhysics);
+document.querySelector('#resetHairPhysics').addEventListener('click', resetHairPhysics);
+document.querySelector('#shakeHairPhysics').addEventListener('click', () => {
+  if (!hairPosePreview?.physics) return;
+  hairPosePreview.physics.chains.forEach(shakeChainSimulation);
+  hairPosePreview.physics.playing = true; renderHairRigUI();
+});
+document.querySelector('#hairRigBindingBlend').addEventListener('input', event => setHairBindingBlend(event.target.value));
+['change', 'blur'].forEach(type => document.querySelector('#hairRigBindingBlend').addEventListener(type, () => { hairBindingBlendEdit = null; }));
+document.querySelector('#showHairBoneWeights').addEventListener('change', event => {
+  hairWeightPreviewEnabled = Boolean(hairPosePreview && event.target.checked);
+  renderHairRigUI();
+});
+document.querySelector('#resetHairPose').addEventListener('click', () => {
+  if (!hairPosePreview) return;
+  finishHairRigTransform(true); hairPosePreview.undo.push(captureHairPose()); hairPosePreview.undo = hairPosePreview.undo.slice(-40); hairPosePreview.redo = [];
+  applyHairPose(hairRigs.filter(rig => hairPosePreview.rigs.has(rig.id)).map(rig => ({id: rig.id,
+    joints: rig.joints.map(p => [...p]), matrices: rig.joints.map(() => new THREE.Matrix4().toArray())})));
+});
+function previewEndToEndHairRig(created,sources,onConfirm,selectedIds=created[0].sourceIds,parentBone=null) {
+  cancelHairRigCreationPreview();
+  const group=new THREE.Group();scene.add(group);
+  hairRigCreationPreview={created,sources,onConfirm,group,valid:true,selectedIds:[...selectedIds],parentBone};
+  document.querySelector('#confirmHairRigPath').disabled=false;
+  document.querySelector('#hairRigPathPreview').hidden=false;
+  document.querySelector('#confirmHairRigPath').onclick=()=>{
+    const preview=hairRigCreationPreview;if(!preview?.valid)return;
+    cancelHairRigCreationPreview();preview.onConfirm();
+  };
+  document.querySelector('#cancelHairRigPath').onclick=cancelHairRigCreationPreview;
+  drawHairRigCreationPreview();
+}
+
+function cancelHairRigCreationPreview() {
+  const preview=hairRigCreationPreview;if(!preview)return;
+  hairRigCreationPreview=null;
+  preview.group.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});
+  scene.remove(preview.group);
+  document.querySelector('#hairRigPathPreview').hidden=true;
+  document.querySelector('#confirmHairRigPath').onclick=null;
+  document.querySelector('#cancelHairRigPath').onclick=null;
+}
+
+function drawHairRigCreationPreview() {
+  const preview=hairRigCreationPreview;if(!preview)return;
+  const {group,created,sources}=preview;
+  document.querySelector('#hairRigCreationTitle').textContent=preview.parentBone?'Create Child Bone Chain':'Create Bone Chain';
+  group.traverse(object=>{object.geometry?.dispose();object.material?.dispose();});group.clear();
+  const accent=getComputedStyle(document.body).getPropertyValue('--ui-accent').trim()||'#55c5f4';
+  for(const rig of created){
+    const points=rig.joints.map(p=>new THREE.Vector3(...p));
+    const radius=Math.max(0.004,points.slice(1).reduce((sum,p,i)=>sum+p.distanceTo(points[i]),0)*0.012);
+    points.slice(0,-1).forEach((point,i)=>{
+      const direction=points[i+1].clone().sub(point),shape=hairBoneDisplayShape(direction.length(),radius*2);
+      const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(shape.positions,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(shape.shades,3));
+      const bone=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({color:accent,vertexColors:true,depthTest:false,depthWrite:false,toneMapped:false,transparent:true,opacity:0.8}));
+      bone.position.copy(point).addScaledVector(direction,0.5);bone.quaternion.copy(hairRigJointQuaternion(rig,i));bone.renderOrder=115;bone.raycast=()=>{};group.add(bone);
+      const edges=new THREE.LineSegments(new THREE.EdgesGeometry(geometry),new THREE.LineBasicMaterial({color:'#202a38',depthTest:false,depthWrite:false,toneMapped:false}));
+      edges.position.copy(bone.position);edges.quaternion.copy(bone.quaternion);edges.renderOrder=116;edges.raycast=()=>{};group.add(edges);
+      const joint=new THREE.Mesh(new THREE.SphereGeometry(radius,8,6),new THREE.MeshBasicMaterial({color:accent,depthTest:false,depthWrite:false,toneMapped:false}));
+      joint.position.copy(point);joint.renderOrder=116;joint.raycast=()=>{};group.add(joint);
+    });
+  }
+  group.traverse(object=>{object.userData.rigHighlighted=true;});
+  document.querySelector('#hairRigPathOrder').textContent=created.map(rig=>rig.sourceIds.map(id=>sources.find(source=>source.id===id)?.name||id).join(' → ')).join('\n');
+  document.querySelector('#hairRigSourceCount').textContent=`${new Set(created.flatMap(rig=>rig.sourceIds)).size} source strands · ${created.length} chain${created.length===1?'':'s'}`;
+  document.querySelector('#hairRigPathCount').textContent=`${created.reduce((sum,rig)=>sum+rig.joints.length-1,0)} bones. Orbit to inspect. Settings update live; Apply to bind, or Escape to cancel.`;
+}
+
+function updateHairRigCreationPreview() {
+  const preview=hairRigCreationPreview;if(!preview)return;
+  try {
+    const bounds=guideModel?guideHeadBounds(guideModel):null;
+    const {created:next}=buildHairRigProposals({sources:preview.sources,selectedIds:preview.selectedIds,
+      existingRigs:hairRigs,previous:preview.created,autoMirror:document.querySelector('#hairRigAutoMirror')?.checked!==false,
+      settings:{mode:document.querySelector('#hairRigPathMode').value,
+        boneCount:document.querySelector('#hairRigCount').value,name:document.querySelector('#hairRigName').value,
+        centerX:bounds?.getCenter(new THREE.Vector3()).x??0,headWidth:bounds?.getSize(new THREE.Vector3()).x??1}});
+    next.forEach((rig,index)=>{
+      if(preview.parentBone)assignNewHairRigParent(rig,preview.parentBone,index);
+      rig.boundStrandIds=hairRigBindingTargets(rig);
+    });
+    preview.created.splice(0,preview.created.length,...next);preview.valid=true;
+    document.querySelector('#confirmHairRigPath').disabled=false;drawHairRigCreationPreview();
+  }catch(error){preview.valid=false;preview.group.visible=false;document.querySelector('#confirmHairRigPath').disabled=true;document.querySelector('#hairRigPathCount').textContent=error.message;}
+  if(preview.valid)preview.group.visible=true;
+}
+
+function selectedHairChainParent() {
+  const rig=hairRigs.find(item=>item.id===selectedHairRigId);
+  return rig&&Number.isInteger(selectedHairJoint)&&selectedHairJoint>=0&&selectedHairJoint<rig.joints.length-1
+    ?{rigId:rig.id,joint:selectedHairJoint}:null;
+}
+
+function createChildHairRigFromSelection() {
+  const parent=selectedHairChainParent();
+  if(parent)createHairRigFromSelection(parent);
+}
+
+function assignNewHairRigParent(rig,parentBone,index) {
+  const parent=hairRigs.find(item=>item.id===parentBone.rigId);
+  if(!parent||parentBone.joint<0||parentBone.joint>=parent.joints.length-1)throw new Error('The parent bone is no longer available.');
+  const mirror=index>0?mirroredHairBoneLimitTarget({rig:parent,index:parentBone.joint}):null;
+  rig.parentBone=mirror?{rigId:mirror.rig.id,joint:mirror.index}:{...parentBone};
+  if(!canParentRig([...hairRigs,rig],rig.id,rig.parentBone))throw new Error('Cannot attach this chain to the selected parent bone.');
+}
+
+function createHairRigFromSelection(parentBone=null) {
+  if (viewportEditMode !== 'rigging' || hairPosePreview) return;
+  cancelHairRigCreationPreview();
+  document.querySelector('#hairRigName').value = '';
+  try {
+    const available = hairRigSources();
+    const mode=document.querySelector('#hairRigPathMode')?.value||'average';
+    const partners = new Map(available.map(lock => {
+      const partner = mirrorPartnerFor(lock);
+      return [lock.id, partner ? hairRigSourceForLock(partner).id : null];
+    }));
+    const requested = new Set([...rigSourceIds, ...[...rigSourceIds].map(id => partners.get(id)).filter(Boolean)]);
+    const namingBounds = guideModel ? guideHeadBounds(guideModel) : null;
+    const centerX = namingBounds?.getCenter(new THREE.Vector3()).x ?? 0;
+    const headWidth = namingBounds?.getSize(new THREE.Vector3()).x ?? 1;
+    const sources = available.filter(lock => requested.has(lock.id)).map(lock => {
+      const curve = strandGeometryCurve(lock);
+      lock.mesh?.updateMatrixWorld(true);
+      const normals = Array.from({length: 129}, (_, i) => {
+        const normal = transportedStrandFrameAt(lock, curve, i / 128).z.clone();
+        if (lock.mesh) normal.transformDirection(lock.mesh.matrixWorld);
+        return normal.toArray();
+      });
+      return {id: lock.id, mirrorId: partners.get(lock.id), name: lock.name, groupName: SCALP_REGIONS[lock.scalpRegion]?.label, normals, points: Array.from({length: 129}, (_, i) => {
+        const point = curve.getPoint(i / 128).clone();
+        if (lock.mesh) point.applyMatrix4(lock.mesh.matrixWorld);
+        return point.toArray();
+      })};
+    });
+    sources.forEach(source => { source.side = inferHairRigSide(source.points, centerX, headWidth); });
+    const {created,skippedMirror}=buildHairRigProposals({sources,selectedIds:[...rigSourceIds],existingRigs:hairRigs,
+      autoMirror:document.querySelector('#hairRigAutoMirror')?.checked!==false,
+      settings:{mode,name:document.querySelector('#hairRigName').value,centerX,headWidth,
+        boneCount:document.querySelector('#hairRigCount').value}});
+    created.forEach((rig,index)=>{
+      rig.boundStrandIds = hairRigBindingTargets(rig);
+      if(parentBone)assignNewHairRigParent(rig,parentBone,index);
+    });
+    const commit=()=>{
+    try {
+    if(viewportEditMode!=='rigging'||hairPosePreview)return;
+    created.forEach((rig,index)=>{rig.boundStrandIds=hairRigBindingTargets(rig);if(parentBone)assignNewHairRigParent(rig,parentBone,index);});
+    if(parentBone)created.forEach(rig=>rigChainOpen.set(rig.parentBone.rigId,true));
+    pushUndoState(); hairRigs.push(...created); ensureHairRigRoot(); selectHairRig(created[0].id);
+    const bones = created.reduce((sum, rig) => sum + rig.joints.length - 1, 0);
+    const meshes = created.reduce((sum, rig) => sum + rig.boundStrandIds.length, 0);
+    document.querySelector('#hairRigMessage').textContent = `Created ${bones} bones in ${created.length} chain${created.length === 1 ? '' : 's'} and bound ${meshes} strand meshes.${skippedMirror ? ' Mirrored side already has a chain; left unchanged.' : ''} Ready for Pose or Physics Preview.`;
+    } catch(error){document.querySelector('#hairRigMessage').textContent=error.message;}
+    };
+    previewEndToEndHairRig(created,sources,commit,[...rigSourceIds],parentBone);
+  } catch (error) { document.querySelector('#hairRigMessage').textContent = error.message; }
+}
+for(const id of ['hairRigCount','hairRigName','hairRigPathMode','hairRigAutoMirror'])document.getElementById(id).addEventListener('input',updateHairRigCreationPreview);
+window.addEventListener('keydown',event=>{
+  if(event.key==='Escape'&&hairRigCreationPreview){event.preventDefault();event.stopImmediatePropagation();cancelHairRigCreationPreview();}
+},true);
+document.querySelector('#deleteHairRig').addEventListener('click', deleteHairRig);
+document.querySelector('#hairRigBoneName').addEventListener('change', event => renameSelectedHairBone(event.target.value));
+document.querySelector('#hairRigNamingSide').addEventListener('change', event => updateSelectedHairRigNames(event.target.value));
+document.querySelector('#refreshHairRigNames').addEventListener('click', () => updateSelectedHairRigNames(document.querySelector('#hairRigNamingSide').value));
+
+function updateSelectedHairRigNames(side) {
+  const rig = hairRigs.find(item => item.id === selectedHairRigId);
+  if (viewportEditMode !== 'rigging' || hairPosePreview || !rig || !['auto','L','C','R'].includes(side)) return;
+  const bounds = guideModel ? guideHeadBounds(guideModel) : null;
+  // Legacy manual names can be recognized when they do not use our generated suffix.
+  const overrides = rig.boneNameOverrides || rig.joints.slice(0,-1).map((_, i) => Boolean(rig.boneNames?.[i]
+    && !/_[LRC]_(root|\d+)$/.test(rig.boneNames[i])));
+  const occupied = hairRigs.flatMap(item => item === rig
+    ? (item.boneNames || []).filter((_, i) => overrides[i]) : item.boneNames || []);
+  const generated = automaticHairBoneNames(rig.name, rig.joints, {side,
+    centerX: bounds?.getCenter(new THREE.Vector3()).x ?? 0,
+    headWidth: bounds?.getSize(new THREE.Vector3()).x ?? 1, existingNames: occupied});
+  const names = generated.map((name, i) => overrides[i] && rig.boneNames?.[i] ? rig.boneNames[i] : name);
+  if (side === rig.boneSide && JSON.stringify(names) === JSON.stringify(rig.boneNames)) return;
+  pushUndoState(); rig.boneSide = side; rig.boneNames = names; rig.boneNameOverrides = overrides;
+  renderHairRigUI();
+}
+
+function renameSelectedHairBone(value) {
+  const rig = hairRigs.find(item => item.id === selectedHairRigId);
+  if (viewportEditMode !== 'rigging' || hairPosePreview || !rig || selectedHairJoint < 0 || selectedHairJoint >= rig.joints.length - 1) return;
+  const name = String(value).trim().slice(0,80);
+  const names = rig.boneNames || rig.joints.slice(0,-1).map((_, i) => i === 0 ? 'Root' : 'Joint ' + i);
+  if (!name || names[selectedHairJoint] === name) { renderHairRigUI(); return; }
+  if (hairRigs.some(item => item.boneNames?.some((other, i) => other === name && (item !== rig || i !== selectedHairJoint)))) {
+    renderHairRigUI(); document.querySelector('#hairRigMessage').textContent = 'That bone name is already in use.'; return;
+  }
+  pushUndoState(); rig.boneNames = [...names]; rig.boneNames[selectedHairJoint] = name;
+  rig.boneNameOverrides = rig.joints.slice(0,-1).map((_, i) => i === selectedHairJoint || rig.boneNameOverrides?.[i] === true);
+  renderHairRigUI();
+}
+
+document.querySelector('#hairRigRename').addEventListener('change', event => {
+  const rig = hairRigs.find(item => item.id === selectedHairRigId);
+  const name = event.target.value.trim().slice(0, 80);
+  if (rig && name && name !== rig.name) { pushUndoState(); rig.name = name; }
+  renderHairRigUI();
+});
+document.querySelectorAll('[data-rig-selectable]').forEach(button => {
+  button.addEventListener('click', () => {
+    if (viewportEditMode === 'rigging') {
+      finishHairRigTransform(true);
+      const type = button.dataset.rigSelectable;
+      rigSelectable[type] = !rigSelectable[type]; renderHairRigUI();
+    }
+  });
+});
+
+function cycleHairRigSelectable() {
+  finishHairRigTransform(true);
+  const types = ['objects','bones','handles'];
+  const enabled = types.filter(type => rigSelectable[type]);
+  const next = enabled.length === 1 ? types[(types.indexOf(enabled[0]) + 1) % types.length] : 'objects';
+  rigSelectable = Object.fromEntries(types.map(type => [type, type === next]));
+  renderHairRigUI();
+}
+
+function hairRigHeadHitDistance(picker) {
+  const head=hairPosePreview?.physics?.head;
+  const source=head?.source||guideModel;
+  if(!source)return Infinity;
+  for(let object=source;object;object=object.parent)if(!object.visible)return Infinity;
+  const mesh=head?.clone||source;mesh.updateMatrixWorld(true);
+  return picker.intersectObject(mesh,true).find(hit=>{
+    for(let object=hit.object;object&&object!==mesh;object=object.parent)if(!object.visible)return false;
+    return true;
+  })?.distance??Infinity;
+}
+
+function pickHairRigAtPointer(event) {
+  const bounds = renderer.domElement.getBoundingClientRect();
+  const picker = new THREE.Raycaster();
+  picker.setFromCamera(new THREE.Vector2((event.clientX - bounds.left) / bounds.width * 2 - 1,
+    1 - (event.clientY - bounds.top) / bounds.height * 2), camera);
+  const head = hairPosePreview?.physics?.head;
+  if (head && rigSelectable.handles && rigVisible.handles) {
+    head.marker.updateMatrixWorld(true);
+    if (picker.intersectObject(head.marker, false).length) { selectHairPhysicsHead(); return; }
+  }
+  rigVisuals?.updateMatrixWorld(true);
+  const headDistance=hairRigHeadHitDistance(picker);
+  for (const type of ['handles','bones']) {
+    if (!rigSelectable[type] || !rigVisible[type]) continue;
+    const targets = (rigVisuals?.children || []).filter(object => object.userData?.rigPickType === type);
+    const hit = picker.intersectObjects(targets, false).find(hit=>hit.object.userData?.rigHighlighted||hit.distance==null||hit.distance<=headDistance+1e-5)?.object.userData;
+    if (hit) {
+      if (hit.hairRigId === 'hair-root') selectHairRoot();
+      else selectHairRig(hit.hairRigId, hit.hairJoint, event);
+      return;
+    }
+  }
+  if (rigSelectable.objects && rigVisible.objects) {
+    const candidates = locks.filter(lock => !isModelingMesh(lock) && !lock.proceduralParentHidden
+      && !lock.locked && !['surface', 'curve-surface'].includes(lock.geometryType) && lock.points?.length > 1
+      && lock.mesh).filter(lock => {
+        for (let object = lock.mesh; object; object = object.parent) if (!object.visible) return false;
+        return true;
+      });
+    const targets = candidates.map(lock => {
+      const posed = hairPosePreview?.meshes.find(entry => entry.object === lock.mesh)
+        || hairPosePreview?.physics?.head?.followers?.find(entry => entry.object === lock.mesh);
+      const mesh = posed?.clone || lock.mesh;
+      mesh.updateMatrixWorld(true);
+      return {lock, mesh};
+    });
+    const hit = picker.intersectObjects(targets.map(target => target.mesh), false)[0];
+    const lock = targets.find(target => target.mesh === hit?.object)?.lock;
+    if (lock) selectHairRigSource(lock.id, event);
+    else if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      rigSourceIds.clear(); selectHairRig(null);
+    }
+    return;
+  }
+  if ((rigSelectable.bones || rigSelectable.handles) && !event.ctrlKey && !event.metaKey && !event.shiftKey) selectHairRig(null);
+}
+
+let rigPickPointer = null;
+renderer.domElement.addEventListener('pointerdown', event => {
+  rigPickPointer = viewportEditMode === 'rigging' && event.button === 0 && !event.altKey && !pointerHitsTransformGizmo(event)
+    ? {x: event.clientX, y: event.clientY, id: event.pointerId} : null;
+}, true);
+window.addEventListener('pointerup', event => {
+  const start = rigPickPointer; rigPickPointer = null;
+  if (!start || start.id !== event.pointerId || viewportEditMode !== 'rigging' || transformDragging
+    || Math.hypot(event.clientX - start.x, event.clientY - start.y) > 4) return;
+  queueMicrotask(() => { if (viewportEditMode === 'rigging') pickHairRigAtPointer(event); });
+});
+window.addEventListener('pointercancel', () => { rigPickPointer = null; finishHairRigTransform(true); });
+window.addEventListener('blur', () => finishHairRigTransform(true));
+
 function snapshotState() {
   return {
+    hairRigs: normalizeHairRigs(hairRigs),
+    hairRigRoot: normalizeHairRigRoot(hairRigRoot, hairRigs),
     scalpAttachmentVersion: 4,
     visibleStrandRegions: [...visibleStrandRegions],
     visibleStrandLayers: [...visibleStrandLayers],
@@ -26030,7 +27753,7 @@ function downloadPreferencesAndPresets() {
       sideNamingPerspective,
       controlPointDisplaySize,
       viewportBackgroundColor,
-      radialMenus: radialMenusEnabled,
+      wireframeColor,
       multiCameraExperimental: multiCameraExperimentalEnabled,
       floatingToolSettingsExperimental: floatingToolSettingsExperimentalEnabled,
       showDevTestFeatures,
@@ -26105,7 +27828,7 @@ async function loadPreferencesAndPresets(file) {
   if (preferences.viewportBackgroundColor != null) {
     setViewportBackgroundColor(preferences.viewportBackgroundColor);
   }
-  setRadialMenusEnabled(importedBooleanPreference(preferences.radialMenus, radialMenusEnabled));
+  if (preferences.wireframeColor != null) setWireframeColor(preferences.wireframeColor);
   setMultiCameraExperimentalEnabled(importedBooleanPreference(
     preferences.multiCameraExperimental,
     multiCameraExperimentalEnabled
@@ -26178,7 +27901,6 @@ async function loadPreferencesAndPresets(file) {
   );
   preferencesOpenSnapshot = {
     curvy: curvy.enabled,
-    radialMenusEnabled,
     multiCameraExperimentalEnabled,
     floatingToolSettingsExperimentalEnabled,
     showDevTestFeatures,
@@ -26210,6 +27932,7 @@ async function loadPreferencesAndPresets(file) {
     sideNamingPerspective,
     controlPointDisplaySize,
     viewportBackgroundColor,
+    wireframeColor,
     defaultHairShader
   };
   preferencesBackupStatus.textContent = "Preferences and presets loaded.";
@@ -26237,14 +27960,14 @@ function setProjectSaveButtonsDisabled(disabled) {
 const fileExportAvailability = Object.freeze({
   mesh: true,
   curves: true,
-  bones: false,
-  weights: false
+  get bones() { return hairRigs.length > 0; },
+  get weights() { return hairRigs.some(rig=>rig.boundStrandIds?.some(id=>locks.some(lock=>lock.id===id))); }
 });
 const fileExportDescriptions = Object.freeze({
   mesh: "Rendered strand and panel geometry",
   curves: "Editable strand center curves",
-  bones: "Available when the scene contains an authored skeleton",
-  weights: "Available when mesh skin weights have been authored"
+  bones: "Rest-pose skeleton with named bones and chain hierarchy",
+  weights: "Bound strand skin weights · Includes mesh and bones"
 });
 const fileExportLabels = Object.freeze({
   mesh: "Mesh",
@@ -26287,7 +28010,7 @@ function openFileActionDialog({ format, local, selectedIds = null }) {
     const description = row.querySelector("small");
     row.classList.remove("hidden");
     input.disabled = !supported || fileExportAvailability[key] === false;
-    input.checked = supported && fileExportAvailability[key] !== false && (key === "mesh" || key === "curves");
+    input.checked = supported && fileExportAvailability[key] !== false;
     const objPolyline = format === "obj" && key === "curves";
     label.textContent = objPolyline ? "Export Curve as Polyline" : fileExportLabels[key];
     description.textContent = objPolyline
@@ -26304,6 +28027,12 @@ function openFileActionDialog({ format, local, selectedIds = null }) {
     fileActionNameInput.select();
   });
 }
+
+// Skin weights require both geometry and its skeleton. Keep the dialog explicit.
+Object.entries(exportContentInputs).forEach(([key,input])=>input.addEventListener('change',()=>{
+  if(key==='weights'&&input.checked){exportContentInputs.mesh.checked=true;exportContentInputs.bones.checked=true;}
+  if((key==='mesh'||key==='bones')&&!input.checked)exportContentInputs.weights.checked=false;
+}));
 
 async function performFileAction(action, baseName, contents) {
   if (action.format === "project") {
@@ -26344,6 +28073,7 @@ async function performFileAction(action, baseName, contents) {
   }
 
   const suggestedName = fileNameForAction(baseName, action.format);
+  try {
   const content = action.format === "obj"
     ? buildHairObj({ includeMesh: contents.mesh, includeCurves: contents.curves, selectedIds: action.selectedIds })
     : buildHairUsda({
@@ -26353,7 +28083,6 @@ async function performFileAction(action, baseName, contents) {
       includeWeights: contents.weights,
       rootName: baseName
     });
-  try {
     if (action.local) await saveFileThroughLocalDialog(content, suggestedName, action.format);
     else {
       downloadTextFile(
@@ -26365,7 +28094,7 @@ async function performFileAction(action, baseName, contents) {
   } catch (error) {
     if (error?.name !== "AbortError") {
       console.error(error);
-      window.alert(`The ${action.format.toUpperCase()} Save As dialog could not be opened. Please open Anime Hair Studio from its local app URL and try again.`);
+      window.alert(`Could not export ${action.format.toUpperCase()}: ${error.message || error}`);
     }
   }
 }
@@ -26777,6 +28506,7 @@ async function confirmDroppedApplicationFile() {
 }
 
 function pushUndoState() {
+  cancelHairRigCreationPreview();
   inputEditSession.finish();
   if (restoringHistory || viewportEditMode === "brush") return;
   undoHistory.push(snapshotState());
@@ -26786,6 +28516,7 @@ function pushUndoState() {
 }
 
 function undoLastAction() {
+  if (hairPosePreview) { stepHairPoseHistory(false); return; }
   inputEditSession.finish();
   if (proceduralDuplicateDialog.open) closeProceduralDuplicateDialog();
   const state = undoHistory.pop();
@@ -26808,6 +28539,7 @@ function undoLastAction() {
 }
 
 function redoLastAction() {
+  if (hairPosePreview) { stepHairPoseHistory(true); return; }
   inputEditSession.finish();
   if (proceduralDuplicateDialog.open) closeProceduralDuplicateDialog();
   const state = redoHistory.pop();
@@ -26830,8 +28562,15 @@ function redoLastAction() {
 }
 
 function updateHistoryButtons() {
+  if (hairPosePreview) {
+    if (undoButton) undoButton.disabled = hairPosePreview.undo.length === 0;
+    if (redoButton) redoButton.disabled = hairPosePreview.redo.length === 0;
+    syncIosUiReadouts();
+    return;
+  }
   if (undoButton) undoButton.disabled = undoHistory.length === 0;
   if (redoButton) redoButton.disabled = redoHistory.length === 0;
+  syncIosUiReadouts();
 }
 
 function resetTransientInteractionsForStateRestore() {
@@ -27272,6 +29011,7 @@ function restoreState(state, {
 function disposeAllEditableObjects() {
   clearHairShellFaceSelection();
   clearReferenceImages();
+  restoreHairRigs([]);
   clearGreasePencilStrokes();
   clearPolyFillPreview();
   setHoveredStrandWidthEdge(null);
@@ -34131,7 +35871,9 @@ function updateDrawVolumePreview(mesh, previewLock, color) {
     previousMaterial.dispose();
   }
   setAnimeHairBaseColor(mesh.material, color);
-  if (mesh.material.userData.hairShader === STANDARD_ANISOTROPIC_SHADER) {
+  setGemHairFracturing(mesh.material, definition.gemFracturing);
+  setGemHairDepth(mesh.material, definition);
+  if (mesh.material.userData.hairShader === STANDARD_ANISOTROPIC_SHADER || mesh.material.userData.hairShader === GEM_SHADER) {
     mesh.material.roughness = definition.roughness;
   }
   mesh.material.side = strandUsesDoubleSidedMaterial(previewLock)
@@ -38894,6 +40636,7 @@ function labelForPreset(name) {
 }
 
 function rebuildLockGeometry(lock, options = {}) {
+  if (hairPosePreview) exitHairPosePreview();
   const previousGeometry = lock.mesh.geometry;
   lock.mesh.geometry = lock.proceduralBrushGuide && lock.proceduralParentHidden
     ? createDeferredHairGeometry()
@@ -39313,8 +41056,10 @@ function strandMirrorPartnerHighlighted(lock) {
 function syncStrandSelectionOutline(lock) {
   const outline = lock?.selectionOutline;
   if (!outline?.material?.uniforms?.uColor) return;
-  const selected = selectedStrandIds.has(lock.id);
-  const mirrorPartnerHighlighted = strandMirrorPartnerHighlighted(lock);
+  const selected = viewportEditMode === 'rigging'
+    ? rigSourceIds.has(hairRigSourceForLock(lock).id)
+    : selectedStrandIds.has(lock.id);
+  const mirrorPartnerHighlighted = viewportEditMode !== 'rigging' && strandMirrorPartnerHighlighted(lock);
   outline.visible = Boolean(
     !lock.proceduralParentHidden
     && viewportEditMode !== "mesh"
@@ -39338,7 +41083,7 @@ function syncLockedStrandWireVisual(lock) {
   const overlay = lock?.wireOverlay;
   const uniforms = overlay?.material?.uniforms;
   if (!uniforms) return;
-  uniforms.lineColor.value.set(lock.locked ? 0xff4fd8 : 0x66f5ff);
+  syncHairTopologyOverlayColor(overlay, lock.locked);
   uniforms.opacity.value = lock.locked ? 0.25 : 0.72;
   overlay.visible = Boolean(
     !lock.proceduralParentHidden
@@ -39484,6 +41229,17 @@ function refreshStrandSelectionConsumers({
 }
 
 function selectLock(id, options = {}) {
+  if (viewportEditMode === "rigging" && id) {
+    if (Array.isArray(options.selectedIds)) {
+      const wanted = new Set(options.selectedIds.map(sourceId => locks.find(lock => lock.id === sourceId)).filter(Boolean).map(lock => hairRigSourceForLock(lock).id));
+      rigSourceIds = new Set(hairRigSources().filter(lock => wanted.has(lock.id)).map(lock => lock.id));
+      if (options.selectionMode !== 'add' && options.selectionMode !== 'remove') { selectedHairRigId = null; selectedHairJoint = -1; }
+      setHairRigOutlinerTab('strands');
+      return;
+    }
+    selectHairRigSource(id, {ctrlKey: options.selectionMode === 'add', shiftKey: options.selectionMode === 'remove'});
+    return;
+  }
   const requestedLock = locks.find((lock) => lock.id === id);
   const requestedWorkspace = isModelingMesh(requestedLock)
     ? "mesh"
@@ -39818,6 +41574,12 @@ function syncViewportDrawSettings() {
 }
 
 function syncViewportTopControlRows() {
+  if (document.body.classList.contains("ios-ui-experiment")) {
+    viewportTopControls.classList.remove("two-row");
+    viewportTopControls.style.removeProperty("--viewport-top-controls-overlap-shift");
+    syncResponsiveSidebarDock();
+    return;
+  }
   if (!viewportTopControls || !viewportEditModeControl || !viewportPanel) return;
   const groups = [viewportDisplayActions, viewportDrawSettings, viewportModes]
     .filter((group) => group && !group.classList.contains("hidden"));
@@ -39840,6 +41602,11 @@ function syncViewportTopControlRows() {
 let compactSidebarDockActivationWidth = null;
 
 function syncResponsiveSidebarDock() {
+  if (document.body.classList.contains("ios-ui-experiment")) {
+    document.body.classList.remove("compact-sidebar-docked");
+    compactSidebarDockActivationWidth = null;
+    return;
+  }
   const viewportWidth = document.documentElement.clientWidth;
   const docked = document.body.classList.contains("compact-sidebar-docked");
   if (viewportWidth <= 860) {
@@ -40031,14 +41798,11 @@ function syncSelectedObjectPanel(lock) {
   const mesh=Boolean(lock && isModelingMesh(lock));
   selectedStrandPanel.classList.toggle('hidden',!lock);
   selectedStrandPanel.querySelector('.point-status').classList.toggle('hidden',mesh);
-  const label=mesh?'mesh':'strand';
-  const deleteButton=document.querySelector('#deleteLock');
-  deleteButton.title=`Delete selected ${label}`;
-  deleteButton.setAttribute('aria-label',deleteButton.title);
 }
 
 function updateAttributeEditorMode() {
-  const activeLock = getSelectedLock();
+  // Brush profiles belong to the builder, not the scene selection left behind it.
+  const activeLock = viewportEditMode === "brush" ? null : getSelectedLock();
   document.querySelector("#strandEmptyState").classList.toggle("hidden", !(
     viewportEditMode === "strand" && activeTool === "select" && !activeLock && !selectedStrandGroup
     && !headSetupEditing && !scalpBuilderEditing && !scalpPaintEditing && !scalpShapeEditing
@@ -40060,18 +41824,18 @@ function updateAttributeEditorMode() {
     && !headSetupEditing
     && !scalpShapeEditing;
   const editingSelection = editingGroup || editingStrand;
-  const editingCreationShape = creationToolActive() && !editingStrand;
-  const selectedPoly = getSelectedLock()?.geometryType === "poly" ? getSelectedLock() : null;
-  const selectedArcHairSurface = getSelectedLock()?.hairShellPrimitive === "arc" ? getSelectedLock() : null;
-  const selectedBraid = getSelectedLock()?.geometryType === "braid" ? getSelectedLock() : null;
-  const selectedPanel = isPanelGeometry(getSelectedLock()) ? getSelectedLock() : null;
-  const selectedSurface = getSelectedLock()?.geometryType === "surface" ? getSelectedLock() : null;
-  const selectedCompound = getSelectedLock()?.geometryType === "curve-surface"
-    && getSelectedLock()?.curveSurfaceCompoundProfile
-    ? getSelectedLock()
+  const editingCreationShape = viewportEditMode === "brush" || (creationToolActive() && !editingStrand);
+  const selectedPoly = activeLock?.geometryType === "poly" ? activeLock : null;
+  const selectedArcHairSurface = activeLock?.hairShellPrimitive === "arc" ? activeLock : null;
+  const selectedBraid = activeLock?.geometryType === "braid" ? activeLock : null;
+  const selectedPanel = isPanelGeometry(activeLock) ? activeLock : null;
+  const selectedSurface = activeLock?.geometryType === "surface" ? activeLock : null;
+  const selectedCompound = activeLock?.geometryType === "curve-surface"
+    && activeLock?.curveSurfaceCompoundProfile
+    ? activeLock
     : null;
-  const selectedCoil = getSelectedLock()?.geometryType === "strand" && getSelectedLock()?.curlEnabled
-    ? getSelectedLock()
+  const selectedCoil = activeLock?.geometryType === "strand" && activeLock?.curlEnabled
+    ? activeLock
     : null;
   const transformToolActive = ["move", "rotate", "scale"].includes(activeTool);
   const hierarchyToolActive = ["move", "rotate", "scale"].includes(activeTool) && !pullMoveActive();
@@ -40413,6 +42177,12 @@ function showCurveLatticeForGroup(region) {
 }
 
 function selectStrandGroup(region) {
+  if (viewportEditMode === 'rigging') {
+    rigSourceIds = new Set(hairRigSources().filter(lock => (lock.scalpRegion || 'unassigned') === region).map(lock => lock.id));
+    selectedHairRigId = null; selectedHairJoint = -1;
+    setHairRigOutlinerTab('strands');
+    return;
+  }
   if (!strandGroupDefaults[region]) return;
   setOutlinerTab("strands");
   if (selectedStrandGroup === region) {
@@ -42611,14 +44381,8 @@ function syncStandardExtrudeSettingsPanel() {
 
 function autoRemeshSourceStrands() {
   if (!strandWorkspaceActive()) return [];
-  return selectedLocksInOrder().filter((lock) => (
-    lock.geometryType === "strand"
-    && !lock.proceduralParentHidden
-    && !lock.proceduralDrawGuide
-    && !lock.radialDrawGuide
-    && !lock.liveSurfaceGuide
-    && !lock.clumpGuide
-  ));
+  const selected = selectedLocksInOrder();
+  return selected.every(lock => remeshSourceSupported(lock)) ? selected : [];
 }
 
 function normalizeAdaptiveRemeshSettings(settings = {}) {
@@ -42635,11 +44399,11 @@ function normalizeAdaptiveRemeshSettings(settings = {}) {
 function autoRemeshSourceLocks(result) {
   if (result?.modelingMeshType !== "auto-remesh") return [];
   const sourceIds = new Set(result.adaptiveRemeshSourceIds || []);
-  return locks.filter((lock) => sourceIds.has(lock.id) && lock.geometryType === "strand");
+  return locks.filter((lock) => sourceIds.has(lock.id));
 }
 
 function adaptiveRemeshSourceLocks(result) {
-  return result?.adaptiveRemesh ? autoRemeshSourceLocks(result) : [];
+  return result?.adaptiveRemesh ? autoRemeshSourceLocks(result).filter(lock => lock.geometryType === 'strand') : [];
 }
 
 function autoRemeshResultForSource(source) {
@@ -42835,9 +44599,23 @@ function positionAutoRemeshStrandsPanel() {
 function syncAutoRemeshPanelState() {
   const operation = autoRemeshStrandsOperation;
   renderRemeshProgress(operation, autoRemeshProgressElements);
-  autoRemeshMethodInput.disabled = autoRemeshAdaptiveInput.checked;
-  autoRemeshMethodHint.textContent = autoRemeshAdaptiveInput.checked
+  const meshSources = Boolean(operation?.meshSources);
+  autoRemeshAdaptiveInput.disabled = meshSources;
+  if (meshSources) {
+    autoRemeshAdaptiveInput.checked = false;
+    autoRemeshMethodInput.value = 'boolean';
+  }
+  autoRemeshMethodInput.disabled = meshSources || autoRemeshAdaptiveInput.checked;
+  const booleanMethod = effectiveRemeshMethod(autoRemeshMethodInput.value, autoRemeshAdaptiveInput.checked) === 'boolean';
+  for (const input of [autoRemeshAxialLoopsInput, autoRemeshFlowSmoothingInput, autoRemeshTipSeparationInput]) {
+    input.closest('label').hidden = booleanMethod;
+    input.disabled = booleanMethod;
+  }
+  autoRemeshMethodHint.textContent = meshSources
+    ? "Braids and lattices use Boolean only. Open surfaces are cut and stitched without thickness; crossing seams may be non-manifold."
+    : autoRemeshAdaptiveInput.checked
     ? "Adaptive Remesh uses Low Effort for faster updates."
+    : booleanMethod ? "Boolean cuts and stitches source surfaces. Experimental; uses source topology. Runs in the background."
     : autoRemeshMethodInput.value === "legacy"
       ? "Low Effort prioritizes speed. Runs in the background."
       : autoRemeshMethodInput.value === "curve-union-v3"
@@ -42893,10 +44671,7 @@ function syncAutoRemeshSourcePreviewVisibility(operation = autoRemeshStrandsOper
 function cancelAutoRemeshStrands({ restoreSourceVisibility = true } = {}) {
   const operation = autoRemeshStrandsOperation;
   if (!operation) return false;
-  operation.closed = true;
-  operation.requestedGeneration += 1;
-  operation.remeshJob?.cancel();
-  if (operation.debounceTimer != null) window.clearTimeout(operation.debounceTimer);
+  closeRemeshPreview(operation);
   disposeAutoRemeshPreviewMesh(operation);
   autoRemeshStrandsOperation = null;
   renderRemeshProgress(null, autoRemeshProgressElements);
@@ -42911,6 +44686,7 @@ function openAutoRemeshStrandsPanel() {
   if (autoRemeshStrandsOperation) cancelAutoRemeshStrands();
   autoRemeshStrandsOperation = {
     sourceIds: sources.map((lock) => lock.id),
+    meshSources: sources.some(lock => lock.geometryType !== 'strand'),
     running: false,
     pending: true,
     requestedGeneration: 0,
@@ -42924,8 +44700,8 @@ function openAutoRemeshStrandsPanel() {
   autoRemeshTipSeparationInput.value = "0";
   autoRemeshHideOriginalsInput.checked = true;
   autoRemeshAdaptiveInput.checked = false;
-  autoRemeshMethodInput.value = "curve-union-v2";
-  autoRemeshSelectionSummary.textContent = `${sources.length} strands selected`;
+  autoRemeshMethodInput.value = autoRemeshStrandsOperation.meshSources ? "boolean" : "curve-union-v2";
+  autoRemeshSelectionSummary.textContent = `${sources.length} objects selected`;
   autoRemeshStatus.textContent = "Preparing remesh...";
   autoRemeshStrandsPanel.classList.remove("hidden");
   syncAutoRemeshPanelState();
@@ -42969,6 +44745,29 @@ function transformedAutoRemeshSweep(lock) {
   return sweep;
 }
 
+function transformedBooleanRemeshMesh(lock) {
+  const geometry = lock.mesh.geometry.clone();
+  try {
+    lock.mesh.updateWorldMatrix(true, false);
+    hairGroup.updateWorldMatrix(true, false);
+    const matrix = new THREE.Matrix4().copy(hairGroup.matrixWorld).invert().multiply(lock.mesh.matrixWorld);
+    geometry.applyMatrix4(matrix);
+    const mirrored = matrix.determinant() < 0;
+    const index = geometry.getIndex(), count = index ? index.count : geometry.getAttribute('position').count;
+    const faces = [];
+    for (let i = 0; i + 2 < count; i += 3) {
+      const face = index ? [index.getX(i), index.getX(i+1), index.getX(i+2)] : [i,i+1,i+2];
+      if (mirrored) face.reverse();
+      faces.push(face);
+    }
+    const baked = bakeStrandGeometry(geometry, faces);
+    if (mirrored) baked.meshBake.corners.forEach(face => face.forEach(corner => {
+      if (corner.tangent) corner.tangent[3] *= -1;
+    }));
+    return {vertices: baked.points.map(p => [p.x,p.y,p.z]), faces: baked.faces, corners: baked.meshBake.corners};
+  } finally { geometry.dispose(); }
+}
+
 function autoRemeshOutputFaces(mesh) {
   return (mesh.objFaces || mesh.faces || []).flatMap((face) => {
     const indices = [...face].map(Number);
@@ -42995,13 +44794,14 @@ function autoRemeshSettings() {
   });
 }
 
-function createAutoRemeshPreviewMesh(points, faces, source) {
+function createAutoRemeshPreviewMesh(points, faces, source, meshBake = null) {
   const previewLock = {
     geometryType: "hair-shell",
     modelingMeshType: "auto-remesh",
     materialId: source.materialId || defaultMaterialIdForLockData(source),
     points,
-    polyFaces: faces
+    polyFaces: faces,
+    meshBake
   };
   const mesh = new THREE.Mesh(createPolyGeometry(previewLock), createHairMaterial(source));
   const wire = createHairTopologyOverlay(mesh.geometry);
@@ -43016,20 +44816,7 @@ function createAutoRemeshPreviewMesh(points, faces, source) {
 
 function scheduleAutoRemeshPreview({ immediate = false } = {}) {
   const operation = autoRemeshStrandsOperation;
-  if (!operation || operation.closed) return false;
-  operation.requestedGeneration += 1;
-  operation.latestOutput = null;
-  operation.progress = null;
-  operation.remeshJob?.cancel();
-  operation.pending = true;
-  if (operation.debounceTimer != null) window.clearTimeout(operation.debounceTimer);
-  operation.debounceTimer = window.setTimeout(
-    () => {
-      operation.debounceTimer = null;
-      generateAutoRemeshPreview();
-    },
-    immediate ? 0 : 160
-  );
+  if (!scheduleRemeshPreview(operation, generateAutoRemeshPreview, { immediate })) return false;
   autoRemeshStatus.textContent = operation.running ? "Updating after current remesh..." : "Preparing remesh...";
   syncAutoRemeshPanelState();
   return true;
@@ -43040,18 +44827,12 @@ async function generateAutoRemeshPreview() {
   if (!operation || operation.closed) return false;
   if (operation.running) return true;
   const generation = operation.requestedGeneration;
+  const method = effectiveRemeshMethod(autoRemeshMethodInput.value, autoRemeshAdaptiveInput.checked);
   const sources = operation.sourceIds
     .map((id) => locks.find((lock) => lock.id === id))
-    .filter((lock) => lock?.geometryType === "strand" && !lock.proceduralParentHidden);
-  if (sources.length < 2) {
-    autoRemeshStatus.textContent = "At least two source strands are required";
-    operation.pending = false;
-    syncAutoRemeshPanelState();
-    return false;
-  }
-  const sweeps = sources.map(transformedAutoRemeshSweep).filter(Boolean);
-  if (sweeps.length < 2) {
-    autoRemeshStatus.textContent = "The selected strands could not be converted";
+    .filter((lock) => remeshSourceSupported(lock, method));
+  if (sources.length < 2 || sources.length !== operation.sourceIds.length) {
+    autoRemeshStatus.textContent = "All selected sources must be available. Braids and lattices require Boolean.";
     operation.pending = false;
     syncAutoRemeshPanelState();
     return false;
@@ -43061,53 +44842,53 @@ async function generateAutoRemeshPreview() {
   syncAutoRemeshPanelState();
   autoRemeshStatus.textContent = "Preparing remesh...";
   try {
+    const meshes = operation.meshSources ? sources.map(transformedBooleanRemeshMesh) : undefined;
+    const sweeps = meshes ? undefined : sources.map(transformedAutoRemeshSweep).filter(Boolean);
+    if (!meshes && sweeps.length !== sources.length) throw new Error("The selected strands could not be converted");
     const { axialLoops, flowSmoothing, tipSeparation } = autoRemeshSettings();
-    const method = effectiveRemeshMethod(autoRemeshMethodInput.value, autoRemeshAdaptiveInput.checked);
     const onProgress = (progress, message) => {
-        if (autoRemeshStrandsOperation === operation && !operation.closed && generation === operation.requestedGeneration) {
+        if (isCurrentRemeshPreview(operation, autoRemeshStrandsOperation, generation)) {
           if (Number.isFinite(progress)) operation.progress = Math.max(operation.progress ?? 0, Math.min(1, Math.max(0, progress)));
           renderRemeshProgress(operation, autoRemeshProgressElements);
           autoRemeshStatus.textContent = `${message || "Remeshing"} ${Math.round(progress * 100)}%`;
         }
       };
-    operation.remeshJob = startCurveUnionJob({ method, sweeps, axialLoops, flowSmoothing,
+    operation.remeshJob = startCurveUnionJob({ method, sweeps, meshes, axialLoops, flowSmoothing,
       options: { topologyStrategy: "balanced", tipSeparation } }, onProgress);
     const mesh = await operation.remeshJob.promise;
-    if (autoRemeshStrandsOperation !== operation || operation.closed || generation !== operation.requestedGeneration) {
+    if (!isCurrentRemeshPreview(operation, autoRemeshStrandsOperation, generation)) {
       return true;
     }
-    if (!remeshOutputAcceptable(method, mesh)) throw new Error(method === "curve-union-v3"
+    if (!remeshOutputAcceptable(method, mesh)) throw new Error(method === "boolean"
+      ? "Boolean did not pass geometry safety checks. Adjust the source strands or choose another method."
+      : method === "curve-union-v3"
       ? "High Effort did not pass geometry safety checks. Adjust settings or choose another effort."
       : "The remesher returned invalid geometry. Adjust settings or try Low Effort.");
     const points = (mesh.vertices || []).map((point) => new THREE.Vector3(...point));
     const faces = autoRemeshOutputFaces(mesh);
     if (points.length < 3 || !faces.length) throw new Error("The remesher did not produce a usable mesh.");
     disposeAutoRemeshPreviewMesh(operation);
-    operation.previewMesh = createAutoRemeshPreviewMesh(points, faces, sources[0]);
-    operation.latestOutput = { points, faces, method, acceptable: remeshOutputAcceptable(method, mesh) };
+    operation.previewMesh = createAutoRemeshPreviewMesh(points, faces, sources[0], mesh.meshBake || null);
+    operation.latestOutput = { points, faces, method, meshBake: mesh.meshBake || null, acceptable: remeshOutputAcceptable(method, mesh) };
     operation.pending = false;
     syncAutoRemeshSourcePreviewVisibility(operation);
-    autoRemeshStatus.textContent = remeshQualityChecksPassed(method, mesh) ? "Preview ready"
+    autoRemeshStatus.textContent = mesh.surfaceCutStitchSafe
+      ? `Surface preview ready — ${mesh.surfaceCutStitchAudit.junctionEdges} crossing seam edges. Open surfaces remain open.`
+      : remeshQualityChecksPassed(method, mesh) ? "Preview ready"
       : "Preview ready — quality warning: Medium Effort flagged possible topology issues. Inspect the result; you can still Confirm.";
     requestShadowMapRefresh();
     return true;
   } catch (error) {
-    if (autoRemeshStrandsOperation === operation && !operation.closed && generation === operation.requestedGeneration) {
+    if (isCurrentRemeshPreview(operation, autoRemeshStrandsOperation, generation)) {
       console.error("Auto Remesh Strands failed", error);
       autoRemeshStatus.textContent = error?.message || "Remesh failed";
       operation.pending = false;
     }
     return false;
   } finally {
-    operation.running = false;
-    operation.remeshJob = null;
-    if (autoRemeshStrandsOperation === operation && !operation.closed) {
-      if (generation !== operation.requestedGeneration) {
-        scheduleAutoRemeshPreview({ immediate: true });
-      } else {
-        syncAutoRemeshPanelState();
-      }
-    }
+    const next = finishRemeshPreview(operation, autoRemeshStrandsOperation, generation);
+    if (next === 'restart') scheduleAutoRemeshPreview({ immediate: true });
+    else if (next === 'sync') syncAutoRemeshPanelState();
   }
 }
 
@@ -43457,16 +45238,16 @@ function confirmAutoRemeshStrands() {
   }
   const sources = operation.sourceIds
     .map((id) => locks.find((lock) => lock.id === id))
-    .filter((lock) => lock?.geometryType === "strand" && !lock.proceduralParentHidden);
-  if (sources.length < 2) {
-    autoRemeshStatus.textContent = "The original strands are no longer available. Close and reopen Remesh with at least two strands.";
+    .filter((lock) => remeshSourceSupported(lock, operation.latestOutput.method));
+  if (sources.length < 2 || sources.length !== operation.sourceIds.length) {
+    autoRemeshStatus.textContent = "The original objects are no longer available. Close and reopen Remesh with at least two supported objects.";
     return false;
   }
   const first = sources[0];
   const points = operation.latestOutput.points.map((point) => point.clone());
   const faces = operation.latestOutput.faces.map((face) => [...face]);
   const hideOriginals = autoRemeshHideOriginalsInput.checked;
-  const adaptiveRemesh = autoRemeshAdaptiveInput.checked;
+  const adaptiveRemesh = !operation.meshSources && autoRemeshAdaptiveInput.checked;
   pushUndoState();
   const output = addLock("front", {
       geometryType: "hair-shell",
@@ -43477,6 +45258,7 @@ function confirmAutoRemeshStrands() {
       hairLayer: first.hairLayer,
       points,
       polyFaces: faces,
+      meshBake: cloneMeshBake(operation.latestOutput.meshBake),
       hairShellBasePoints: points,
       hairShellBaseFaces: faces,
       hairShellTopologyEdited: true,
@@ -44631,6 +46413,12 @@ function clumpMirrorRadialOptions(guide) {
 }
 
 function contextualRadialOptions(kind) {
+  if (viewportEditMode === "rigging" && kind !== "workspace-submenu") {
+    return [...(hairRigSources().some(lock => rigSourceIds.has(lock.id))
+      ? [{ action: 'create-bone-chain', label: 'Create Bone Chain', enabled: !hairPosePreview },
+        ...(selectedHairChainParent()?[{action:'create-child-bone-chain',label:'Create Child Bone Chain',enabled:!hairPosePreview}]:[])] : []),
+      { action: 'workspace-submenu', label: 'Workspaces', submenu: 'workspace-submenu' }];
+  }
   if (kind === "mesh-edit-mode") {
     return MESH_EDIT_MODES.map((mode) => ({
       action: `edit-mode-${mode}`,
@@ -44700,7 +46488,8 @@ function contextualRadialOptions(kind) {
       { action: "workspace-guide", label: "Guides" },
       { action: "workspace-reference", label: "References" },
       { action: "workspace-brush", label: "Brushes" },
-      { action: "workspace-preset", label: "Presets" }
+      { action: "workspace-preset", label: "Presets" },
+      { action: "workspace-rigging", label: "Rigging" }
     ];
   }
   if (kind === "live-surface-submenu") {
@@ -45005,12 +46794,29 @@ function configureContextualRadialMenu(kind, options, listOptions = []) {
   });
 }
 
+function positionRadialMenu(menu,clientX,clientY) {
+  // Fixed elements inherit CSS zoom. Measure their rendered coordinate system
+  // rather than mixing client pixels with unscaled style coordinates.
+  menu.style.left='0px';menu.style.top='0px';
+  const rect=menu.getBoundingClientRect();
+  const scaleX=rect.width/menu.offsetWidth||1,scaleY=rect.height/menu.offsetHeight||1;
+  menu.style.left=`${(clientX-rect.left-rect.width/2)/scaleX}px`;
+  menu.style.top=`${(clientY-rect.top-rect.height/2)/scaleY}px`;
+}
+
+function radialPointerDelta(menu,event) {
+  const rect=menu.getBoundingClientRect();
+  const scaleX=rect.width/menu.offsetWidth||1,scaleY=rect.height/menu.offsetHeight||1;
+  return {dx:(event.clientX-rect.left-rect.width/2)/scaleX,
+    dy:(event.clientY-rect.top-rect.height/2)/scaleY};
+}
+
 function beginStrandRadialGesture() {
-  if (!radialMenusEnabled || strandRadialGesture || duplicatePlacement) return false;
+  if (strandRadialGesture || duplicatePlacement) return false;
   const lock = getSelectedLock();
   const guide = getSelectedGuide();
   const reference = selectedReferenceImage();
-  if (!lock && selectedStrandGroup) return false;
+  if (viewportEditMode !== 'rigging' && !lock && selectedStrandGroup) return false;
   const selectedClumpGuide = clumpViewportSelection ? clumpGuideForLock(lock) : null;
   const kind = viewportEditMode === "mesh"
     ? "mesh-tools"
@@ -45036,8 +46842,7 @@ function beginStrandRadialGesture() {
   };
   configureContextualRadialMenu(kind, options, listOptions);
   strandRadialMenu.classList.remove("hidden");
-  strandRadialMenu.style.left = `${lastPointer.x}px`;
-  strandRadialMenu.style.top = `${lastPointer.y}px`;
+  positionRadialMenu(strandRadialMenu,lastPointer.x,lastPointer.y);
   strandRadialActions.forEach((button) => button.classList.remove("selected"));
   strandRadialLine.style.width = "0px";
   strandRadialLine.style.opacity = "0";
@@ -45063,7 +46868,6 @@ function beginMeshEditModeRadialGesture(event) {
     || event.shiftKey
     || event.altKey
     || event.metaKey
-    || !radialMenusEnabled
     || strandRadialGesture
     || toolRadialGesture
     || duplicatePlacement
@@ -45098,8 +46902,7 @@ function beginMeshEditModeRadialGesture(event) {
   suppressMeshEditModeContextMenu = true;
   configureContextualRadialMenu(kind, options, listOptions);
   strandRadialMenu.classList.remove("hidden");
-  strandRadialMenu.style.left = `${event.clientX}px`;
-  strandRadialMenu.style.top = `${event.clientY}px`;
+  positionRadialMenu(strandRadialMenu,event.clientX,event.clientY);
   strandRadialActions.forEach((button) => {
     button.classList.toggle(
       "selected",
@@ -45217,8 +47020,7 @@ function openStrandRadialSubmenu(option) {
 function updateStrandRadialGesture(event) {
   const gesture = strandRadialGesture;
   if (!gesture) return;
-  const dx = event.clientX - gesture.centerX;
-  const dy = event.clientY - gesture.centerY;
+  const {dx,dy} = radialPointerDelta(strandRadialMenu,event);
   const distance = Math.hypot(dx, dy);
   const angle = Math.atan2(dy, dx);
   const activeListOptions = gesture.submenu?.listOptions || gesture.listOptions;
@@ -45278,6 +47080,8 @@ function updateStrandRadialGesture(event) {
 }
 
 function performStrandRadialAction(action, lockId) {
+  if (action === 'create-bone-chain') return createHairRigFromSelection();
+  if (action === 'create-child-bone-chain') return createChildHairRigFromSelection();
   if(action==='invert-mesh-faces') return invertSelectedMeshFaces();
   if(action==='split-mesh-parts') return splitEditableMeshIntoParts(getSelectedLock());
   if(action==='mesh-to-strand') return openMeshToStrand();
@@ -45425,6 +47229,7 @@ function setPullMoveEnabled(enabled) {
 }
 
 function toolRadialOptions(tool = activeTool) {
+  if (viewportEditMode === "rigging") return [];
   if (tool === "select") {
     return [
       { action: "select-strand", label: "Strand Select" },
@@ -45469,7 +47274,7 @@ function hideToolRadialMenu() {
 }
 
 function beginToolRadialGesture() {
-  if (!radialMenusEnabled || toolRadialGesture || strandRadialGesture || duplicatePlacement) return false;
+  if (toolRadialGesture || strandRadialGesture || duplicatePlacement) return false;
   if (activeTool === "select" && viewportEditMode === "mesh" && selectToolEditModeMenu) {
     const width = 230;
     const left = THREE.MathUtils.clamp(lastPointer.x - width / 2, 12, Math.max(12, window.innerWidth - width - 12));
@@ -45516,9 +47321,8 @@ function beginToolRadialGesture() {
   toolRadialCenter.textContent = activeTool === "curve-sharpness"
     ? "Curve Sharpness"
     : activeTool[0].toUpperCase() + activeTool.slice(1);
-  toolRadialMenu.style.left = `${lastPointer.x}px`;
-  toolRadialMenu.style.top = `${lastPointer.y}px`;
   toolRadialMenu.classList.remove("hidden");
+  positionRadialMenu(toolRadialMenu,lastPointer.x,lastPointer.y);
   updateInteractionLocks();
   return true;
 }
@@ -45572,19 +47376,6 @@ function cancelToolShortcutPress() {
   finishHotkeyToolSettingsHold();
   cancelToolRadialGesture();
   return true;
-}
-
-function setRadialMenusEnabled(enabled, { persist = true } = {}) {
-  radialMenusEnabled = Boolean(enabled);
-  radialMenusPreferenceInput.checked = radialMenusEnabled;
-  radialShortcutRows.forEach((row) => row.classList.toggle("hidden", !radialMenusEnabled));
-  if (!radialMenusEnabled) {
-    cancelToolShortcutPress();
-    cancelToolRadialGesture();
-    cancelStrandRadialGesture();
-  }
-  if (persist) saveBooleanPreference(RADIAL_MENUS_PREFERENCE_KEY, radialMenusEnabled);
-  updateInteractionLocks();
 }
 
 function setMultiCameraExperimentalEnabled(enabled, { persist = true } = {}) {
@@ -45650,7 +47441,7 @@ function syncFloatingToolSettingsPanel() {
   let visiblePanelCount = 0;
   floatingToolSettingPanels.forEach((panel) => {
     const panelVisible = !panel.classList.contains("hidden");
-    const shouldFloat = panelVisible && (floatingToolSettingsExperimentalEnabled || hotkeyFloatActive);
+    const shouldFloat = panelVisible && ((floatingToolSettingsExperimentalEnabled && !document.body.classList.contains("ios-ui-experiment")) || hotkeyFloatActive);
     if (shouldFloat) {
       visiblePanelCount += 1;
       if (panel.parentElement !== floatingToolSettingsPanel) floatingToolSettingsPanel.append(panel);
@@ -45772,6 +47563,7 @@ function setShowDevTestFeatures(enabled, { persist = true } = {}) {
   showDevTestFeatures = Boolean(enabled);
   showDevTestFeaturesPreferenceInput.checked = showDevTestFeatures;
   devTestFeaturePreferenceRows.forEach((row) => row.classList.toggle("hidden", !showDevTestFeatures));
+  setIosUiExperimentalEnabled(iosUiExperimentalEnabled);
   setProceduralDrawExperimentalEnabled(proceduralDrawExperimentalEnabled, { persist: false });
   setAccessoryStrandExperimentalEnabled(accessoryStrandExperimentalEnabled, { persist: false });
   setCompoundStrandExperimentalEnabled(compoundStrandExperimentalEnabled, { persist: false });
@@ -45912,6 +47704,156 @@ function setCompactToolButtonsEnabled(enabled, { persist = true } = {}) {
   if (!floatingToolSettingsPanel.classList.contains("hidden")) {
     window.requestAnimationFrame(positionFloatingToolSettingsPanel);
   }
+}
+
+function syncIosUiReadouts() {
+  if (!document.body.classList.contains("ios-ui-experiment")) return;
+  const sculpting = viewportEditMode === "strand" && sculptBrushToolActive();
+  const workspace = viewportEditMode === "rigging" ? "rig"
+    : viewportEditMode === "strand" ? (sculpting ? "sculpt" : "style") : null;
+  document.body.classList.toggle("ios-sculpt-active", sculpting);
+  document.querySelectorAll("[data-ios-workspace]").forEach(button => {
+    const selected = button.dataset.iosWorkspace === workspace;
+    button.classList.toggle("active", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  const sheet = window.matchMedia("(max-width: 1000px)").matches;
+  const outlinerFront = document.body.classList.contains("ios-outliner-front");
+  document.querySelector("#iosOutlinerToggle").setAttribute("aria-expanded", String(
+    !document.body.classList.contains("compact-outliner-collapsed") && (!sheet || outlinerFront)));
+  document.querySelector("#iosInspectorToggle").setAttribute("aria-expanded", String(
+    !document.body.classList.contains("compact-attribute-collapsed") && (!sheet || !outlinerFront)));
+  document.querySelector("#iosUndo").disabled = document.querySelector("#undoAction").disabled;
+  document.querySelector("#iosRedo").disabled = document.querySelector("#redoAction").disabled;
+}
+
+function iosGlassRefractionAvailable() {
+  // CSS.supports only checks syntax: WebKit/Gecko may accept URL filters without
+  // rendering displacement in a backdrop. Keep a frosted fallback there.
+  const agent = window.navigator?.userAgent || "";
+  const brands = window.navigator?.userAgentData?.brands || [];
+  const chromium = brands.some(({ brand }) => brand === "Chromium") || /(?:Chrome|Chromium|Edg)\//.test(agent);
+  const ios = /iPad|iPhone|iPod|CriOS|EdgiOS|FxiOS/.test(agent)
+    || (window.navigator?.platform === "MacIntel" && window.navigator?.maxTouchPoints > 1);
+  return chromium && !ios && Boolean(window.CSS?.supports?.("backdrop-filter", 'url("#iosGlassRefraction")'));
+}
+
+function setIosUiExperimentalEnabled(enabled) {
+  iosUiExperimentalEnabled = Boolean(enabled);
+  const active = showDevTestFeatures && iosUiExperimentalEnabled;
+  const changed = document.body.classList.contains("ios-ui-experiment") !== active;
+  document.body.classList.toggle("ios-ui-experiment", active);
+  document.body.classList.toggle("ios-glass-refraction", active && iosGlassRefractionAvailable());
+  document.querySelector("#iosUiExperimentalPreference").checked = iosUiExperimentalEnabled;
+  document.querySelector("#iosWorkspaceBar").hidden = !active;
+  document.querySelector("#iosMoreTools").hidden = !active;
+  document.querySelector("#iosMenuFooter").hidden = !active;
+  if (!active) {
+    document.body.classList.remove("ios-more-tools-open", "ios-sculpt-active", "ios-outliner-front");
+    document.querySelector("#iosMoreTools").setAttribute("aria-expanded", "false");
+  }
+  if (changed) {
+    setIosAppMenuOpen(false);
+    setIosViewOptionsOpen(false);
+    mountIosViewOptions(active);
+    closeAppMenus();
+    hideToolRadialMenu();
+    hideStrandRadialMenu();
+    syncFloatingToolSettingsPanel();
+    window.requestAnimationFrame(() => {
+      syncViewportTopControlRows();
+      resize();
+      syncIosUiReadouts();
+    });
+  }
+  syncIosUiReadouts();
+}
+
+function activateIosWorkspace(workspace) {
+  if (!document.body.classList.contains("ios-ui-experiment")) return;
+  if (!["style", "sculpt", "rig"].includes(workspace)) return;
+  // Route through existing controllers; never invent a second selection/tool state.
+  setViewportEditMode(workspace === "rig" ? "rigging" : "strand");
+  if (workspace === "sculpt") setActiveTool("sculpt-move");
+  syncIosUiReadouts();
+}
+
+function toggleIosPanel(side) {
+  if (!document.body.classList.contains("ios-ui-experiment")) return;
+  const outliner = side === "left";
+  const front = document.body.classList.contains("ios-outliner-front") === outliner;
+  const sheet = window.matchMedia("(max-width: 1000px)").matches;
+  const collapsed = document.body.classList.contains(outliner ? "compact-outliner-collapsed" : "compact-attribute-collapsed");
+  document.body.classList.toggle("ios-outliner-front", outliner);
+  const setCollapsed = outliner ? setOutlinerPanelCollapsed : setAttributeEditorPanelCollapsed;
+  setCollapsed(sheet && !front ? false : !collapsed);
+  syncIosUiReadouts();
+}
+
+function mountIosViewOptions(active) {
+  const sheet = document.querySelector("#iosViewOptions");
+  for (const selector of ["#viewportEditModeControl", ".viewport-top-controls"]) {
+    const control = document.querySelector(selector);
+    if (active) {
+      if (!iosViewOptionHomes.has(control)) {
+        const home = document.createComment("iPad view control home");
+        control.before(home);
+        iosViewOptionHomes.set(control, home);
+      }
+      sheet.append(control);
+    } else if (iosViewOptionHomes.has(control)) {
+      iosViewOptionHomes.get(control).replaceWith(control);
+      iosViewOptionHomes.delete(control);
+    }
+  }
+}
+
+function setIosAppMenuOpen(open, { restoreFocus = false } = {}) {
+  const wasOpen = document.body.classList.contains("ios-app-menu-open");
+  const active = document.body.classList.contains("ios-ui-experiment") && Boolean(open);
+  document.body.classList.toggle("ios-app-menu-open", active);
+  document.querySelector("#iosMenuToggle").setAttribute("aria-expanded", String(active));
+  if (active) setIosViewOptionsOpen(false);
+  else if (wasOpen) closeAppMenus();
+  if (!active && wasOpen && restoreFocus) document.querySelector("#iosMenuToggle").focus();
+}
+
+function setIosViewOptionsOpen(open, { restoreFocus = false } = {}) {
+  const wasOpen = document.body.classList.contains("ios-view-options-open");
+  const active = document.body.classList.contains("ios-ui-experiment") && Boolean(open);
+  document.body.classList.toggle("ios-view-options-open", active);
+  document.querySelector("#iosViewOptions").hidden = !active;
+  document.querySelector("#iosViewOptionsToggle").setAttribute("aria-expanded", String(active));
+  if (active) setIosAppMenuOpen(false);
+  if (!active && wasOpen && restoreFocus) document.querySelector("#iosViewOptionsToggle").focus();
+}
+
+function handleIosChromePointerDown(event) {
+  if (!document.body.classList.contains("ios-ui-experiment") || (headImportGuide && !headImportGuide.paused)) return;
+  if (!event.target.closest(".app-topbar, #iosMenuToggle")) setIosAppMenuOpen(false);
+  if (!event.target.closest("#iosViewOptions, #iosViewOptionsToggle, #guideViewContextMenu")) setIosViewOptionsOpen(false);
+}
+
+function handleIosChromeKeyDown(event) {
+  if (event.key !== "Escape" || !document.body.classList.contains("ios-ui-experiment") || (headImportGuide && !headImportGuide.paused)) return;
+  if (!document.body.classList.contains("ios-app-menu-open") && !document.body.classList.contains("ios-view-options-open")) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  setIosAppMenuOpen(false, { restoreFocus: true });
+  setIosViewOptionsOpen(false, { restoreFocus: true });
+}
+
+function handleIosMenuCommand(event) {
+  if (headImportGuide && !headImportGuide.paused) return;
+  const command = event.target.closest('[role="menuitem"]');
+  if (command && !command.hasAttribute("aria-haspopup")) setIosAppMenuOpen(false);
+}
+
+function syncIosGuideChrome(state) {
+  if (!document.body.classList.contains("ios-ui-experiment") || !state || state.paused) return;
+  setIosAppMenuOpen(state.step < 2);
+  setIosViewOptionsOpen(state.step === 4);
+  if (state.step >= 2) document.body.classList.remove("ios-outliner-front");
 }
 
 function setSidePanelStyle(value, { persist = true } = {}) {
@@ -46155,6 +48097,17 @@ function setViewportBackgroundColor(value, { persist = true } = {}) {
   }
 }
 
+function setWireframeColor(value, { persist = true } = {}) {
+  wireframeColor = normalizeWireframeColor(value);
+  wireframeColorPreferenceInput.value = wireframeColor;
+  wireframeColorPreferenceValue.textContent = wireframeColor.toUpperCase();
+  // Include hidden and transient brush/remesh overlays without rebuilding geometry.
+  scene.traverse((object) => {
+    if (object.userData.hairTopologyOverlay) syncHairTopologyOverlayColor(object);
+  });
+  if (persist) writeStoredPreference(window, WIREFRAME_COLOR_PREFERENCE_KEY, wireframeColor);
+}
+
 function setDefaultHairShader(shader, { persist = true } = {}) {
   defaultHairShader = normalizeHairShader(shader);
   defaultHairShaderPreferenceInput.value = defaultHairShader;
@@ -46190,8 +48143,8 @@ function setPreferenceCategory(category) {
 
 function openPreferencesDialog() {
   preferencesOpenSnapshot = {
+    iosUiExperimentalEnabled,
     curvy: curvy.enabled,
-    radialMenusEnabled,
     multiCameraExperimentalEnabled,
     floatingToolSettingsExperimentalEnabled,
     showDevTestFeatures,
@@ -46221,6 +48174,7 @@ function openPreferencesDialog() {
     sideNamingPerspective,
     controlPointDisplaySize,
     viewportBackgroundColor,
+    wireframeColor,
     defaultHairShader
   };
   defaultHairShaderPreferenceInput.value = defaultHairShader;
@@ -46228,6 +48182,7 @@ function openPreferencesDialog() {
   setUiScale(uiScale, { persist: false });
   setControlPointDisplaySize(controlPointDisplaySize, { persist: false });
   setViewportBackgroundColor(viewportBackgroundColor, { persist: false });
+  setWireframeColor(wireframeColor, { persist: false });
   setGlassPanelColor(glassPanelColor, { persist: false });
   setAccentColor(accentColor, { persist: false });
   preferencesBackupStatus.textContent = "";
@@ -46236,7 +48191,6 @@ function openPreferencesDialog() {
 }
 
 function savePreferencesDialog() {
-  saveBooleanPreference(RADIAL_MENUS_PREFERENCE_KEY, radialMenusEnabled);
   saveBooleanPreference(MULTI_CAMERA_EXPERIMENTAL_PREFERENCE_KEY, multiCameraExperimentalEnabled);
   saveBooleanPreference(
     FLOATING_TOOL_SETTINGS_EXPERIMENTAL_PREFERENCE_KEY,
@@ -46276,13 +48230,13 @@ function savePreferencesDialog() {
   writeStoredPreference(window, CONTROL_POINT_DISPLAY_SIZE_PREFERENCE_KEY, controlPointDisplaySize);
   writeStoredPreference(window, VIEWPORT_BACKGROUND_COLOR_PREFERENCE_KEY, viewportBackgroundColor);
   writeStoredPreference(window, DEFAULT_HAIR_SHADER_PREFERENCE_KEY, defaultHairShader);
+  writeStoredPreference(window, WIREFRAME_COLOR_PREFERENCE_KEY, wireframeColor);
   preferencesOpenSnapshot = null;
   preferencesDialog.close();
 }
 
 function cancelPreferencesDialog() {
   if (preferencesOpenSnapshot) {
-    setRadialMenusEnabled(preferencesOpenSnapshot.radialMenusEnabled, { persist: false });
     setMultiCameraExperimentalEnabled(
       preferencesOpenSnapshot.multiCameraExperimentalEnabled,
       { persist: false }
@@ -46292,6 +48246,7 @@ function cancelPreferencesDialog() {
       { persist: false }
     );
     setShowDevTestFeatures(preferencesOpenSnapshot.showDevTestFeatures, { persist: false });
+    setIosUiExperimentalEnabled(preferencesOpenSnapshot.iosUiExperimentalEnabled);
     setCurvyEnabled(preferencesOpenSnapshot.curvy, { persist: false });
     setProceduralDrawExperimentalEnabled(
       preferencesOpenSnapshot.proceduralDrawExperimentalEnabled,
@@ -46345,6 +48300,7 @@ function cancelPreferencesDialog() {
     setSideNamingPerspective(preferencesOpenSnapshot.sideNamingPerspective, { persist: false });
     setControlPointDisplaySize(preferencesOpenSnapshot.controlPointDisplaySize, { persist: false });
     setViewportBackgroundColor(preferencesOpenSnapshot.viewportBackgroundColor, { persist: false });
+    setWireframeColor(preferencesOpenSnapshot.wireframeColor, { persist: false });
     setDefaultHairShader(preferencesOpenSnapshot.defaultHairShader, { persist: false });
   }
   preferencesOpenSnapshot = null;
@@ -46355,8 +48311,7 @@ function updateToolRadialGesture(event) {
   const gesture = toolRadialGesture;
   if (!gesture) return;
   if (gesture.modePanel) return;
-  const dx = event.clientX - gesture.centerX;
-  const dy = event.clientY - gesture.centerY;
+  const {dx,dy} = radialPointerDelta(toolRadialMenu,event);
   const distance = Math.hypot(dx, dy);
   const angle = Math.atan2(dy, dx);
   const listOption = radialListOptionAtPointer(toolRadialActionList, gesture.listOptions, event);
@@ -47212,7 +49167,14 @@ function handleOutlinerClumpDrop(event, targetLock) {
   renderLockList();
 }
 
+function outlinerSelectedStrandIds() {
+  return viewportEditMode === 'rigging'
+    ? new Set(locks.filter(lock => rigSourceIds.has(hairRigSourceForLock(lock).id)).map(lock => lock.id))
+    : selectedStrandIds;
+}
+
 function createOutlinerStrandButton(lock, options = {}) {
+  const rigSourceSelected = viewportEditMode === 'rigging' && rigSourceIds.has(hairRigSourceForLock(lock).id);
   const shell = document.createElement("div");
   shell.className = `lock-item-shell${options.nested ? " clump-child" : ""}`;
   const visible = strandVisibleForDisplay(lock);
@@ -47229,7 +49191,7 @@ function createOutlinerStrandButton(lock, options = {}) {
   const clumpHighlighted = clumpViewportSelection
     && selectedLock?.clumpId
     && lock.clumpId === selectedLock.clumpId;
-  button.className = `lock-item${selectedStrandIds.has(lock.id) || clumpHighlighted ? " active" : ""}`;
+  button.className = `lock-item${rigSourceSelected || selectedStrandIds.has(lock.id) || clumpHighlighted ? " active" : ""}`;
   button.type = "button";
   button.draggable = options.draggable ?? !lock.clumpGuide;
   const mirrorPartner = mirrorPartnerFor(lock);
@@ -47392,7 +49354,7 @@ function createOutlinerAutoRemesh(result) {
     children.appendChild(createOutlinerStrandButton(source, {
       nested: true,
       badge: "Source",
-      title: "Original strand retained by Auto Remesh"
+      title: "Original object retained by Auto Remesh"
     }));
   });
   container.append(header, children);
@@ -47496,6 +49458,7 @@ function createOutlinerCurveSurface(lock) {
 }
 
 function createOutlinerClump(guide) {
+  const selectedStrandIds = outlinerSelectedStrandIds();
   const clumpLocks = outlinerClumpLocks(guide);
   const isOpen = clumpOpen.get(guide.clumpId) === true;
   const selectedLock = getSelectedLock();
@@ -47683,6 +49646,7 @@ function createSelectionSetsOutlinerFolder() {
 }
 
 function renderLockList() {
+  const selectedStrandIds = outlinerSelectedStrandIds();
   const list = document.querySelector("#lockList");
   list.innerHTML = "";
   STRAND_GROUPS.forEach((group) => {
@@ -48433,14 +50397,71 @@ removeHairMaterialPresetButton.addEventListener("click", openRemoveHairMaterialP
 [
   hairMaterialNameInput,
   hairMaterialShaderInput,
+  hairMaterialGemFracturingInput,
+  ...Object.values(hairMaterialGemDepthControls).map((control) => control.input),
   hairMaterialColorInput,
   hairMaterialGradientEnabledInput,
   hairMaterialGradientStopColorInput,
   hairMaterialGradientStopPositionInput,
   hairMaterialRoughnessInput,
+  hairMaterialAnimeOutlineEnabledInput,
+  hairMaterialAnimeShadowJaggednessEnabledInput,
+  hairMaterialAnimeOutlineWidthInput,
+  hairMaterialAnimeOutlineOverlapEnabledInput,
+  hairMaterialAnimeOutlineOverlapWidthInput,
+  hairMaterialAnimeOutlineDepthGapInput,
   ...Object.values(hairMaterialAnimeColorInputs),
   ...Object.values(hairMaterialAnimeNumericControls).map((control) => control.input)
 ].forEach(bindUndoCapture);
+hairMaterialAnimeShadowJaggednessEnabledInput.addEventListener("change", () => {
+  markHairMaterialPresetCustom();
+  const material = activeHairMaterialDefinition();
+  material.animeShadowJaggednessEnabled = hairMaterialAnimeShadowJaggednessEnabledInput.checked;
+  refreshMaterialUsers(material.id);
+  syncHairMaterialEditor();
+});
+hairMaterialAnimeOutlineEnabledInput.addEventListener("change", () => {
+  markHairMaterialPresetCustom();
+  const material = activeHairMaterialDefinition();
+  material.animeOutlineEnabled = hairMaterialAnimeOutlineEnabledInput.checked;
+  refreshMaterialUsers(material.id);
+  syncHairMaterialEditor();
+});
+hairMaterialAnimeOutlineWidthInput.addEventListener("input", () => {
+  markHairMaterialPresetCustom();
+  const material = activeHairMaterialDefinition();
+  material.animeOutlineWidth = normalizeAnimeAnisotropicSettings({
+    animeOutlineWidth: hairMaterialAnimeOutlineWidthInput.value
+  }).animeOutlineWidth;
+  hairMaterialAnimeOutlineWidthValue.textContent = material.animeOutlineWidth.toFixed(1);
+  refreshMaterialUsers(material.id);
+});
+hairMaterialAnimeOutlineOverlapEnabledInput.addEventListener("change", () => {
+  const material = activeHairMaterialDefinition();
+  markHairMaterialPresetCustom();
+  material.animeOutlineOverlapEnabled = hairMaterialAnimeOutlineOverlapEnabledInput.checked;
+  refreshMaterialUsers(material.id);
+  syncHairMaterialEditor();
+});
+hairMaterialAnimeOutlineDepthGapInput.addEventListener("input", () => {
+  const material = activeHairMaterialDefinition();
+  markHairMaterialPresetCustom();
+  material.animeOutlineDepthGap = normalizeAnimeAnisotropicSettings({
+    animeOutlineDepthGap: hairMaterialAnimeOutlineDepthGapInput.value
+  }).animeOutlineDepthGap;
+  hairMaterialAnimeOutlineDepthGapValue.textContent = material.animeOutlineDepthGap.toFixed(3);
+  refreshMaterialUsers(material.id);
+});
+hairMaterialAnimeOutlineOverlapWidthInput.addEventListener("input", () => {
+  const material = activeHairMaterialDefinition();
+  markHairMaterialPresetCustom();
+  material.animeOutlineOverlapWidth = normalizeAnimeAnisotropicSettings({
+    animeOutlineOverlapWidth: hairMaterialAnimeOutlineOverlapWidthInput.value,
+    animeOutlineWidth: material.animeOutlineWidth
+  }).animeOutlineOverlapWidth;
+  hairMaterialAnimeOutlineOverlapWidthValue.textContent = material.animeOutlineOverlapWidth.toFixed(1);
+  refreshMaterialUsers(material.id);
+});
 hairMaterialNameInput.addEventListener("input", () => {
   markHairMaterialPresetCustom();
   const material = activeHairMaterialDefinition();
@@ -48457,6 +50478,30 @@ hairMaterialShaderInput.addEventListener("change", () => {
   material.shader = normalizeHairShader(hairMaterialShaderInput.value);
   refreshMaterialUsers(material.id);
   syncHairMaterialEditor();
+});
+hairMaterialGemMintButton.addEventListener("click", () => {
+  pushUndoState();
+  markHairMaterialPresetCustom();
+  const material = activeHairMaterialDefinition();
+  applyMintCrystalLook(material);
+  refreshMaterialUsers(material.id);
+  syncHairMaterialEditor();
+});
+hairMaterialGemFracturingInput.addEventListener("input", () => {
+  markHairMaterialPresetCustom();
+  const material = activeHairMaterialDefinition();
+  material.gemFracturing = normalizeGemFracturing(hairMaterialGemFracturingInput.value);
+  hairMaterialGemFracturingValue.textContent = material.gemFracturing.toFixed(2);
+  refreshMaterialUsers(material.id);
+});
+Object.entries(hairMaterialGemDepthControls).forEach(([key, control]) => {
+  control.input.addEventListener("input", () => {
+    markHairMaterialPresetCustom();
+    const material = activeHairMaterialDefinition();
+    material[key] = normalizeGemDepth({ [key]: control.input.value })[key];
+    control.output.textContent = material[key].toFixed(2);
+    refreshMaterialUsers(material.id);
+  });
 });
 hairMaterialColorInput.addEventListener("input", () => {
   markHairMaterialPresetCustom();
@@ -48477,7 +50522,14 @@ editHairMaterialGradientButton.addEventListener("click", openHairMaterialGradien
   button.addEventListener("click", () => hairMaterialGradientDialog.close());
 });
 hairMaterialGradientDialog.addEventListener("click", (event) => {
-  if (event.target === hairMaterialGradientDialog) hairMaterialGradientDialog.close();
+  if (event.target !== hairMaterialGradientDialog) return;
+  // Opening the colour picker on pointer-down can retarget the resulting
+  // click to this common ancestor. Only actual backdrop clicks dismiss it.
+  const bounds = hairMaterialGradientDialog.getBoundingClientRect();
+  if (event.clientX < bounds.left || event.clientX > bounds.right
+    || event.clientY < bounds.top || event.clientY > bounds.bottom) {
+    hairMaterialGradientDialog.close();
+  }
 });
 hairMaterialGradientTrack.addEventListener("pointerdown", (event) => {
   const marker = event.target.closest("[data-gradient-stop-index]");
@@ -48878,12 +50930,13 @@ function beginTaperMeshPointDrag(event) {
   const hit = raycaster.intersectObjects(taperMeshPointsGroup.children, false)[0];
   if (!hit?.object?.userData.taperMeshPoint) return;
   releaseTaperCurveEditorFieldFocus();
-  const lock = locks.find((item) => item.id === hit.object.userData.lockId);
+  const brushProfile = hit.object.userData.brushProfile && viewportEditMode === "brush";
+  const lock = (brushProfile ? brushWorkspacePreviewLocks : locks).find((item) => item.id === hit.object.userData.lockId);
   const curveKey = hit.object.userData.curveKey;
   if (!lock || !["taperCurve", "depthCurve", "twistCurve"].includes(curveKey)) return;
   taperCurveEdit = {
-    type: "strand",
-    id: lock.id,
+    type: brushProfile ? "brush-pattern" : "strand",
+    id: brushProfile ? `pattern-strand-${brushWorkspaceActiveStrandIndex}` : lock.id,
     curveKey,
     side: hit.object.userData.curveSide === "secondary" ? "secondary" : "primary",
     selectedIndex: hit.object.userData.pointIndex,
@@ -48897,7 +50950,9 @@ function beginTaperMeshPointDrag(event) {
 
   const curve = strandGeometryCurve(lock);
   const editingTwist = twistCurveEditing();
-  const frame = taperMeshPointFrame(lock, curve, curvePoint.position, taperCurveEdit.curveKey);
+  const range = brushProfile ? lock.brushProfileRange : null;
+  const position = range ? range[0] + curvePoint.position * (range[1] - range[0]) : curvePoint.position;
+  const frame = taperMeshPointFrame(lock, curve, position, taperCurveEdit.curveKey);
   const cameraDirection = new THREE.Vector3();
   camera.getWorldDirection(cameraDirection).normalize();
   const axis = editingTwist ? "twist" : taperCurveEdit.curveKey === "depthCurve" ? "z" : "x";
@@ -48919,14 +50974,14 @@ function beginTaperMeshPointDrag(event) {
     : null;
   const extentPerValue = editingTwist
     ? twistMeshPointDistancePerDegree(lock, curvePoint.position, displayRange)
-    : taperMeshPointExtentPerValue(lock, curvePoint.position, side, axis);
+    : taperMeshPointExtentPerValue(lock, position, side, axis);
   const screenExtentPerValue = extentPerValue * projectedLength;
   if (screenExtentPerValue < 0.00000001) return;
   const shapeVector = projectedAxis.clone().multiplyScalar(screenExtentPerValue * side);
   const positionVector = frame.y.clone().addScaledVector(
     cameraDirection,
     -frame.y.dot(cameraDirection)
-  ).multiplyScalar(curve.getLength());
+  ).multiplyScalar(curve.getLength() * (range ? range[1] - range[0] : 1));
   const endpoint = pointIndex === 0 || pointIndex === curvePoints.length - 1;
 
   pushUndoState();
@@ -49169,10 +51224,12 @@ newProjectImportHeadButton.addEventListener("click", () => {
 headMeshFileInput.addEventListener("change", async () => {
   const [file] = headMeshFileInput.files;
   if (!file) return;
+  const guideSession = headImportGuide;
   const enterHeadSetup = enterHeadSetupAfterHeadImport;
   enterHeadSetupAfterHeadImport = false;
   const imported = await importHeadMeshFile(file);
   if (imported && enterHeadSetup) setHeadSetupEditing(true);
+  if (guideSession && guideSession === headImportGuide) signalHeadImportGuide(imported ? 'import-success' : 'retry');
   if (newProjectSetupImportTarget === "head") {
     newProjectSetupImportTarget = null;
     if (imported && newProjectSetupDialog.open) {
@@ -49199,10 +51256,12 @@ newProjectImportBodyButton.addEventListener("click", () => {
 fullBodyMeshFileInput.addEventListener("change", async () => {
   const [file] = fullBodyMeshFileInput.files;
   if (!file) return;
+  const guideSession = headImportGuide;
   const enterHeadSetup = enterHeadSetupAfterFullBodyImport;
   enterHeadSetupAfterFullBodyImport = false;
   const imported = await importFullBodyMeshFile(file);
   if (imported && enterHeadSetup) setHeadSetupEditing(true);
+  if (guideSession && guideSession === headImportGuide) signalHeadImportGuide(imported ? 'import-success' : 'retry');
   if (newProjectSetupImportTarget === "body") {
     newProjectSetupImportTarget = null;
     if (imported && newProjectSetupDialog.open) {
@@ -51244,6 +53303,7 @@ brushWorkspacePatternInput.addEventListener("change", () => {
   applyBrushWorkspacePatternType(brushWorkspacePatternInput.value);
 });
 brushWorkspaceActiveStrandInput?.addEventListener("change", () => {
+  finishTaperMeshPointDrag(null);
   brushWorkspaceActiveStrandIndex = Math.round(Number(brushWorkspaceActiveStrandInput.value) || 0);
   syncBrushWorkspaceActiveStrandControls();
   scheduleBrushWorkspacePreview();
@@ -51398,8 +53458,8 @@ appMenuTriggers.forEach((trigger) => {
       openRebuildCurveButton.disabled = !selectedRebuildableCurves().length;
       openAutoRemeshStrandsButton.disabled = !autoRemeshStrandsAvailable();
       openAutoRemeshStrandsButton.title = autoRemeshStrandsAvailable()
-        ? "Create a connected remesh while retaining the selected source strands"
-        : "Select at least two strands to remesh";
+        ? "Remesh the selected objects while retaining the originals"
+        : "Select at least two strands, braids or strand lattices to remesh";
       createCompoundStrandButton.disabled = !showDevTestFeatures || !compoundStrandExperimentalEnabled;
       createCompoundStrandButton.title = "Create a new editable three-curve compound strand";
       createHairShellButton.disabled = !showDevTestFeatures || !hairShellExperimentalEnabled || !guideModel;
@@ -51428,7 +53488,6 @@ turntableSpeedInput.addEventListener("input", () => {
   turntableSpeedValue.textContent = `${turntableSpeed.toFixed(1)}x`;
 });
 setTurntableActive(false);
-setRadialMenusEnabled(radialMenusEnabled, { persist: false });
 setMultiCameraExperimentalEnabled(multiCameraExperimentalEnabled, { persist: false });
 setFloatingToolSettingsExperimentalEnabled(floatingToolSettingsExperimentalEnabled, { persist: false });
 setShowDevTestFeatures(showDevTestFeatures, { persist: false });
@@ -51476,6 +53535,7 @@ setOutlinerFolderColorsEnabled(outlinerFolderColorsEnabled, { persist: false });
 setUiScale(uiScale, { persist: false });
 setControlPointDisplaySize(controlPointDisplaySize, { persist: false });
 setViewportBackgroundColor(viewportBackgroundColor, { persist: false });
+setWireframeColor(wireframeColor, { persist: false });
 setDefaultHairShader(defaultHairShader, { persist: false });
 setAutosaveInterval(autosaveIntervalSeconds, { persist: false });
 setAutosaveEnabled(autosaveEnabled, { persist: false });
@@ -51519,9 +53579,6 @@ recoverProjectButton.addEventListener("click", recoverPendingProject);
 discardRecoveryButton.addEventListener("click", discardPendingRecovery);
 downloadRecoveryButton.addEventListener("click", downloadPendingRecovery);
 recoveryDialog.addEventListener("cancel", (event) => event.preventDefault());
-radialMenusPreferenceInput.addEventListener("change", () => {
-  setRadialMenusEnabled(radialMenusPreferenceInput.checked, { persist: false });
-});
 multiCameraExperimentalPreferenceInput.addEventListener("change", () => {
   setMultiCameraExperimentalEnabled(multiCameraExperimentalPreferenceInput.checked, { persist: false });
 });
@@ -51534,6 +53591,37 @@ floatingToolSettingsExperimentalPreferenceInput.addEventListener("change", () =>
 showDevTestFeaturesPreferenceInput.addEventListener("change", () => {
   setShowDevTestFeatures(showDevTestFeaturesPreferenceInput.checked, { persist: false });
 });
+document.querySelector("#iosUiExperimentalPreference").addEventListener("change", event => {
+  setIosUiExperimentalEnabled(event.target.checked);
+});
+document.querySelector("#iosExit").addEventListener("click", () => setIosUiExperimentalEnabled(false));
+document.querySelector("#iosMenuToggle").addEventListener("click", () => {
+  setIosAppMenuOpen(!document.body.classList.contains("ios-app-menu-open"));
+});
+document.querySelector("#iosViewOptionsToggle").addEventListener("click", () => {
+  setIosViewOptionsOpen(!document.body.classList.contains("ios-view-options-open"));
+});
+document.querySelector("#iosViewOptionsDone").addEventListener("click", () => setIosViewOptionsOpen(false, { restoreFocus: true }));
+document.querySelector("#iosSave").addEventListener("click", () => document.querySelector("#saveCurrentPreset").click());
+document.querySelector("#appMenuBar").addEventListener("click", handleIosMenuCommand);
+document.addEventListener("pointerdown", handleIosChromePointerDown);
+document.addEventListener("keydown", handleIosChromeKeyDown, true);
+document.querySelectorAll("[data-ios-workspace]").forEach(button => {
+  button.addEventListener("click", () => activateIosWorkspace(button.dataset.iosWorkspace));
+});
+document.querySelector("#iosOutlinerToggle").addEventListener("click", () => toggleIosPanel("left"));
+document.querySelector("#iosInspectorToggle").addEventListener("click", () => toggleIosPanel("right"));
+document.querySelector("#iosUndo").addEventListener("click", () => undoButton.click());
+document.querySelector("#iosRedo").addEventListener("click", () => redoButton.click());
+document.querySelector("#iosMoreTools").addEventListener("click", event => {
+  const expanded = document.body.classList.toggle("ios-more-tools-open");
+  event.currentTarget.setAttribute("aria-expanded", String(expanded));
+});
+window.matchMedia("(max-width: 1000px)").addEventListener("change", syncIosUiReadouts);
+// Captions supplement the existing names and shortcut labels.
+for (const [tool, label] of Object.entries({ select: "Select", move: "Move", rotate: "Rotate", scale: "Scale", draw: "Draw" })) {
+  document.querySelector(`.viewport-tools [data-tool="${tool}"]`).dataset.iosLabel = label;
+}
 proceduralDrawExperimentalPreferenceInput.addEventListener("change", () => {
   setProceduralDrawExperimentalEnabled(proceduralDrawExperimentalPreferenceInput.checked, { persist: false });
 });
@@ -51624,6 +53712,12 @@ viewportBackgroundColorPreferenceInput.addEventListener("input", () => {
 });
 resetViewportBackgroundColorButton.addEventListener("click", () => {
   setViewportBackgroundColor(DEFAULT_VIEWPORT_BACKGROUND_COLOR, { persist: false });
+});
+wireframeColorPreferenceInput.addEventListener("input", () => {
+  setWireframeColor(wireframeColorPreferenceInput.value, { persist: false });
+});
+resetWireframeColorButton.addEventListener("click", () => {
+  setWireframeColor(DEFAULT_WIREFRAME_COLOR, { persist: false });
 });
 defaultHairShaderPreferenceInput.addEventListener("change", () => {
   setDefaultHairShader(defaultHairShaderPreferenceInput.value, { persist: false });
@@ -52245,12 +54339,14 @@ headSetupMode.addEventListener("click", () => {
   setScalpSetupMenuOpen(false);
 });
 function toggleCapsuleGuideTool() {
+  if (scalpBuilderEditing) return;
   if (capsuleGuideEditing) setCapsuleGuideEditing(false);
   else setActiveTool("surface-guide");
   setScalpSetupMenuOpen(false);
 }
 
 function activateCapsuleGuideDrawTool() {
+  if (scalpBuilderEditing) return;
   exitSetupEditors();
   setViewportEditMode("guide", { activateSelect: false });
   setActiveTool("draw-capsule-guide");
@@ -52258,6 +54354,7 @@ function activateCapsuleGuideDrawTool() {
 }
 
 function createCurveLatticeGuideFromUi() {
+  if (scalpBuilderEditing) return;
   if (!CURVE_LATTICE_FEATURE_ENABLED) return;
   exitSetupEditors();
   setViewportEditMode("guide");
@@ -52274,6 +54371,7 @@ viewportCurveLatticeGuideTool.addEventListener("click", createCurveLatticeGuideF
 document.querySelector("#fineTuneScalpGuide").addEventListener("click", () => {
   setHeadSetupEditing(false);
   setScalpBuilderEditing(true);
+  if (headImportGuide?.step === 4) renderHeadImportGuide();
 });
 resetScalpBuilderButton.addEventListener("click", resetScalpBuilder);
 confirmScalpBuilderButton.addEventListener("click", confirmScalpBuilderPlane);
@@ -52290,6 +54388,12 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeAppMenus();
 });
 scalpGuideVisibilityToggle.addEventListener("click", showGuideViewContextMenu);
+document.querySelectorAll('[data-rig-visibility]').forEach(input => input.addEventListener('change', () => {
+  if (viewportEditMode !== 'rigging') return;
+  finishHairRigTransform(true);
+  rigVisible[input.dataset.rigVisibility] = input.checked;
+  rebuildHairRigVisuals(); updateGuideViewToggle(); requestShadowMapRefresh();
+}));
 guideViewVisibilityInputs.forEach((input) => {
   input.addEventListener("change", () => {
     const type = input.dataset.guideVisibility;
@@ -52491,6 +54595,28 @@ window.addEventListener("keydown", (event) => {
   if (focusedControlShouldYieldToShortcut(document.activeElement, event)) {
     document.activeElement.blur();
     editingField = false;
+  }
+  if (viewportEditMode === 'rigging' && !editingField) {
+    const modified = event.ctrlKey || event.metaKey;
+    if (!(modified && ['s', 'z', 'y'].includes(event.key.toLowerCase()))) {
+      const tool = shortcutToolForKey(event.key.toLowerCase());
+      if (!modified && ['select', 'move', 'rotate', 'scale'].includes(tool)) setActiveTool(tool);
+      else if (!modified && !event.altKey && event.key === 'Tab') {
+        if (!event.repeat) cycleHairRigSelectable();
+      }
+      else if (!modified && !event.altKey && event.code === 'Space') {
+        if (!event.repeat) beginStrandRadialGesture();
+      }
+      else if (event.key === 'Escape') {
+        if (!cancelStrandRadialGesture()) { finishHairRigTransform(true); selectHairRig(null); }
+      }
+      else if (!modified && ['Delete', 'Backspace'].includes(event.key)) deleteHairRig();
+      else if (!modified && event.key.toLowerCase() === 'o') cycleTransformSpaceEditing();
+      else return;
+      event.preventDefault();
+      return;
+    }
+    finishHairRigTransform(true);
   }
   if (event.key === "Shift" && !event.repeat) {
     transformPrecisionHeld = true;
@@ -52977,10 +55103,6 @@ function deleteLocks(targetLocks) {
   requestShadowMapRefresh();
 }
 
-document.querySelector("#deleteLock").addEventListener("click", () => {
-  deleteSelectedStrands();
-});
-
 function disposeCurveObjects(lock) {
   if (!lock.curveObjects) return;
   lock.curveObjects.line.geometry.dispose();
@@ -53245,6 +55367,8 @@ function endPanelSplitHandleDrag(event) {
 }
 
 orthographicViewToggle.addEventListener("click", () => setOrthographicView(!orthographicView));
+cameraFieldOfViewInput.addEventListener("input", () => setCameraFieldOfView(cameraFieldOfViewInput.value));
+syncCameraFieldOfViewControl();
 multiCameraViewToggle.addEventListener("click", () => setMultiCameraEnabled(!multiCameraEnabled));
 Object.entries(multiCameraPreviewContainers).forEach(([view, container]) => {
   const activateView = (event) => {
@@ -53367,12 +55491,16 @@ function buildHairUsda({
 } = {}) {
   const meshes = [];
   const curves = [];
+  if(includeWeights){includeMesh=true;includeBones=true;}
   locks.forEach((lock) => {
     if (includeMesh) {
-      const geometry = lock.mesh.geometry;
+      lock.mesh.updateWorldMatrix(true,false);
+      const geometry = lock.mesh.geometry.clone();
+      geometry.applyMatrix4(lock.mesh.matrixWorld);
       const position = geometry.getAttribute("position");
       if (position) {
         meshes.push({
+          id: lock.id,
           name: lock.name,
           group: lock.group || "unassigned",
           layer: lock.layer || "mid",
@@ -53381,9 +55509,10 @@ function buildHairUsda({
           uvs: bufferAttributeTuples(geometry.getAttribute("uv"), 2),
           colors: bufferAttributeTuples(geometry.getAttribute("color"), 3),
           tangents: bufferAttributeTuples(geometry.getAttribute("tangent"), 4),
-          faces: hairFaceIndices(geometry)
+          faces: hairFaceIndices(geometry).map(face=>lock.mesh.matrixWorld.determinant()<0?[...face].reverse():face)
         });
       }
+      geometry.dispose();
     }
     const sourceCurves = lock.modelingMeshType === "connected-strand-shell"
       ? lock.connectedShellCurves.map((curve) => curve.points)
@@ -53412,11 +55541,13 @@ function buildHairUsda({
       });
     }
   });
-  void includeBones;
-  void includeWeights;
   return exportAnimeHairUsda({
     meshes,
     curves,
+    rigs: hairRigs,
+    rigRoot: hairRigRoot,
+    includeBones,
+    includeWeights,
     rootName: rootName || "Anime Hair Studio"
   });
 }
@@ -53435,6 +55566,10 @@ function exportHairObjLocally() {
 
 function resize() {
   const { clientWidth, clientHeight } = viewport;
+  // A hidden/minimized viewport must not replace the last valid projection.
+  if (clientWidth <= 0 || clientHeight <= 0) return;
+  const pixelRatio = Math.min((window.devicePixelRatio || 1) * Math.max(1, uiScale / 100), 2);
+  if (renderer.getPixelRatio() !== pixelRatio) renderer.setPixelRatio(pixelRatio);
   updateCameraProjectionForViewport();
   const paneMetrics = multiCameraPaneMetrics();
   const mainWidth = multiCameraEnabled
@@ -53447,6 +55582,8 @@ function resize() {
     const previewRenderers = ensureMultiCameraPreviewRenderers();
     Object.entries(previewRenderers).forEach(([view, previewRenderer]) => {
       const paneWidth = multiCameraViewPaneWidth(view, paneMetrics);
+      const previewPixelRatio = Math.min(window.devicePixelRatio || 1, 1);
+      if (previewRenderer.getPixelRatio() !== previewPixelRatio) previewRenderer.setPixelRatio(previewPixelRatio);
       previewRenderer.setSize(Math.max(1, Math.round(paneWidth)), Math.max(1, Math.round(paneMetrics.height)), false);
     });
     syncMultiCameraPreviewCameras();
@@ -55335,7 +57472,30 @@ function updateControlPointHover(event) {
   setHoveredControlPoint(hoveredTarget);
 }
 
-window.addEventListener("resize", resize);
+// Container layout can settle after the window event (monitor/fullscreen changes).
+// Coalesce notifications and measure the actual viewport on the next frame.
+let viewportResizeFrame = null;
+function queueViewportResize() {
+  if (viewportResizeFrame !== null) return;
+  viewportResizeFrame = requestAnimationFrame(() => {
+    viewportResizeFrame = null;
+    resize();
+  });
+}
+
+function watchViewportPixelRatio() {
+  const query = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+  query.addEventListener('change', () => {
+    queueViewportResize();
+    watchViewportPixelRatio();
+  }, { once: true });
+}
+
+window.addEventListener("resize", queueViewportResize);
+window.visualViewport?.addEventListener('resize', queueViewportResize);
+document.addEventListener('fullscreenchange', queueViewportResize);
+new ResizeObserver(queueViewportResize).observe(viewport);
+watchViewportPixelRatio();
 new ResizeObserver(syncViewportTopControlRows).observe(viewportPanel);
 new ResizeObserver(invalidateUvInspector).observe(uvInspectorWindow);
 updateMeshPrimitiveButton();
@@ -55970,30 +58130,18 @@ function animate(timestamp = performance.now()) {
   }
   const deltaSeconds = Math.min(0.1, Math.max(0, (timestamp - previousAnimationTimestamp) / 1000));
   previousAnimationTimestamp = timestamp;
+  updateHairPhysics(deltaSeconds);
+  syncHairPhysicsHeadHandle();
+  syncHairPhysicsHeadGizmoHelpers();
   fpsFrameCount += 1;
   const fpsElapsed = timestamp - fpsSampleStart;
   if (fpsElapsed >= 500) {
     updateWorkspaceStatus();
     const contextLabel = editingContextLabel({ workspace: viewportEditMode, selectionMode: viewportSelectionMode,
-      meshMode: meshEditMode, transformSpace: transformSpaceEditing, mirror: mirrorXEditing });
+      meshMode: meshEditMode, transformSpace: transformSpaceEditing, mirror: mirrorXEditing, posePreview: Boolean(hairPosePreview) });
     const contextStatus = document.querySelector('#workspaceEditingContext');
     if (contextStatus.textContent !== contextLabel) contextStatus.textContent = contextLabel;
     contextStatus.title = contextLabel;
-    const scope = document.querySelector('#attributeSelectionScope');
-    const scopeLocks = locks.filter((lock) => selectedStrandIds.has(lock.id) || lock.id === selectedId);
-    const singleTarget = viewportEditMode === 'guide' ? guides.find((guide) => guide.id === selectedGuideId)
-      : viewportEditMode === 'reference' ? referenceImages.find((reference) => reference.id === selectedReferenceImageId) : null;
-    const objectWorkspace = viewportEditMode === 'strand' || viewportEditMode === 'mesh';
-    const group = viewportEditMode === 'strand' ? selectedStrandGroup : null;
-    const scopeText = selectionScopeLabel({
-      name: objectWorkspace ? getSelectedLock()?.name : singleTarget?.name,
-      count: group ? locks.filter((lock) => (lock.scalpRegion || 'unassigned') === group).length
-        : objectWorkspace ? scopeLocks.length : Number(Boolean(singleTarget)),
-      group,
-      linked: objectWorkspace ? scopeLocks.filter((lock) => Boolean(mirrorPartnerFor(lock))).length : 0,
-      mirror: objectWorkspace && mirrorXEditing,
-    });
-    if (scope.textContent !== scopeText) scope.textContent = scopeText;
     if (curvy.enabled) curvy.update(activeTool, document.querySelector(`[data-tool="${activeTool}"]`)?.getAttribute('aria-label') || activeTool);
     viewportFps.textContent = `${Math.round((fpsFrameCount * 1000) / fpsElapsed)} FPS`;
     fpsFrameCount = 0;
@@ -56010,6 +58158,7 @@ function animate(timestamp = performance.now()) {
     cameraViewportHelpersDirty = true;
   }
   controls.update();
+  hairBoneLimitEditor.update();
   if (cameraViewportHelpersDirty) {
     updateCameraViewCube();
     updateSculptBrushViabilityPlane();
@@ -56021,7 +58170,7 @@ function animate(timestamp = performance.now()) {
   }
   renderUvInspector(timestamp);
   refreshShadowMapWhenIdle(timestamp);
-  renderer.render(scene, camera);
+  renderSceneWithHairPose(renderer, camera);
   refreshGreasePencilEyedropperFromRenderedFrame();
   if (multiCameraEnabled && multiCameraPreviewRenderers) {
     syncMultiCameraPreviewCameras();
@@ -56055,6 +58204,7 @@ function syncCompactSidebarLayout() {
   toggleAttributeEditorPanelButton.setAttribute("aria-label", toggleAttributeEditorPanelButton.title);
   toggleAttributeEditorPanelButton.querySelector("span").textContent = compactAttributeEditorCollapsed ? "\u2304" : "\u2303";
 
+  syncIosUiReadouts();
   window.requestAnimationFrame(resize);
 }
 
@@ -56071,7 +58221,7 @@ function setAttributeEditorPanelCollapsed(collapsed) {
 }
 
 function setAttributeEditorTab(tabName) {
-  const activeTab = ["main", "display", "materials"].includes(tabName) ? tabName : "main";
+  const activeTab = ["main", "display", "materials", "guide"].includes(tabName) ? tabName : "main";
   toolPanel.dataset.activeAttributeTab = activeTab;
   attributeEditorTabs.forEach((button) => {
     const selected = button.dataset.attributeTab === activeTab;
@@ -56087,7 +58237,7 @@ function setAttributeEditorTab(tabName) {
   updateStrandSelectionHighlight();
 }
 
-attributeEditorTabs.forEach((button, index) => {
+attributeEditorTabs.forEach((button) => {
   button.addEventListener("click", () => {
     setAttributeEditorPanelCollapsed(false);
     setAttributeEditorTab(button.dataset.attributeTab);
@@ -56095,16 +58245,209 @@ attributeEditorTabs.forEach((button, index) => {
   button.addEventListener("keydown", (event) => {
     if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     event.preventDefault();
+    const visibleTabs = attributeEditorTabs.filter(tab => !tab.hidden && tab.getClientRects().length);
+    const index = visibleTabs.indexOf(button);
     let nextIndex = index;
-    if (event.key === "ArrowLeft") nextIndex = (index - 1 + attributeEditorTabs.length) % attributeEditorTabs.length;
-    if (event.key === "ArrowRight") nextIndex = (index + 1) % attributeEditorTabs.length;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + visibleTabs.length) % visibleTabs.length;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % visibleTabs.length;
     if (event.key === "Home") nextIndex = 0;
-    if (event.key === "End") nextIndex = attributeEditorTabs.length - 1;
-    const nextTab = attributeEditorTabs[nextIndex];
+    if (event.key === "End") nextIndex = visibleTabs.length - 1;
+    const nextTab = visibleTabs[nextIndex];
     setAttributeEditorTab(nextTab.dataset.attributeTab);
     nextTab.focus();
   });
 });
+
+const guideSearch = document.querySelector('#appGuideSearch');
+const guideCategory = document.querySelector('#appGuideCategory');
+const guideResults = document.querySelector('#appGuideResults');
+const guideArticle = document.querySelector('#appGuideArticle');
+const guideStatus = document.querySelector('#appGuideStatus');
+for (const category of new Set(guideTopics.map(topic => topic.category))) {
+  const option = document.createElement('option');
+  option.value = category; option.textContent = category; guideCategory.append(option);
+}
+function renderGuideResults() {
+  guideArticle.hidden = true;
+  guideResults.hidden = false;
+  guideResults.replaceChildren();
+  const topics = searchGuideTopics(guideSearch.value, guideCategory.value);
+  guideStatus.textContent = topics.length ? `${topics.length} topics` : 'No matching topics. Try another term or category.';
+  for (const topic of topics) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'app-guide-topic';
+    button.textContent = topic.title;
+    button.addEventListener('click', () => {
+      document.querySelector('#startHeadImportGuide').hidden = topic.id !== 'import-head';
+      guideResults.hidden = true; guideArticle.hidden = false; guideStatus.textContent = '';
+      document.querySelector('#appGuideTitle').textContent = topic.title;
+      document.querySelector('#appGuideDescription').textContent = topic.description;
+      document.querySelector('#appGuideContext').textContent = topic.context;
+      const steps = document.querySelector('#appGuideSteps'); steps.replaceChildren();
+      for (const text of topic.steps) { const item = document.createElement('li'); item.textContent = text; steps.append(item); }
+      document.querySelector('#appGuideBack').focus();
+    });
+    guideResults.append(button);
+  }
+}
+guideSearch.addEventListener('input', renderGuideResults);
+guideCategory.addEventListener('change', renderGuideResults);
+document.querySelector('#appGuideBack').addEventListener('click', () => { renderGuideResults(); guideSearch.focus(); });
+document.querySelector('#openGuide').addEventListener('click', () => {
+  closeAppMenus();
+  toolPanel.classList.add('guide-enabled');
+  document.querySelector('#attributeGuideTab').hidden = false;
+  setAttributeEditorPanelCollapsed(false);
+  setAttributeEditorTab('guide');
+  renderGuideResults(); guideSearch.focus();
+});
+
+function headImportGuideTargets() {
+  if (!headImportGuide) return [];
+  return [...importHeadGuideSteps[headImportGuide.step].targets, '#appGuidePanel', '#attributeGuideTab']
+    .map(selector => document.querySelector(selector)).filter(node => node?.getClientRects().length);
+}
+
+function gateHeadImportGuideInput(event) {
+  if (!headImportGuide || headImportGuide.paused) return;
+  if (event.type === 'click' && headImportGuide.step === 1 && ['headMeshFile', 'fullBodyMeshFile'].includes(event.target.id)) return;
+  if (event.type === 'keydown' && headImportGuide.step === 4 && scalpBuilderEditing
+    && !event.ctrlKey && !event.metaKey && !event.altKey
+    && (event.key.toLowerCase() === 'b' || ['select', 'move'].includes(shortcutToolForKey(event.key)))) return;
+  const player = document.querySelector('#guidedWorkflowPlayer');
+  if (event.type === 'keydown' && event.key === 'Escape') {
+    event.preventDefault(); event.stopImmediatePropagation();
+    headImportGuide.paused = true; renderHeadImportGuide(); return;
+  }
+  const allowed = [player, ...headImportGuideTargets()];
+  if (allowed.some(node => node?.contains(event.target))) {
+    // Typing/activation stays available, but global workspace/tool shortcuts do not.
+    if (event.type !== 'keydown' || ['Tab', 'Enter', ' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Backspace'].includes(event.key)
+      || event.target.matches('input, textarea, select')) return;
+  }
+  event.preventDefault(); event.stopImmediatePropagation();
+  if (event.type === 'focusin') document.querySelector('#pauseGuidedWorkflow').focus();
+}
+
+function signalHeadImportGuide(event) {
+  if (!headImportGuide) return;
+  const next = advanceImportHeadGuide(headImportGuide.step, event);
+  if (next === headImportGuide.step && event !== 'retry') return;
+  headImportGuide.step = next;
+  renderHeadImportGuide();
+}
+
+function layoutHeadImportGuide() {
+  headImportGuideFrame = null;
+  if (!headImportGuide || headImportGuide.paused) return;
+  const overlay = document.querySelector('#guidedWorkflowOverlay');
+  const width = window.innerWidth, height = window.innerHeight;
+  const svg = overlay.querySelector('svg');
+  svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  const boxes = headImportGuideTargets().map(node => {
+    const rect = node.getBoundingClientRect();
+    if (node !== viewport) return rect;
+    // Floating sidebars overlap the canvas. Do not let its spotlight expose
+    // controls outside the current step just because they sit above the canvas.
+    let left = rect.left, right = rect.right;
+    for (const panel of [outlinerPanel, toolPanel]) {
+      if (!panel.getClientRects().length) continue;
+      const bounds = panel.getBoundingClientRect();
+      if (bounds.bottom <= rect.top || bounds.top >= rect.bottom) continue;
+      if (bounds.left <= left && bounds.right > left) left = Math.min(right, bounds.right);
+      else if (bounds.right >= right && bounds.left < right) right = Math.max(left, bounds.left);
+      else if (bounds.left >= left && bounds.right <= right) {
+        if (panel === toolPanel) right = bounds.left;
+        else left = bounds.right;
+      }
+    }
+    return { left, top: rect.top, width: Math.max(0, right-left), height: rect.height };
+  });
+  const layoutKey = JSON.stringify([width, height, ...boxes.map(box => [box.left,box.top,box.width,box.height])]);
+  if (layoutKey === headImportGuideLayoutKey) {
+    headImportGuideFrame = requestAnimationFrame(layoutHeadImportGuide); return;
+  }
+  headImportGuideLayoutKey = layoutKey;
+  // A union mask avoids overlapping holes cancelling one another out.
+  svg.replaceChildren();
+  const ns = 'http://www.w3.org/2000/svg';
+  const mask = document.createElementNS(ns, 'mask'); mask.id = 'headGuideSpotlightMask';
+  mask.setAttribute('maskUnits', 'userSpaceOnUse');
+  mask.setAttribute('x', '0'); mask.setAttribute('y', '0');
+  mask.setAttribute('width', String(width)); mask.setAttribute('height', String(height));
+  function rect(x, y, w, h, fill) { const r=document.createElementNS(ns,'rect'); for(const [key,value] of Object.entries({x,y,width:w,height:h,fill}))r.setAttribute(key,String(value)); return r; }
+  mask.append(rect(0,0,width,height,'white'));
+  for (const box of boxes) mask.append(rect(box.left,box.top,box.width,box.height,'black'));
+  svg.append(mask);
+  const shade = rect(0,0,width,height,'#000b'); shade.setAttribute('mask','url(#headGuideSpotlightMask)'); svg.append(shade);
+  headImportGuideFrame = requestAnimationFrame(layoutHeadImportGuide);
+}
+
+function clearHeadImportGuideHint() {
+  clearTimeout(headImportGuideHintTimer);
+  headImportGuideHintTimer = null;
+  document.querySelector('#proportionalToggle').classList.remove('guide-hint-glow');
+}
+
+function highlightGuideProportionalButton() {
+  clearHeadImportGuideHint();
+  if (!headImportGuide || headImportGuide.paused || headImportGuide.step !== 4) return;
+  const button = document.querySelector('#proportionalToggle');
+  if (!button.getClientRects().length) return;
+  button.classList.add('guide-hint-glow');
+  headImportGuideHintTimer = setTimeout(clearHeadImportGuideHint, 2500);
+}
+
+function renderHeadImportGuide() {
+  clearHeadImportGuideHint();
+  const state = headImportGuide;
+  const player = document.querySelector('#guidedWorkflowPlayer');
+  player.hidden = !state;
+  cancelAnimationFrame(headImportGuideFrame); headImportGuideFrame = null;
+  document.querySelector('#guidedWorkflowOverlay').hidden = !state || state.paused;
+  document.querySelector('#guidedProportionalTip').hidden = !state || state.step !== 4;
+  document.querySelector('#guidedProportionalHint').disabled = !state || state.paused || !scalpBuilderEditing;
+  if (!state) return;
+  const step = importHeadGuideSteps[state.step];
+  document.querySelector('#guidedWorkflowProgress').textContent = `${state.paused ? 'Paused · ' : ''}Step ${state.step + 1} of ${importHeadGuideSteps.length}`;
+  document.querySelector('#guidedWorkflowTitle').textContent = step.title;
+  document.querySelector('#guidedWorkflowText').textContent = step.text;
+  document.querySelector('#backGuidedWorkflow').disabled = state.step === 0 || state.paused;
+  document.querySelector('#pauseGuidedWorkflow').textContent = state.paused ? 'Resume' : 'Pause';
+  document.querySelector('#nextGuidedWorkflow').textContent = state.step === importHeadGuideSteps.length - 1 ? 'Finish' : 'Next';
+  document.querySelector('#nextGuidedWorkflow').disabled = state.paused || state.step < 2;
+  if (state.paused) return;
+  syncIosGuideChrome(state);
+  if (state.step === 1) setAppMenuOpen(document.querySelector('#fileMenuToggle'), document.querySelector('#fileMenu'), true);
+  if (state.step >= 2) {
+    closeAppMenus(); setAttributeEditorPanelCollapsed(false); setAttributeEditorTab('main');
+    const panel = document.querySelector(state.step === 4 && scalpBuilderEditing ? '#scalpBuilderPanel' : '#headPanel');
+    panel.classList.remove('attribute-section-collapsed');
+    panel.querySelector('.attribute-section-toggle')?.setAttribute('aria-expanded', 'true');
+    panel.scrollIntoView({block:'nearest'});
+  }
+  layoutHeadImportGuide();
+}
+
+document.querySelector('#guidedProportionalHint').addEventListener('click', highlightGuideProportionalButton);
+document.querySelector('#startHeadImportGuide').addEventListener('click', () => {
+  headImportGuide = null;
+  setViewportEditMode('strand'); closeAppMenus();
+  headImportGuide = { step: 0, paused: false }; renderHeadImportGuide();
+  document.querySelector('#fileMenuToggle').focus();
+});
+document.querySelector('#exitGuidedWorkflow').addEventListener('click', () => { headImportGuide=null; renderHeadImportGuide(); closeAppMenus(); });
+document.querySelector('#pauseGuidedWorkflow').addEventListener('click', () => { headImportGuide.paused=!headImportGuide.paused; renderHeadImportGuide(); });
+document.querySelector('#backGuidedWorkflow').addEventListener('click', () => {
+  if (headImportGuide.step === 4 && scalpBuilderEditing) setHeadSetupEditing(true);
+  headImportGuide.step=advanceImportHeadGuide(headImportGuide.step,'back'); closeAppMenus(); renderHeadImportGuide();
+});
+document.querySelector('#nextGuidedWorkflow').addEventListener('click', () => {
+  if (headImportGuide.step === importHeadGuideSteps.length - 1) { headImportGuide=null; renderHeadImportGuide(); return; }
+  headImportGuide.step=advanceImportHeadGuide(headImportGuide.step,'next');
+  renderHeadImportGuide();
+});
+for (const input of [headMeshFileInput, fullBodyMeshFileInput]) input.addEventListener('cancel', () => signalHeadImportGuide('retry'));
 
 toggleOutlinerPanelButton.addEventListener("click", () => {
   setOutlinerPanelCollapsed(!compactOutlinerCollapsed);
@@ -56177,6 +58520,7 @@ function bindPanelResize(handle, side) {
 document.querySelectorAll("[data-panel-resize]").forEach(handle => bindPanelResize(handle, handle.dataset.panelResize));
 
 function updateWorkspaceStatus() {
+  syncIosUiReadouts();
   const tool = document.querySelector(`[data-tool="${activeTool}"]`);
   const label = tool?.getAttribute("aria-label") || tool?.title || activeTool;
   const count = viewportEditMode === "guide" ? Number(Boolean(selectedGuideId))

@@ -1,4 +1,5 @@
-export function editingContextLabel({ workspace, selectionMode, meshMode, transformSpace, mirror }) {
+export function editingContextLabel({ workspace, selectionMode, meshMode, transformSpace, mirror, posePreview = false }) {
+  if (workspace === 'rigging') return `Rigging · ${posePreview ? 'Pose preview' : 'Rest bones'} · ${transformSpace === 'object' ? 'Object' : 'World'} axes`;
   const workspaces = { strand: 'Strands', mesh: 'Meshes', guide: 'Guides', reference: 'References' };
   const modes = { vert: 'Vertices', edge: 'Edges', face: 'Faces', curve: 'Curves', object: 'Object' };
   const mode = workspace === 'mesh' ? modes[meshMode] || meshMode
@@ -21,10 +22,4 @@ export function singleTargetMarqueeSelection(current, matches, mode) {
   if (mode === 'remove') return matches.includes(current) ? null : current;
   if (mode === 'add') return current || matches[0] || null;
   return matches[0] || null;
-}
-
-export function selectionScopeLabel({ name, count, group, linked, mirror }) {
-  if (group) return `Region: ${group} · ${count} existing strands · Group settings`;
-  if (!count) return 'No object selected · Tool settings apply to the active tool';
-  return `${count === 1 ? name || 'Selected object' : `${count} selected objects`} · ${linked ? `${linked} with mirror links · ` : ''}${mirror ? 'X mirror editing on' : 'X mirror editing off'}`;
 }

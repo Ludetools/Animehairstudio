@@ -1,8 +1,13 @@
+import { GEM_SHADER } from './gem-hair-shader.js';
+
 export const STANDARD_ANISOTROPIC_SHADER = "standard-anisotropic";
 export const ANIME_ANISOTROPIC_SHADER = "anime-anisotropic";
 export const LAMBERT_SHADER = "lambert";
+export const ANIME_OUTLINE_MAX_WIDTH = 12;
+export const ANIME_OUTLINE_MAX_DEPTH_GAP = 0.5;
 
 export function normalizeHairShader(value) {
+  if (value === GEM_SHADER) return GEM_SHADER;
   if (value === ANIME_ANISOTROPIC_SHADER) return ANIME_ANISOTROPIC_SHADER;
   if (value === LAMBERT_SHADER) return LAMBERT_SHADER;
   return STANDARD_ANISOTROPIC_SHADER;
@@ -14,6 +19,9 @@ export const ANIME_ANISOTROPIC_DEFAULTS = Object.freeze({
   softShadowColor: "#bd917a",
   highlightColor: "#fff8ec",
   rimColor: "#ffd9cf",
+  outlineColor: "#211827",
+  outlineWidth: 1.5,
+  outlineDepthGap: 0.03,
   shadowThreshold: 0.67,
   shadowSoftness: 0.05,
   softShadowStrength: 0.65,
@@ -59,8 +67,21 @@ export function normalizeAnimeAnisotropicSettings(source = {}) {
     animeShadowColor: normalizedHexColor(source.animeShadowColor, ANIME_ANISOTROPIC_DEFAULTS.shadowColor),
     animeSoftShadowColor: normalizedHexColor(source.animeSoftShadowColor, ANIME_ANISOTROPIC_DEFAULTS.softShadowColor),
     animeHighlightColor: normalizedHexColor(source.animeHighlightColor, ANIME_ANISOTROPIC_DEFAULTS.highlightColor),
-    animeRimColor: normalizedHexColor(source.animeRimColor, ANIME_ANISOTROPIC_DEFAULTS.rimColor)
+    animeRimColor: normalizedHexColor(source.animeRimColor, ANIME_ANISOTROPIC_DEFAULTS.rimColor),
+    animeOutlineEnabled: source.animeOutlineEnabled === true,
+    animeShadowJaggednessEnabled: source.animeShadowJaggednessEnabled === true,
+    animeOutlineColor: normalizedHexColor(source.animeOutlineColor, ANIME_ANISOTROPIC_DEFAULTS.outlineColor),
+    animeOutlineWidth: Math.min(ANIME_OUTLINE_MAX_WIDTH, Math.max(0.5,
+      source.animeOutlineWidth != null && Number.isFinite(Number(source.animeOutlineWidth))
+        ? Number(source.animeOutlineWidth) : ANIME_ANISOTROPIC_DEFAULTS.outlineWidth)),
+    animeOutlineOverlapEnabled: source.animeOutlineOverlapEnabled === true,
+    animeOutlineDepthGap: Math.min(ANIME_OUTLINE_MAX_DEPTH_GAP, Math.max(0,
+      source.animeOutlineDepthGap != null && Number.isFinite(Number(source.animeOutlineDepthGap))
+        ? Number(source.animeOutlineDepthGap) : ANIME_ANISOTROPIC_DEFAULTS.outlineDepthGap))
   };
+  normalized.animeOutlineOverlapWidth = Math.min(ANIME_OUTLINE_MAX_WIDTH, Math.max(0.5,
+    source.animeOutlineOverlapWidth != null && Number.isFinite(Number(source.animeOutlineOverlapWidth))
+      ? Number(source.animeOutlineOverlapWidth) : normalized.animeOutlineWidth));
   Object.entries(ANIME_ANISOTROPIC_NUMERIC_FIELDS).forEach(([key, field]) => {
     const value = source[key] == null ? Number.NaN : Number(source[key]);
     const fallback = ANIME_ANISOTROPIC_DEFAULTS[field.defaultKey];
@@ -99,6 +120,7 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
   uniform vec3 uLightDirection;
   uniform float uShadowThreshold;
   uniform float uShadowSoftness;
+  uniform bool uShadowJaggednessEnabled;
   uniform float uSoftShadowStrength;
   uniform float uSoftShadowSpread;
   uniform float uRimStrength;
@@ -151,19 +173,6 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
     vec3 normal = normalize(vWorldNormal) * faceSign;
     vec3 lightDirection = normalize(uLightDirection);
     float halfLambert = dot(normal, lightDirection) * 0.5 + 0.5;
-    float transitionWidth = max(
-      uShadowSoftness,
-      fwidth(halfLambert) * 0.75
-    );
-    float lightBand = smoothstep(
-      uShadowThreshold - transitionWidth,
-      uShadowThreshold + transitionWidth,
-      halfLambert
-    );
-    vec3 multipliedShadowColor = authoredBaseColor * uShadowColor;
-    vec3 multipliedSoftShadowColor = authoredBaseColor * uSoftShadowColor;
-    vec3 color = mix(multipliedShadowColor, authoredBaseColor, lightBand);
-
     vec2 noisePoint = vec2(
       vUv.x * uHighlightNoiseScale,
       vUv.y * uHighlightNoiseScale * 0.18
@@ -175,6 +184,29 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
       smoothNoise,
       uHighlightNoiseBlur
     ) * 2.0 - 1.0;
+    // Use the same noise controls, but hold the lengthwise UV coordinate fixed:
+    // variation across the width forms streaks along the hair, not 2D mottling.
+    vec2 shadowNoisePoint = vec2(vUv.x * uHighlightNoiseScale, 0.0);
+    float shadowNoise = mix(
+      hash21(floor(shadowNoisePoint)),
+      valueNoise(shadowNoisePoint),
+      uHighlightNoiseBlur
+    ) * 2.0 - 1.0;
+    // Offset only the light-reactive cel boundary, not the base colour.
+    float shadowCoordinate = halfLambert + (uShadowJaggednessEnabled ? shadowNoise * uHighlightJaggedness * 0.12 : 0.0);
+    float transitionWidth = max(
+      uShadowSoftness,
+      max(fwidth(shadowCoordinate) * 0.75, 0.0005)
+    );
+    float lightBand = smoothstep(
+      uShadowThreshold - transitionWidth,
+      uShadowThreshold + transitionWidth,
+      shadowCoordinate
+    );
+    vec3 multipliedShadowColor = authoredBaseColor * uShadowColor;
+    vec3 multipliedSoftShadowColor = authoredBaseColor * uSoftShadowColor;
+    vec3 color = mix(multipliedShadowColor, authoredBaseColor, lightBand);
+
     float softShadowRamp = smoothstep(
       uShadowThreshold - uSoftShadowSpread,
       uShadowThreshold + uSoftShadowSpread,
@@ -198,9 +230,6 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
       ) *
       shadowMask *
       uRimStrength;
-    vec3 rimLightenColor = max(color, uRimColor);
-    color = mix(color, rimLightenColor, shadowRim);
-
     vec3 halfDirection = normalize(lightDirection + viewDirection);
     vec3 fallbackTangent = vec3(0.0, 1.0, 0.0) -
       normal * dot(vec3(0.0, 1.0, 0.0), normal);
@@ -282,6 +311,14 @@ export const ANIME_ANISOTROPIC_FRAGMENT_SHADER = `
       lightBand *
       uHighlightStrength *
       highlightEdgeMask;
+    // The shadow band and silhouette rim are two shapes of the same rim light,
+    // not their intersection. Cap their sum before colour blending so overlap
+    // cannot exceed the rim strength, including across soft shadow boundaries.
+    float rimHighlight = highlightMask * shadowMask * uRimStrength * uHighlightStrength;
+    float combinedShadowRim = min(shadowMask * uRimStrength, shadowRim + rimHighlight);
+    vec3 rimLightenColor = max(color, uRimColor);
+    color = mix(color, rimLightenColor, combinedShadowRim);
+
     vec3 highlightLightenColor = max(color, uHighlightColor);
     color = mix(color, highlightLightenColor, litHighlight);
     gl_FragColor = vec4(color * vVertexColor, uOpacity);

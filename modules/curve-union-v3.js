@@ -1,7 +1,7 @@
 // Imported Curve Union 3.0 dependency closure; do not hand-edit.
 // core.js: 97e014827051ece0e1172518498ae59576de2a86c8cff4080c7b54928014db8f
 // curve-union-v2.js: 7ffd6ce4239cbd156ca20add65ac3fb380a2de1434af7fb0da1495c4bdf041ad
-// curve-union-v3.js: 39555df8bc315ac7b6a379d2db4de2fd8ec459eae09b20b23d4289abe668c47e
+// curve-union-v3.js: 2532136e7fabb4d4ac809c9cdd6221c6ac657ef254de073c8e763cd0dfcffeda
 export function createCurveUnionRuntime() {
 const requestAnimationFrame = callback => setTimeout(callback, 0);
 const EPS = 1e-9;
@@ -2346,6 +2346,69 @@ function curveV3Quality(mesh){
   return {...base,energy:energy/Math.max(1,quads),corner:corner/Math.max(1,quads)};
 }
 
+function curveV3FitSectionLoops(mesh,sweeps,strength,audit,grade,evaluate=curveUnionV2GradeMesh,validate=curveUnionV2AuditMesh){
+  const report={attempted:false,accepted:false,movedVertices:0,reason:'No eligible closed quad rings'};
+  const unchanged=()=>({mesh,audit,grade,report});
+  strength=clamp(Number(strength)||0,0,2);
+  if(!strength||!audit.hardValid||audit.foldedQuads||!sweeps.length||sweeps.length>8||mesh.vertices.length>4000)return unchanged();
+  if(sweeps.reduce((sum,s)=>sum+sourceSweepMesh(s).faces.length,0)>40000){report.reason='Section fitting skipped for large source mesh';return unchanged();}
+  report.attempted=true;
+  const p=mesh.vertices,adj=p.map(()=>new Set()),cross=p.map(()=>new Set()),fixed=new Set(),edges=new Map(),key=(a,b)=>a<b?`${a},${b}`:`${b},${a}`;
+  const diagonal=v3.len(v3.sub(mesh.bounds.hi,mesh.bounds.lo)),positionKey=p=>p.map(x=>Math.round(x*1e8)).join(','),pins=new Set((mesh.junctionProtectedPositions||[]).map(positionKey));
+  for(const rail of [...(mesh.v3StructuralSeams?.rails||[]),...(mesh.v3StructuralSeams?.supports||[])])for(const i of rail.vertices)fixed.add(i);
+  for(const i of mesh.v3PairwiseComposition?.baseVertexMap||[])fixed.add(i);
+  for(const f of mesh.objFaces){if(f.length!==4)for(const i of f)fixed.add(i);for(let k=0;k<f.length;k++){const a=f[k],b=f[(k+1)%f.length];adj[a].add(b);adj[b].add(a);const e=key(a,b);edges.set(e,(edges.get(e)||0)+1);}}
+  const segments=sweeps.flatMap(s=>s.frames.slice(1).map((b,i)=>({a:s.frames[i],b})));
+  const tangents=p.map((point,i)=>{
+    if(adj[i].size!==4||pins.has(positionKey(point)))fixed.add(i);
+    let best=Infinity,tangent;
+    for(const {a,b} of segments){const d=v3.sub(b.c,a.c),u=clamp(v3.dot(v3.sub(point,a.c),d)/Math.max(1e-20,v3.dot(d,d))),distance=v3.len(v3.sub(point,v3.mix(a.c,b.c,u)));if(distance<best){best=distance;tangent=v3.norm(v3.mix(a.t,b.t,u));}}
+    return tangent;
+  });
+  for(const [e,count] of edges){const [a,b]=e.split(',').map(Number);if(count!==2){fixed.add(a);fixed.add(b);}const d=v3.norm(v3.sub(p[b],p[a]));if(Math.abs(v3.dot(d,tangents[a]))<.65&&Math.abs(v3.dot(d,tangents[b]))<.65){cross[a].add(b);cross[b].add(a);}}
+  const visited=new Set(),rings=[];
+  for(let i=0;i<p.length;i++)if(!visited.has(i)){
+    const ids=[],stack=[i];while(stack.length){const j=stack.pop();if(visited.has(j))continue;visited.add(j);ids.push(j);stack.push(...cross[j]);}
+    if(ids.length>=6&&ids.every(j=>cross[j].size===2&&!fixed.has(j)))rings.push(ids);
+  }
+  if(!rings.length)return unchanged();
+  const triangles=[];
+  sweeps.forEach((s,owner)=>{const source=sourceSweepMesh(s);for(const f of source.faces){const [a,b,c]=f.map(i=>source.vertices[i]);triangles.push({owner,a,ab:v3.sub(b,a),ac:v3.sub(c,a)});}});
+  const ringOf=new Map();rings.forEach((r,i)=>r.forEach(j=>ringOf.set(j,i)));
+  const data=rings.map(ids=>{
+    const center=v3.scale(ids.reduce((sum,j)=>v3.add(sum,p[j]),[0,0,0]),1/ids.length),tangent=v3.norm(ids.reduce((sum,j)=>v3.add(sum,tangents[j]),[0,0,0]));
+    const radial=ids.map(j=>{const d=v3.sub(p[j],center);return v3.sub(d,v3.scale(tangent,v3.dot(d,tangent)));});
+    let matches=0;const targets=ids.map(()=>0);
+    ids.forEach((j,k)=>{const radius=v3.len(radial[k]);if(radius<diagonal*1e-6)return;const direction=v3.scale(radial[k],1/radius);let best=Infinity;
+      for(const t of triangles){const h=v3.cross(direction,t.ac),det=v3.dot(t.ab,h);if(Math.abs(det)<1e-12)continue;const s=v3.sub(p[j],t.a),u=v3.dot(s,h)/det;if(u<0||u>1)continue;const q=v3.cross(s,t.ab),v=v3.dot(direction,q)/det;if(v<0||u+v>1)continue;const distance=v3.dot(t.ac,q)/det;
+        if(distance< -diagonal*1e-6||distance>Math.min(radius*.3,diagonal*.04)||distance>=best)continue;
+        const hit=v3.add(p[j],v3.scale(direction,distance));if(sweeps.some((s,owner)=>owner!==t.owner&&sweepDistance(hit,s)<-diagonal*1e-5))continue;best=Math.max(0,distance);
+      }
+      if(Number.isFinite(best)){matches++;targets[k]=Math.min(.25,best/radius);}
+    });
+    return {ids,radial,targets:matches>=ids.length*.6?targets:ids.map(()=>0)};
+  });
+  const targets=p.map(()=>0);data.forEach(r=>r.ids.forEach((j,k)=>{targets[j]=r.targets[k];}));let scales=[...targets];
+  // Solve one smooth radial expansion field over the connected ring lattice.
+  // Zero displacement outside the selected rings provides fixed end collars.
+  for(let pass=0;pass<8;pass++)scales=scales.map((s,i)=>ringOf.has(i)?.8*targets[i]+.2*[...adj[i]].reduce((sum,j)=>sum+scales[j],0)/adj[i].size:0);
+  report.rings=rings.length;
+  const source=buildSourceMesh(sweeps),quality=curveV3Quality(mesh);
+  for(const factor of [1,.5,.25,.125]){
+    const points=p.map(v=>[...v]);data.forEach(r=>r.ids.forEach((j,k)=>{points[j]=v3.add(p[j],v3.scale(r.radial[k],scales[j]*Math.min(1,strength)*factor));}));
+    if(mesh.faces.some(f=>{const n=ps=>v3.cross(v3.sub(ps[f[1]],ps[f[0]]),v3.sub(ps[f[2]],ps[f[0]]));return v3.dot(n(p),n(points))<=0;}))continue;
+    if([...edges.keys()].some(e=>{const [a,b]=e.split(',').map(Number),before=v3.len(v3.sub(p[a],p[b])),after=v3.len(v3.sub(points[a],points[b]));return Math.abs(after-before)>before*.25;}))continue;
+    const candidate={...mesh,vertices:points,bounds:{lo:[0,1,2].map(k=>Math.min(...points.map(p=>p[k]))),hi:[0,1,2].map(k=>Math.max(...points.map(p=>p[k])))}};
+    const q=curveV3Quality(candidate);if(q.warped>quality.warped||q.acute>quality.acute||q.thin>quality.thin||q.energy>quality.energy*1.15)continue;
+    const checked=validate(candidate,audit.expectedComponents);if(!checked.hardValid||checked.foldedQuads||checked.penetrations?.truncated)continue;
+    const scored=evaluate(candidate,source,sweeps),a=grade.metrics,b=scored.metrics;
+    if(!(b.normalizedChamfer<a.normalizedChamfer*.995)||scored.scores.shape<grade.scores.shape||b.hardReferenceCoverage<a.hardReferenceCoverage||b.minimumSourceCoverage<a.minimumSourceCoverage||b.minimumAxialCoverage<a.minimumAxialCoverage||b.gapBridgeFaces>a.gapBridgeFaces||b.railKinkP95Degrees>a.railKinkP95Degrees+1||b.railKinkMaxDegrees>a.railKinkMaxDegrees+2||b.densityRegularityScore<a.densityRegularityScore-2||scored.scores.flow<grade.scores.flow-1)continue;
+    Object.assign(report,{accepted:true,reason:'Coherent cross-section fit accepted',appliedStrength:Math.min(1,strength)*factor,movedVertices:points.filter((v,i)=>v3.len(v3.sub(v,p[i]))>diagonal*1e-10).length,beforeChamfer:a.normalizedChamfer,afterChamfer:b.normalizedChamfer});
+    return {mesh:candidate,audit:checked,grade:scored,report};
+  }
+  report.reason='Section-loop candidates did not improve fit within geometry and flow guards';return unchanged();
+}
+
 function curveV3ThinStripCandidates(mesh,sweeps,protectedPositions=new Set(),terminalOnly=false){
   const p=mesh.vertices,faces=mesh.objFaces,edges=new Map(),key=(a,b)=>a<b?`${a},${b}`:`${b},${a}`;
   const diagonal=v3.len(v3.sub(mesh.bounds.hi,mesh.bounds.lo)),fixed=new Set();
@@ -2505,8 +2568,8 @@ function curveV3FairSurface(mesh,sweeps,strength=.35,protectedPositions=new Set(
   const result=rebuildEditedMesh(mesh,vertices,faces,'v3-coupled-quad-fairing');result.v3MovedVertices=moved;return result;
 }
 
-function curveV3PrepareSeamContours(rows,frames,sweeps,supportLimit=4){
-  const tracks=curveV2LateEntryPrepareContours(rows,frames,sweeps,{profileBudget:16,minimumCount:8,preserveFeatures:true});
+function curveV3PrepareSeamContours(rows,frames,sweeps,supportLimit=4,localIntervals=false,profileBudget=16){
+  const tracks=curveV2LateEntryPrepareContours(rows,frames,sweeps,{profileBudget,minimumCount:8,preserveFeatures:true});
   const mod=x=>(x%1+1)%1,report=[];
   const arc=c=>{
     const lengths=c.rawRing.map((p,i)=>v3.len(v3.sub(p,c.rawRing[(i+1)%c.rawRing.length]))),total=lengths.reduce((s,x)=>s+x,0),starts=[];
@@ -2522,16 +2585,33 @@ function curveV3PrepareSeamContours(rows,frames,sweeps,supportLimit=4){
       point:t=>{let d=mod(t+offset)*total,j=0;while(j<lengths.length-1&&d>lengths[j])d-=lengths[j++];return {p:v3.mix(c.rawRing[j],c.rawRing[(j+1)%lengths.length],d/Math.max(1e-20,lengths[j])),owner:c.rawOwners[j]};}
     };
   };
+  const domains=[];
   for(let trackId=0;trackId<tracks.length;trackId++){
-    const track=tracks[trackId],contours=rows.flat().filter(c=>c.phaseTrack===trackId);
+    const track=tracks[trackId],all=rows.flat().filter(c=>c.phaseTrack===trackId);
+    if(!localIntervals){domains.push({trackId,track,contours:all,partial:false});continue;}
+    const signature=c=>{const seams=arc(c).seams.map(s=>s.key).sort();return seams.length===2&&new Set(seams).size===2?seams.join('|'):'';};
+    for(let start=0;start<all.length;){const key=signature(all[start]);let end=start+1;while(end<all.length&&signature(all[end])===key)end++;
+      if(key)domains.push({trackId,track,contours:all.slice(start,end),partial:start>0||end<all.length});start=end;
+    }
+  }
+  for(const {trackId,track,contours,partial} of domains){
     if(contours.length<4)continue;
     const arcs=contours.map(arc),keys=[...new Set(arcs[0].seams.map(s=>s.key))];
     const stable=keys.filter(key=>arcs.every(a=>a.seams.filter(s=>s.key===key).length===1)).map(key=>({key,offsets:arcs.map(a=>a.seams.find(s=>s.key===key).t)})).filter(s=>Math.max(...s.offsets)-Math.min(...s.offsets)<.2);
     // Paired transitions keep the even edge budget needed at a fork. A short,
     // disappearing or ambiguous contact is not permission to invent a seam.
     if(stable.length!==2)continue;
-    const count=contours[0].ring.length+2;
+    // A local seam must not change the ring count midway along a track.
+    // Reuse existing lanes; full-track seams retain their previous +2 policy.
+    const count=contours[0].ring.length+(partial?0:2);
     for(const seam of stable)seam.lane=Math.round(seam.offsets.reduce((a,b)=>a+b,0)/seam.offsets.length*count);
+    if(partial){
+      // A seam near the phase origin can round to lane N (the same vertex as
+      // lane zero). Reserve distinct ordered interior lanes instead of dropping
+      // the contact merely because it is close to an existing profile shoulder.
+      const ordered=[...stable].sort((a,b)=>a.offsets[0]-b.offsets[0]);let previous=0;
+      ordered.forEach((seam,i)=>{seam.lane=Math.max(previous+1,Math.min(count-(ordered.length-i),seam.lane));previous=seam.lane;});
+    }
     if(stable.some(s=>s.lane<1||s.lane>=count)||new Set(stable.map(s=>s.lane)).size!==2)continue;
     // Keep exposed AHS profile shoulders as support rails as well. Allocate
     // these in the same ring budget, without displacing either contact seam.
@@ -2555,24 +2635,33 @@ function curveV3PrepareSeamContours(rows,frames,sweeps,supportLimit=4){
     }
     if(bad)continue;
     contours.forEach((c,i)=>{Object.assign(c,rings[i]);c.center=v3.scale(c.ring.reduce((s,p)=>v3.add(s,p),[0,0,0]),1/count);});
-    report.push({track:trackId,rows:track.rows,previousCount:track.count,count,rails:stable.map(seam=>({sources:seam.key,lane:seam.lane,points:contours.map(c=>[...c.ring[seam.lane]])})),supports:features.map(f=>({source:f.source,profile:f.profile,lane:f.lane,points:contours.map(c=>[...c.ring[f.lane]])}))});
+    report.push({track:trackId,rows:partial?contours.map(c=>c.sectionRow):track.rows,partial,previousCount:track.count,count,rails:stable.map(seam=>({sources:seam.key,lane:seam.lane,points:contours.map(c=>[...c.ring[seam.lane]])})),supports:features.map(f=>({source:f.source,profile:f.profile,lane:f.lane,points:contours.map(c=>[...c.ring[f.lane]])}))});
   }
   return report;
 }
 
-function curveV3SeamCandidate(sweeps,supportLimit=4){
+function curveV3SeamCandidate(sweeps,supportLimit=4,options={}){
   const length=s=>s.frames.slice(1).reduce((sum,f,i)=>sum+v3.len(v3.sub(f.c,s.frames[i].c)),0);
   const group=[...sweeps].sort((a,b)=>length(b)-length(a)||JSON.stringify(a.frames.map(f=>f.c)).localeCompare(JSON.stringify(b.frames.map(f=>f.c))));
   const plan=curveV2LateEntryPlan(group);if(!plan)return null;
-  const source=buildSourceMesh(group),count=Math.max(16,Math.min(32,Math.max(...group.map(s=>s.frames.length))+1)),stations=curveV2LateEntryStations(group,plan,count);
+  const source=buildSourceMesh(group);let count=Math.max(16,Math.min(32,Math.max(...group.map(s=>s.frames.length))+1)),stations=curveV2LateEntryStations(group,plan,count);
+  if(options.localSeamIntervals){
+    // Insert half-step physical cuts only around changing contact domains.
+    // Original stations remain exact; the unaffected body is not densified.
+    const probe=sectionContourMesh(group,count,{sectionStations:stations,contoursOnly:true}),signature=row=>row.map(s=>s.join(',')).sort().join('|'),extra=new Set();
+    for(let r=1;r<probe.sectionContourSources.length;r++)if(signature(probe.sectionContourSources[r])!==signature(probe.sectionContourSources[r-1]))for(let j=Math.max(0,r-2);j<=Math.min(count-2,r+1);j++)extra.add(j);
+    const dense=curveV2LateEntryStations(group,plan,count*2),refined=[];
+    for(let r=0;r<count;r++){refined.push(stations[r]);if(extra.has(r)&&refined.length+(count-r-1)<52)refined.push(dense[r*2+1]);}
+    stations=refined;count=stations.length;
+  }
   let rows,tracks;
   const constructed=repairFoldedQuads(sectionContourMesh(group,count,{
-    sectionStations:stations,sectionPrepareContours:(r,f)=>{tracks=curveV3PrepareSeamContours(r,f,group,supportLimit);},
+    sectionStations:stations,sectionPrepareContours:(r,f)=>{tracks=curveV3PrepareSeamContours(r,f,group,supportLimit,options.localSeamIntervals,options.localSeamIntervals?(options.localProfileBudget||16):16);},
     sectionJunctionBuilder:(p,cs,v)=>curveV2LateEntryJunctionAdaptive(p,cs,v,{preserveRings:true}),sectionFinalizeContours:r=>{rows=r;},
     sectionPreservePhase:true,sectionRingCount:12,preserveContourDeaths:true,geometricEventPartition:true,matchedEventPatch:true
   }));
   if(!tracks.length)return null;
-  const reduced=curveV2ReduceSectionRows(constructed,rows,source),mesh=reduced.mesh;
+  const reduced=options.allowSourceBudgetExceeded===true?{mesh:constructed,report:{withinBudget:true,removedRows:0}}:curveV2ReduceSectionRows(constructed,rows,source),mesh=reduced.mesh;
   if(!reduced.report.withinBudget)return null;
   const positions=new Map(mesh.vertices.map((p,i)=>[p.join(','),i])),edgeKey=(a,b)=>a<b?`${a},${b}`:`${b},${a}`,edges=new Set();
   for(const f of mesh.objFaces)f.forEach((a,j)=>edges.add(edgeKey(a,f[(j+1)%f.length])));
@@ -2585,6 +2674,7 @@ function curveV3SeamCandidate(sweeps,supportLimit=4){
     if(rail.sources)rails.push({sources:rail.sources,vertices});else supports.push({source:rail.source,profile:rail.profile,vertices});
   }
   mesh.v3StructuralSeams={rails,supports,addedLanes:tracks.reduce((n,t)=>n+t.count-t.previousCount,0),constructionRows:count,removedRows:reduced.report.removedRows};
+  if(options.localSeamIntervals)mesh.v3StructuralSeams.localIntervals=tracks.filter(t=>t.partial).map(t=>({rows:t.rows,parameters:t.rows.map(r=>stations[r].parameter),sources:t.rails.map(s=>s.sources),ringCount:t.count}));
   return mesh;
 }
 
@@ -2603,11 +2693,360 @@ function curveV3SeamError(mesh,candidate){
   return error/Math.max(1,samples);
 }
 
+function curveV3SourceGraftFinish(vertices,input){
+  const faces=input.filter(f=>f.length>=3),used=[...new Set(faces.flat())].sort((a,b)=>a-b),map=new Map(used.map((v,i)=>[v,i])),p=used.map(v=>vertices[v]),out=faces.map(f=>f.map(v=>map.get(v)));
+  const edges=new Map(),key=(a,b)=>a<b?a+','+b:b+','+a;
+  out.forEach((f,i)=>f.forEach((a,j)=>{const b=f[(j+1)%f.length],k=key(a,b);if(!edges.has(k))edges.set(k,[]);edges.get(k).push({i,sign:a<b?1:-1});}));
+  if([...edges.values()].some(e=>e.length!==2))return null;
+  const signs=new Map([[0,1]]),queue=[0];
+  while(queue.length){const i=queue.pop();for(let j=0;j<out[i].length;j++){const es=edges.get(key(out[i][j],out[i][(j+1)%out[i].length])),me=es.find(e=>e.i===i),other=es.find(e=>e.i!==i);if(!other)return null;const sign=-signs.get(i)*me.sign*other.sign;if(signs.has(other.i)){if(signs.get(other.i)!==sign)return null;}else{signs.set(other.i,sign);queue.push(other.i);}}}
+  if(signs.size!==out.length)return null;
+  for(const [i,sign]of signs)if(sign<0)out[i]=[out[i][0],...out[i].slice(1).reverse()];
+  const lo=[Infinity,Infinity,Infinity],hi=[-Infinity,-Infinity,-Infinity];for(const v of p)for(let k=0;k<3;k++){lo[k]=Math.min(lo[k],v[k]);hi[k]=Math.max(hi[k],v[k]);}
+  return {vertices:p,objFaces:out,faces:out.flatMap(f=>f.slice(1,-1).map((_,i)=>[f[0],f[i+1],f[i+2]])),bounds:{lo,hi},graftVertexMap:map};
+}
+
+function curveV3SourceGraftPlan(sweeps){
+  if(sweeps.length!==2)return null;
+  const length=s=>s.frames.slice(1).reduce((v,f,i)=>v+v3.len(v3.sub(f.c,s.frames[i].c)),0),s=[...sweeps].sort((a,b)=>length(b)-length(a));
+  const [host,branch]=s,entry=curveV2LateEntryPlan(s);if(!entry||branch.profile.length!==4)return null;
+  const rings=s.map(x=>x.frames.map(f=>x.profile.map(p=>sweepPoint(f,p)))),dist=(a,b)=>v3.len(v3.sub(a,b));
+  let best={error:Infinity};
+  for(let r=2;r<host.frames.length-4;r++)for(let e=0;e<host.profile.length;e++){
+    const a=rings[0][r][e],b=rings[0][r][(e+1)%host.profile.length],d=v3.sub(b,a),t=clamp(v3.dot(v3.sub(branch.frames[0].c,a),d)/v3.dot(d,d)),error=dist(v3.mix(a,b,t),branch.frames[0].c);
+    if(error<best.error)best={r,e,error};
+  }
+  // Pick the exposed profile edge, not whichever edge has matching indices.
+  const scores=branch.profile.map((_,i)=>{const j=(i+1)%4;return [0,1].reduce((v,r)=>v+sweepDistance(v3.mix(rings[1][r][i],rings[1][r][j],.5),host),0);});
+  const outer=scores.indexOf(Math.max(...scores));let corners=[outer,(outer+1)%4,(outer+2)%4,(outer+3)%4];
+  const a=rings[0][best.r][best.e],b=rings[0][best.r][(best.e+1)%host.profile.length];
+  if(dist(a,rings[1][0][corners[0]])+dist(b,rings[1][0][corners[1]])>dist(a,rings[1][0][corners[1]])+dist(b,rings[1][0][corners[0]]))corners=[corners[1],corners[0],corners[3],corners[2]];
+  return {s,rings,...best,corners};
+}
+
+function curveV3SourceGraftCandidate(plan,{start,end,cut,inset=0,rootBlend=1,backShift=0}){
+  const {s:[host,branch],rings,e,corners}=plan,n=host.profile.length,vertices=[],faces=[],add=p=>{vertices.push([...p]);return vertices.length-1;};
+  if(start<2||end<=start||end>=host.frames.length-2||cut<1||cut>=branch.frames.length-2)return null;
+  // Only source-declared coincident tip corners are welded, never nearby sheets.
+  const create=(rs)=>rs.map((ring,r)=>{const same=r===rs.length-1&&ring.every(p=>v3.len(v3.sub(p,ring[0]))<1e-9);if(same){const id=add(ring[0]);return ring.map(()=>id);}return ring.map(add);});
+  const h=create(rings[0]),b=create(rings[1]),put=f=>{const g=f.filter((v,i)=>v!==f[(i+f.length-1)%f.length]);if(new Set(g).size>=3)faces.push(g);};
+  for(let r=0;r<h.length-1;r++)for(let j=0;j<n;j++)if(!(j===e&&r>=start-1&&r<end))put([h[r][j],h[r+1][j],h[r+1][(j+1)%n],h[r][(j+1)%n]]);
+  for(let r=cut;r<b.length-1;r++)for(let j=0;j<4;j++)put([b[r][j],b[r+1][j],b[r+1][(j+1)%4],b[r][(j+1)%4]]);
+  const cap=(ids,c)=>{
+    if(new Set(ids).size<3)return;
+    const normal=v3.norm(ids.reduce((v,a,i)=>v3.add(v,v3.cross(v3.sub(vertices[a],c),v3.sub(vertices[ids[(i+1)%ids.length]],c))),[0,0,0])),turn=(a,b,d)=>v3.dot(v3.cross(v3.sub(vertices[b],vertices[a]),v3.sub(vertices[d],vertices[b])),normal),left=[...ids],tri=[];
+    while(left.length>3){let found=false;for(let j=0;j<left.length;j++){
+      const a=left[(j+left.length-1)%left.length],b=left[j],d=left[(j+1)%left.length];
+      if(turn(a,b,d)<=1e-14)continue;
+      if(left.some(v=>v!==a&&v!==b&&v!==d&&turn(a,b,v)>=-1e-14&&turn(b,d,v)>=-1e-14&&turn(d,a,v)>=-1e-14))continue;
+      tri.push([a,b,d]);left.splice(j,1);found=true;break;
+    }if(!found)throw Error('Unsupported source cap');}
+    tri.push(left);
+    // Pair only triangles in this cap, never change the source body faces.
+    for(let i=0;i<tri.length;i++)for(let j=i+1;j<tri.length;j++)if(tri[i]?.length===3&&tri[j]?.length===3){
+      const f=tri[i],g=tri[j],edges=f.map((a,k)=>[a,f[(k+1)%3]]).concat(g.map((a,k)=>[a,g[(k+1)%3]])).filter(([a,b],_,all)=>!all.some(([c,d])=>a===d&&b===c));
+      if(edges.length!==4)continue;const q=[edges[0][0]];while(q.length<4){const next=edges.find(e=>e[0]===q.at(-1));if(!next)break;q.push(next[1]);}
+      if(new Set(q).size!==4||quadDiagonalQuality(vertices,q,false)<.8||q.some((a,k)=>turn(a,q[(k+1)%4],q[(k+2)%4])<1e-14))continue;
+      tri[i]=q;tri[j]=null;
+    }
+    tri.filter(Boolean).forEach(put);
+  };
+  cap(h[0],host.frames[0].c);cap(h.at(-1),host.frames.at(-1).c);cap(b.at(-1),branch.frames.at(-1).c);
+  const raised=[];
+  for(let r=start;r<=end;r++){
+    const a=rings[0][r][e],z=rings[0][r][(e+1)%n],center=v3.mix(a,z,.5),normal=host.frames[r].t,row=[];
+    for(let side=0;side<2;side++){
+      let hit;
+      for(let j=0;j<cut;j++){
+        const p=rings[1][j][corners[side]],q=rings[1][j+1][corners[side]],dp=v3.dot(v3.sub(p,center),normal),dq=v3.dot(v3.sub(q,center),normal);
+        if(dp*dq<=0&&Math.abs(dp-dq)>1e-10){hit=v3.mix(p,q,dp/(dp-dq));break;}
+      }
+      if(!hit)return null;
+      if(inset)hit=v3.mix(hit,v3.mix(a,z,side?1-inset:inset),.2);
+      if(r===start)hit=v3.mix(side?z:a,hit,rootBlend);
+      row.push(add(hit));
+    }
+    raised.push(row);
+  }
+  const A=r=>h[r][e],B=r=>h[r][(e+1)%n];
+  put([A(start-1),raised[0][0],raised[0][1],B(start-1)]);
+  put([A(start-1),A(start),raised[0][0]]);put([B(start-1),raised[0][1],B(start)]);
+  for(let r=start;r<end;r++){const p=raised[r-start],q=raised[r-start+1];put([A(r),A(r+1),q[0],p[0]]);put([p[0],q[0],q[1],p[1]]);put([p[1],q[1],B(r+1),B(r)]);}
+  const mouth=[raised.at(-1)[0],raised.at(-1)[1],B(end),A(end)],tail=corners.map(j=>b[cut][j]);
+  if(backShift){for(let j=2;j<4;j++)vertices[tail[j]]=v3.mix(vertices[tail[j]],rings[1][cut+1][corners[j]],backShift);}
+  for(let j=0;j<4;j++)put([mouth[j],tail[j],tail[(j+1)%4],mouth[(j+1)%4]]);
+  const mesh=curveV3SourceGraftFinish(vertices,faces);if(mesh){
+    const remap=mesh.graftVertexMap;delete mesh.graftVertexMap;
+    const rails=[0,1].map(side=>({sources:side?'0>1':'1>0',vertices:[side?B(start-1):A(start-1),...raised.map(r=>r[side]),tail[side],b[cut+1][corners[side]]].map(i=>remap.get(i))}));
+    mesh.v3StructuralSeams={rails,supports:[],addedLanes:2,constructionRows:end-start+1,removedRows:cut};
+    mesh.sourceGraft={start,end,cut,edge:e,corners,inset,rootBlend,backShift,unchangedHostVertices:h.flat().every(i=>remap.has(i)&&mesh.vertices[remap.get(i)].every((v,k)=>v===vertices[i][k]))};
+    // Source-grid identity, not proximity, is the welding key when independent
+    // patches share a host. Collapsed source tips intentionally share one ID.
+    const hostIds={};h.forEach((row,r)=>row.forEach((v,j)=>{const id=remap.get(v);if(hostIds[id]===undefined)hostIds[id]=r*n+j;}));
+    mesh.sourceGraftPatch={hostIds,hostRows:h.length,hostColumns:n};
+  }return mesh;
+}
+
+function curveV3SourceGraftSearch(sweeps,source,options,auditMesh,scoreMesh){
+  if(options.sourceGraft===false)return null;
+  const plan=curveV3SourceGraftPlan(sweeps);if(!plan)return null;
+  let best;const attempts=[];
+  for(let start=plan.r;start<=plan.r+1;start++)for(let end=start+1;end<=start+2;end++)for(let cut=1;cut<=3;cut++)for(const rootBlend of [1,.6])for(const backShift of [0,.25,.5]){
+    const config={start,end,cut,rootBlend,backShift};
+    try{
+      const m=curveV3SourceGraftCandidate(plan,config);if(!m)continue;
+      const attempt={...config,polygons:m.objFaces.length};attempts.push(attempt);
+      if(options.allowSourceBudgetExceeded!==true&&(m.objFaces.length>source.objFaces.length||m.faces.length>source.faces.length||m.vertices.length>source.vertices.length)){attempt.reason='Source budget exceeded';continue;}
+      const audit=auditMesh(m,1);if(!audit.hardValid||audit.foldedQuads){attempt.reason='Geometry audit failed';continue;}
+      const grade=scoreMesh(m,source,sweeps);if(!qualityGeometryAcceptable(grade)||grade.metrics.gapBridgeFaces||grade.scores.shape<98){attempt.reason='Source fit or contact check failed';continue;}
+      const adjacency=m.vertices.map(()=>new Set());for(const f of m.objFaces)f.forEach((a,i)=>{const b=f[(i+1)%f.length];adjacency[a].add(b);adjacency[b].add(a);});
+      if(m.v3StructuralSeams.rails.some(r=>r.vertices.length<4||new Set(r.vertices).size!==r.vertices.length||r.vertices.some((v,i)=>!m.vertices[v]||(i&&!adjacency[v].has(r.vertices[i-1]))))){attempt.reason='Disconnected seam';continue;}
+      // A source-authored four-sided tip is a pole too. The generic critic's
+      // valence-based tip detector misses it and pairs its converging rails.
+      // Keep the critic unchanged; use exact AHS endpoint identity for this
+      // constructor's flow guard (same 75/45 degree limits as section fallback).
+      const eps=v3.len(v3.sub(source.bounds.hi,source.bounds.lo))*1e-9,tipSet=new Set(m.vertices.flatMap((p,i)=>sweeps.some(s=>v3.len(v3.sub(p,s.frames.at(-1).c))<=eps)?[i]:[])),flow=artistMeshDiagnostics(m,sweeps,adjacency,tipSet);
+      if(flow.railKinkMaxDegrees>75||flow.railKinkP95Degrees>45){attempt.reason='Rail flow limits exceeded';continue;}
+      attempt.accepted=true;
+      const utility=grade.scores.shape+grade.scores.flow-grade.metrics.normalizedChamfer*100;
+      if(!best||utility>best.utility)best={mesh:m,audit,grade,utility,flow:{maxDegrees:flow.railKinkMaxDegrees,p95Degrees:flow.railKinkP95Degrees,sourceTipPoles:tipSet.size}};
+    }catch(error){attempts.push({...config,reason:error.message});}
+  }
+  if(!best)return null;
+  const {mesh,audit,grade,flow}=best;mesh.sourceGraft.flow=flow;
+  return {seed:{...mesh,expectedComponents:1,curveUnionV2Audit:audit,curveUnionV2Grade:grade,curveUnionV2Groups:[{strands:2,layout:'3.0 source-preserving side graft',lateEntry:{rows:mesh.sourceGraft.end-mesh.sourceGraft.start+1,physicalContactsOnly:true,sourceGraft:true},preserved:false}]},report:{attempted:true,accepted:true,sourceGraft:true,reason:'Source-preserving side graft after base rejection',attempts}};
+}
+
+function curveV3LateEntryFallback(sweeps,source,options,auditMesh,scoreMesh){
+  const report={attempted:false,accepted:false,attempts:[]};let best;
+  if(options.structuralSeams===false||sweeps.length<2||sweeps.length>6)return {report};
+  const gap=clamp(options.mergeDistance===undefined?.03:Number(options.mergeDistance)||0,0,.75);
+  if(qualityOverlapGroups(sweeps,gap).groups.length!==1)return {report};
+  const length=s=>s.frames.slice(1).reduce((n,f,i)=>n+v3.len(v3.sub(f.c,s.frames[i].c)),0);
+  const sorted=[...sweeps].sort((a,b)=>length(b)-length(a)||JSON.stringify(a.frames.map(f=>f.c)).localeCompare(JSON.stringify(b.frames.map(f=>f.c))));
+  if(!curveV2LateEntryPlan(sorted))return {report};
+  const graft=curveV3SourceGraftSearch(sweeps,source,options,auditMesh,scoreMesh);if(graft)return graft;
+  report.attempted=true;
+  // Preserve the previous result whenever its full-track constructor works.
+  // Otherwise try the smallest local-contact ring budget first; only escalate
+  // density when every candidate at that budget fails the same safety gates.
+  for(const layout of [{},...[8,10,12,16].map(localProfileBudget=>({localSeamIntervals:true,localProfileBudget}))]){
+  for(const supportLimit of [4,2,1,0]){
+    const attempt={supportLimit,...layout,accepted:false};report.attempts.push(attempt);
+    try{
+      const mesh=curveV3SeamCandidate(sweeps,supportLimit,{...options,...layout});
+      if(!mesh){attempt.reason='No supported connected seam candidate';continue;}
+      attempt.polygons=mesh.objFaces.length;
+      if(options.allowSourceBudgetExceeded!==true&&(mesh.objFaces.length>source.objFaces.length||mesh.faces.length>source.faces.length||mesh.vertices.length>source.vertices.length)){attempt.reason='Source budget exceeded';continue;}
+      if(!mesh.vertices.every(p=>p.length===3&&p.every(Number.isFinite))){attempt.reason='Non-finite geometry';continue;}
+      const key=(a,b)=>a<b?a+','+b:b+','+a,edges=new Set(mesh.objFaces.flatMap(f=>f.map((a,i)=>key(a,f[(i+1)%f.length])))),seams=mesh.v3StructuralSeams;
+      if(!seams?.rails?.length||[...seams.rails,...(seams.supports||[])].some(r=>r.vertices.length<4||new Set(r.vertices).size!==r.vertices.length||r.vertices.some((v,i)=>!mesh.vertices[v]||(i&&!edges.has(key(r.vertices[i-1],v)))))){attempt.reason='Disconnected or missing structural rails';continue;}
+      const audit=auditMesh(mesh,1);
+      if(!audit.hardValid||audit.foldedQuads){attempt.reason='Geometry audit failed';continue;}
+      const grade=scoreMesh(mesh,source,sweeps),metrics=grade.metrics;
+      if(!qualityGeometryAcceptable(grade)||metrics.gapBridgeFaces||mesh.contactBoundaryViolations){attempt.reason='Source fit or contact check failed';continue;}
+      // No valid baseline exists here, so use absolute flow limits rather
+      // than weakening the ordinary baseline-relative acceptance checks.
+      if(metrics.railKinkMaxDegrees>75||metrics.railKinkP95Degrees>45){attempt.reason='Rail flow limits exceeded';continue;}
+      attempt.accepted=true;attempt.shape=grade.scores.shape;attempt.flow=grade.scores.flow;
+      const utility=grade.scores.shape+grade.scores.flow;
+      if(!best||utility>best.utility)best={mesh,audit,grade,utility,supportLimit,layout};
+    }catch(error){attempt.reason=error.message;}
+  }
+  if(best)break;
+  }
+  if(!best)return {report};
+  report.accepted=true;report.supportLimit=best.supportLimit;report.reason='Safe seam-aware starting mesh after base budget rejection';
+  if(best.layout.localSeamIntervals){report.localSeamIntervals=true;report.localProfileBudget=best.layout.localProfileBudget;}
+  const seed={...best.mesh,expectedComponents:1,curveUnionV2Audit:best.audit,curveUnionV2Grade:best.grade,curveUnionV2Groups:[{strands:sweeps.length,layout:'3.0 seam-aware late-entry fallback',lateEntry:{rows:best.mesh.sectionContourCounts?.length,physicalContactsOnly:true,seamFallback:true},preserved:false}]};
+  return {seed,report};
+}
+
+function curveV3PrepareForkContours(rows,frames,sweeps,profileBudget=16){
+  curveV2LateEntryPrepareContours(rows,frames,sweeps,{profileBudget,minimumCount:6,preserveFeatures:true});
+  const counts=new Map(),tracks=new Map();
+  for(const row of rows)for(const c of row){if(c.sources.size===1)counts.set([...c.sources][0],c.ring.length);else{if(!tracks.has(c.phaseTrack))tracks.set(c.phaseTrack,[]);tracks.get(c.phaseTrack).push(c);}}
+  const measure=points=>{const lengths=points.slice(1).map((p,i)=>v3.len(v3.sub(p,points[i]))),offsets=[0];for(const d of lengths)offsets.push(offsets.at(-1)+d);return {points,lengths,offsets,total:offsets.at(-1)};};
+  const sample=(m,t)=>{let x=clamp(t)*m.total,k=0;while(k<m.lengths.length-1&&x>m.lengths[k])x-=m.lengths[k++];return v3.mix(m.points[k],m.points[k+1],x/Math.max(1e-20,m.lengths[k]));};
+  const nearest=(m,p)=>{let best={distance:Infinity};for(let i=0;i<m.lengths.length;i++){const a=m.points[i],b=m.points[i+1],d=v3.sub(b,a),u=clamp(v3.dot(v3.sub(p,a),d)/Math.max(1e-20,v3.dot(d,d))),distance=v3.len(v3.sub(p,v3.mix(a,b,u)));if(distance<best.distance)best={distance,t:(m.offsets[i]+m.lengths[i]*u)/m.total};}return best;};
+  const hit=(source,profile,frame,arc)=>{let best;const points=sweeps[source].frames.map(f=>sweepPoint(f,sweeps[source].profile[profile]));for(let i=1;i<points.length;i++){const a=v3.dot(v3.sub(points[i-1],frame.anchor),frame.t),b=v3.dot(v3.sub(points[i],frame.anchor),frame.t);if((a<0)===(b<0)||Math.abs(a-b)<1e-20)continue;const q=nearest(arc,v3.mix(points[i-1],points[i],a/(a-b)));if(!best||q.distance<best.distance)best=q;}return best;};
+  const report=[];
+  for(const track of tracks.values()){
+    const sources=[...track[0].sources].sort((a,b)=>a-b);if(sources.length!==2||sources.some(s=>!counts.has(s)))throw Error('Unsupported fork ownership');
+    const arcs=track.map(c=>{const n=c.rawRing.length,starts=c.rawOwners.map((s,i)=>s!==c.rawOwners[(i+n-1)%n]?i:-1).filter(i=>i>=0);if(starts.length!==2)throw Error('Fork needs two contiguous source arcs');return sources.map(s=>{const start=starts.find(i=>c.rawOwners[i]===s),end=starts.find(i=>c.rawOwners[i]!==s);if(start===undefined||end===undefined)throw Error('Missing fork owner');const points=[c.rawRing[start]];for(let i=(start+1)%n;;i=(i+1)%n){points.push(c.rawRing[i]);if(i===end)break;}return measure(points);});});
+    const sides=sources.map((source,k)=>{
+      const count=counts.get(source)-1,candidates=[];
+      for(let profile=0;profile<sweeps[source].profile.length;profile++){
+        const hits=track.map((c,i)=>hit(source,profile,frames[c.sectionRow],arcs[i][k]));
+        if(hits.some((h,i)=>!h||h.distance>arcs[i][k].total*1e-5||h.t<1e-5||h.t>1-1e-5))continue;
+        const shape=sweeps[source].profile,p=shape[profile],a=shape[(profile+shape.length-1)%shape.length],b=shape[(profile+1)%shape.length],u=[p[0]-a[0],p[1]-a[1]],v=[b[0]-p[0],b[1]-p[1]],turn=Math.acos(clamp((u[0]*v[0]+u[1]*v[1])/Math.max(1e-20,Math.hypot(...u)*Math.hypot(...v)),-1,1));
+        if(turn>.12)candidates.push({profile,hits,turn,mean:hits.reduce((s,h)=>s+h.t,0)/hits.length});
+      }
+      const selected=candidates.sort((a,b)=>b.turn-a.turn||a.profile-b.profile).slice(0,count-1).sort((a,b)=>a.mean-b.mean);
+      if(track.some((_,i)=>selected.some((x,j)=>j&&x.hits[i].t<=selected[j-1].hits[i].t)))throw Error('Crossing fork landmarks');
+      // Ordered dynamic assignment cannot give two profile corners the same lane.
+      let states=[{last:0,cost:0,lanes:[]}];
+      selected.forEach((feature,j)=>{const next=[];for(let lane=1;lane<=count-(selected.length-j);lane++){let best;for(const prev of states)if(prev.last<lane){const cost=prev.cost+(lane/count-feature.mean)**2;if(!best||cost<best.cost)best={last:lane,cost,lanes:[...prev.lanes,lane]};}if(best)next.push(best);}states=next;});
+      const lanes=states.sort((a,b)=>a.cost-b.cost)[0]?.lanes||[];
+      return {count,selected,lanes};
+    });
+    track.forEach((c,i)=>{const ring=[],owners=[];sides.forEach((side,k)=>{const knots=[{lane:0,t:0},...side.selected.map((x,j)=>({lane:side.lanes[j],t:x.hits[i].t})),{lane:side.count,t:1}];for(let a=1;a<knots.length;a++)for(let lane=knots[a-1].lane;lane<knots[a].lane;lane++){const u=(lane-knots[a-1].lane)/(knots[a].lane-knots[a-1].lane);ring.push(sample(arcs[i][k],knots[a-1].t+(knots[a].t-knots[a-1].t)*u));owners.push(sources[k]);}});c.ring=ring;c.owners=owners;c.v3ForkSeam={sources,lanes:[0,sides[0].count]};});
+    report.push({rows:track.map(c=>c.sectionRow),lanes:sides.map(s=>s.count),seamLanes:[0,sides[0].count],landmarks:sides.map(s=>s.selected.map((f,i)=>({profile:f.profile,lane:s.lanes[i]})))});
+  }
+  return report;
+}
+
+function curveV3PlannedForkJunction(parent,children,vertices){
+  if(children.some(c=>c.sectionRow<parent.sectionRow))return curveV2LateEntryJunctionAdaptive(parent,children,vertices,{preserveRings:true});
+  const seam=parent.v3ForkSeam;if(!seam)throw Error('Missing planned fork seam');
+  const ordered=seam.sources.map(s=>children.find(c=>c.sources.has(s))),split=seam.lanes[1],paths=[parent.indices.slice(0,split+1),parent.indices.slice(split).concat(parent.indices[0])],childPaths=[];
+  for(let k=0;k<2;k++){
+    const c=ordered[k];if(!c||c.indices.length!==paths[k].length)throw Error('Unsupported fork lane count');
+    const n=c.rawRing.length,lengths=c.rawRing.map((p,i)=>v3.len(v3.sub(p,c.rawRing[(i+1)%n]))),offsets=[0];for(const d of lengths)offsets.push(offsets.at(-1)+d);const total=offsets.at(-1);
+    const locate=p=>{let best;for(let i=0;i<n;i++){const a=c.rawRing[i],b=c.rawRing[(i+1)%n],d=v3.sub(b,a),t=clamp(v3.dot(v3.sub(p,a),d)/Math.max(1e-20,v3.dot(d,d))),distance=v3.len(v3.sub(p,v3.mix(a,b,t)));if(!best||distance<best.distance)best={distance,s:offsets[i]+lengths[i]*t};}return best.s;};
+    const at=s=>{s=(s%total+total)%total;let i=0;while(i<n-1&&s>lengths[i])s-=lengths[i++];return v3.mix(c.rawRing[i],c.rawRing[(i+1)%n],s/Math.max(1e-20,lengths[i]));};
+    const a=locate(vertices[paths[k][0]]),b=locate(vertices[paths[k].at(-1)]),num=paths[k].length-1,alternatives=[];
+    for(const direction of [1,-1]){
+      const span=(direction*(b-a)%total+total)%total;if(span<total*1e-6)continue;
+      const targets=paths[k].map((id,j)=>{let t=(direction*(locate(vertices[id])-a)%total+total)%total/span;t=j===0?0:j===num?1:clamp(t);return t*.8+.2*j/num;});
+      for(let j=1;j<num;j++)targets[j]=Math.max(targets[j-1]+.008,Math.min(1-(num-j)*.008,targets[j]));
+      if(targets.some((t,j)=>!Number.isFinite(t)||(j&&t<=targets[j-1])))continue;
+      const points=targets.map(t=>at(a+direction*span*t));alternatives.push({points,cost:points.reduce((sum,q,j)=>sum+v3.len(v3.sub(q,vertices[paths[k][j]])),0)});
+    }
+    alternatives.sort((a,b)=>a.cost-b.cost);if(!alternatives.length)throw Error('Collapsed fork side');
+    const target=alternatives[0].points;let best;
+    for(let phase=0;phase<c.indices.length;phase++)for(const direction of [1,-1]){const ids=target.map((_,i)=>c.indices[(phase+direction*i+c.indices.length*2)%c.indices.length]),cost=ids.reduce((sum,id,i)=>sum+v3.len(v3.sub(vertices[id],target[i])),0);if(!best||cost<best.cost)best={ids,cost};}
+    best.ids.forEach((id,i)=>vertices[id]=target[i]);childPaths.push(best.ids);
+  }
+  const strip=(a,b)=>a.slice(1).map((_,i)=>[a[i],a[i+1],b[i+1],b[i]]),a=childPaths[0],b=childPaths[1];
+  parent.v3PlannedFork=true;
+  return [...strip(paths[0],a),...strip(paths[1],b),[a.at(-1),a[0],b.at(-1),b[0]],[paths[0][0],a[0],b.at(-1)],[paths[1][0],b[0],a.at(-1)]];
+}
+
+function curveV3PhysicalPairFallback(sweeps,source,seed,loops,options,auditMesh,scoreMesh){
+  const a=seed.curveUnionV2Audit;
+  if(options.physicalPairFallback===false||sweeps.length!==2||a?.hardValid||!a?.duplicateFaces||!a.validation.nonManifoldEdges||a.penetrations.trianglePairs||a.foldedQuads)return null;
+  if(qualityOverlapGroups(sweeps,options.mergeDistance??.03).groups.length!==1)return null;
+  const length=s=>s.frames.slice(1).reduce((sum,f,i)=>sum+v3.len(v3.sub(f.c,s.frames[i].c)),0),group=[...sweeps].sort((a,b)=>length(b)-length(a)||JSON.stringify(a.frames).localeCompare(JSON.stringify(b.frames)));
+  if(curveV2LateEntryPlan(group))return null;
+  const attempts=[],counts=[...new Set([Math.max(16,Math.min(32,Math.round(loops))),16])],configs=[...(options.plannedPairFork===false?[]:[20,16].flatMap(profileBudget=>counts.map(count=>({count,profileBudget,planned:true})))),...counts.map(count=>({count,profileBudget:16,planned:false}))];let best;
+  for(const {count,profileBudget,planned} of configs)try{
+    const stations=curveV2LateEntryStations(group,{guide:0,entries:[]},count);let rows,plan;
+    let mesh=repairFoldedQuads(sectionContourMesh(group,count,{sectionStations:stations,sectionPrepareContours:(r,f)=>{if(planned)plan=curveV3PrepareForkContours(r,f,group,profileBudget);else curveV2LateEntryPrepareContours(r,f,group,{profileBudget:16,minimumCount:6,preserveFeatures:true});},sectionFinalizeContours:(r,v)=>{rows=r;if(planned)curveV2LateEntryTransport(r,v);},sectionJunctionBuilder:(p,c,v)=>planned?curveV3PlannedForkJunction(p,c,v):curveV2LateEntryJunctionAdaptive(p,c,v,{preserveRings:true}),sectionPreservePhase:true,sectionRingCount:12,preserveContourDeaths:true,geometricEventPartition:true,matchedEventPatch:true}));
+    const attempt={rows:count,profileBudget,planned,accepted:false};attempts.push(attempt);
+    const within=m=>m.objFaces.length<=source.objFaces.length&&m.faces.length<=source.faces.length&&m.vertices.length<=source.vertices.length;
+    if(options.allowSourceBudgetExceeded!==true&&!within(mesh)){if(!planned){const reduced=curveV2ReduceSectionRows(mesh,rows,source);mesh=reduced.mesh;}if(!within(mesh)){attempt.reason='Source budget exceeded';continue;}}
+    const audit=auditMesh(mesh,1);if(!audit.hardValid||audit.foldedQuads){attempt.reason='Geometry audit failed';continue;}
+    const grade=scoreMesh(mesh,source,group);if(!qualityGeometryAcceptable(grade)||grade.metrics.gapBridgeFaces||mesh.contactBoundaryViolations||grade.scores.shape<seed.curveUnionV2Grade.scores.shape){attempt.reason='Source fit or contact check failed';continue;}
+    const adjacency=mesh.vertices.map(()=>new Set());for(const f of mesh.objFaces)f.forEach((v,i)=>{const w=f[(i+1)%f.length];adjacency[v].add(w);adjacency[w].add(v);});
+    const eps=v3.len(v3.sub(source.bounds.hi,source.bounds.lo))*1e-9,tipSet=new Set(mesh.vertices.flatMap((p,i)=>group.some(s=>v3.len(v3.sub(p,s.frames.at(-1).c))<=eps)?[i]:[])),flow=artistMeshDiagnostics(mesh,group,adjacency,tipSet);
+    if(flow.railKinkMaxDegrees>75||flow.railKinkP95Degrees>45){attempt.reason='Rail flow limits exceeded';continue;}
+    if(planned){
+      const tracks=new Map();for(const row of rows)for(const c of row)if(c.v3ForkSeam){if(!tracks.has(c.phaseTrack))tracks.set(c.phaseTrack,[]);tracks.get(c.phaseTrack).push(c);}
+      const rails=[...tracks.values()].flatMap(track=>track[0].v3ForkSeam.lanes.map(lane=>({vertices:track.map(c=>c.indices[lane])}))),forks=rows.flat().filter(c=>c.v3PlannedFork).map(c=>c.sectionRow);
+      if(!forks.length||rails.some(r=>r.vertices.length<3||r.vertices.some((v,i)=>i&&!adjacency[v].has(r.vertices[i-1])))){attempt.reason='Disconnected planned seam';continue;}
+      mesh.v3StructuralSeams={rails,supports:[],addedLanes:2,constructionRows:Math.max(...plan.map(p=>p.rows.length))};
+      mesh.v3PlannedPairFork={tracks:plan,forkRows:forks,profileBudget};
+    }
+    attempt.accepted=true;attempt.polygons=mesh.objFaces.length;attempt.shape=grade.scores.shape;
+    best={seed:{...mesh,expectedComponents:1,curveUnionV2Audit:audit,curveUnionV2Grade:grade,curveUnionV2Groups:[{strands:2,layout:planned?'3.0 seam-led pair fork':'3.0 physical pair recovery',preserved:false}]},report:{attempted:true,accepted:true,physicalPair:true,plannedFork:planned,reason:planned?'Source-owned seam layout into the fork':'Physical pair reconstruction after invalid atlas',attempts,flow:{maxDegrees:flow.railKinkMaxDegrees,p95Degrees:flow.railKinkP95Degrees,sourceTipPoles:tipSet.size}}};break;
+  }catch(error){attempts.push({rows:count,profileBudget,planned,accepted:false,reason:error.message});}
+  return best||null;
+}
+
+function curveV3PatchBoundary(faces){
+  const edges=new Map(),key=(a,b)=>a<b?a+','+b:b+','+a;
+  for(const f of faces)f.forEach((a,i)=>{const b=f[(i+1)%f.length],k=key(a,b);if(!edges.has(k))edges.set(k,[]);edges.get(k).push([a,b]);});
+  if([...edges.values()].some(e=>e.length>2))return null;
+  const border=[...edges.values()].filter(e=>e.length===1).map(e=>e[0]),neighbors=new Map();
+  for(const [a,b]of border){for(const [u,v]of [[a,b],[b,a]]){if(!neighbors.has(u))neighbors.set(u,[]);neighbors.get(u).push(v);}}
+  if(!border.length||[...neighbors.values()].some(n=>n.length!==2))return null;
+  const loop=[border[0][0]];while(loop.length<=border.length){const next=neighbors.get(loop.at(-1)).find(v=>v!==loop.at(-2));if(next===loop[0])return loop.length===border.length?loop:null;if(loop.includes(next))return null;loop.push(next);}return null;
+}
+
+function curveV3LocalGraftCandidates(back,graft){
+  const host=graft.sourceGraftPatch?.hostIds;if(!host)return [];
+  const patch=graft.objFaces.filter(f=>f.some(v=>host[v]===undefined)),border=curveV3PatchBoundary(patch);
+  if(!border||border.some(v=>host[v]===undefined)||patch.flat().some(v=>host[v]!==undefined&&!border.includes(v)))return [];
+  const count=(border.length-2)/2;if(!Number.isInteger(count)||count<1||count>5)return [];
+  const key=(a,b)=>a<b?a+','+b:b+','+a,edgeFaces=new Map();back.objFaces.forEach((f,i)=>f.forEach((a,j)=>{const k=key(a,f[(j+1)%f.length]);if(!edgeFaces.has(k))edgeFaces.set(k,[]);edgeFaces.get(k).push(i);}));
+  const protectedIds=new Set([...(back.v3StructuralSeams?.rails||[]),...(back.v3StructuralSeams?.supports||[])].flatMap(r=>r.vertices));
+  const centroid=ps=>v3.scale(ps.reduce((a,b)=>v3.add(a,b),[0,0,0]),1/ps.length),center=centroid(border.map(v=>graft.vertices[v])),diameter=Math.max(...border.flatMap(a=>border.map(b=>v3.len(v3.sub(graft.vertices[a],graft.vertices[b])))));
+  const starts=back.objFaces.map((f,i)=>({i,d:v3.len(v3.sub(centroid(f.map(v=>back.vertices[v])),center))})).sort((a,b)=>a.d-b.d||a.i-b.i).slice(0,24),matches=[],seen=new Set();
+  for(const {i}of starts)for(let direction=0;direction<4;direction++){
+    let ids=[i],current=i,edge=direction;
+    while(ids.length<count){const f=back.objFaces[current];if(f.length!==4)break;const k=key(f[edge],f[(edge+1)%4]),next=edgeFaces.get(k)?.find(j=>j!==current);if(next===undefined||ids.includes(next)||back.objFaces[next].length!==4)break;const g=back.objFaces[next],entry=g.findIndex((v,j)=>key(v,g[(j+1)%4])===k);ids.push(next);current=next;edge=(entry+2)%4;}
+    if(ids.length!==count)continue;const hash=[...ids].sort((a,b)=>a-b).join(',');if(seen.has(hash))continue;seen.add(hash);
+    const cut=ids.map(i=>back.objFaces[i]);if(cut.some(f=>f.length!==4)||cut.flat().some(v=>protectedIds.has(v)))continue;
+    const loop=curveV3PatchBoundary(cut);if(!loop||loop.length!==border.length)continue;let best;
+    for(let phase=0;phase<loop.length;phase++)for(const direction of [1,-1]){const target=border.map((_,j)=>loop[(phase+direction*j+loop.length*2)%loop.length]),distances=target.map((v,j)=>v3.len(v3.sub(back.vertices[v],graft.vertices[border[j]]))),cost=distances.reduce((a,b)=>a+b*b,0);if(!best||cost<best.cost)best={target,cost,max:Math.max(...distances)};}
+    if(best.max>diameter*.3||Math.sqrt(best.cost/border.length)>diameter*.18)continue;
+    matches.push({ids,...best});
+  }
+  matches.sort((a,b)=>a.cost-b.cost||a.ids[0]-b.ids[0]);const candidates=[];
+  for(const match of matches.slice(0,8)){
+    const map=new Map(border.map((v,i)=>[v,match.target[i]])),vertices=back.vertices.map(p=>[...p]);
+    for(const f of patch)for(const v of f)if(!map.has(v)){map.set(v,vertices.length);vertices.push([...graft.vertices[v]]);}
+    const removed=new Set(match.ids),faces=back.objFaces.filter((_,i)=>!removed.has(i)).concat(patch.map(f=>f.map(v=>map.get(v)))),mesh=curveV3SourceGraftFinish(vertices,faces);if(!mesh)continue;
+    const remap=mesh.graftVertexMap;delete mesh.graftVertexMap;
+    if(back.vertices.some((p,i)=>!remap.has(i)||p.some((x,k)=>mesh.vertices[remap.get(i)][k]!==x)))continue;
+    const baseVertexMap=back.vertices.map((_,i)=>remap.get(i)),mapRails=(rs,m)=>rs.map(r=>({...r,vertices:r.vertices.map(m)}));
+    mesh.v3StructuralSeams={rails:[...mapRails(back.v3StructuralSeams.rails,v=>remap.get(v)),...mapRails(graft.v3StructuralSeams.rails,v=>remap.get(map.get(v)))],supports:mapRails(back.v3StructuralSeams.supports||[],v=>remap.get(v)),addedLanes:back.v3StructuralSeams.addedLanes+graft.v3StructuralSeams.addedLanes};
+    mesh.v3PlannedPairFork=structuredClone(back.v3PlannedPairFork);
+    mesh.v3PairwiseComposition={basePolygons:back.objFaces.length,removedBaseFaces:match.ids,addedPatchFaces:patch.length,baseVertexMap,baseVerticesUnchanged:true,keptBaseFaces:back.objFaces.length-match.ids.length,sharedHostOnce:true,boundaryMaxShift:match.max,accessoryGraft:{...graft.sourceGraft}};
+    candidates.push(mesh);
+  }
+  return candidates;
+}
+
+async function curveV3PairwiseAssembly(sweeps,source,loops,smoothing,onProgress,options,auditMesh,scoreMesh){
+  if(options.pairwiseAssembly===false||sweeps.length!==3||options.sourceGraft===false||options.plannedPairFork===false||options.structuralSeams===false)return null;
+  const plans=[];
+  for(let i=0;i<3;i++)for(let j=i+1;j<3;j++){const p=curveV3SourceGraftPlan([sweeps[i],sweeps[j]]);if(!p)continue;const other=sweeps.find(s=>!p.s.includes(s));if(qualityOverlapGroups([p.s[1],other],options.mergeDistance??.03).groups.length!==2)continue;plans.push({p,other});}
+  if(plans.length!==1)return null;
+  const report={attempted:true,accepted:false,pairwise:true,attempts:[]};
+  try{
+    const {p,other}=plans[0],subOptions={...options,pairwiseAssembly:false,volumeRecovery:0};
+    onProgress(.03,'Curve Union 3.0: building independent back pair');
+    const back=await curveUnionV3([p.s[0],other],loops,smoothing,()=>{},subOptions);
+    if(!back.curveUnionV3ExportSafe||!back.v3PlannedPairFork){report.reason='No approved seam-led back pair';return {report};}
+    onProgress(.35,'Curve Union 3.0: building local accessory patch');
+    const graft=await curveUnionV3(p.s,loops,smoothing,()=>{},subOptions);
+    if(!graft.curveUnionV3ExportSafe||!graft.sourceGraftPatch){report.reason='No source-preserving accessory graft';return {report};}
+    onProgress(.6,'Curve Union 3.0: matching the local patch boundary');
+    for(const mesh of curveV3LocalGraftCandidates(back,graft)){
+      const attempt={polygons:mesh.objFaces.length,removedFaces:mesh.v3PairwiseComposition.removedBaseFaces,accepted:false};report.attempts.push(attempt);
+      if(options.allowSourceBudgetExceeded!==true&&(mesh.objFaces.length>source.objFaces.length||mesh.faces.length>source.faces.length||mesh.vertices.length>source.vertices.length)){attempt.reason='Source budget exceeded';continue;}
+      const audit=auditMesh(mesh,1);if(!audit.hardValid||audit.foldedQuads){attempt.reason='Combined geometry check failed';continue;}
+      const grade=scoreMesh(mesh,source,sweeps);if(!qualityGeometryAcceptable(grade)||grade.metrics.gapBridgeFaces||mesh.contactBoundaryViolations||grade.scores.shape<Math.min(back.curveUnionV3Grade.scores.shape,graft.curveUnionV3Grade.scores.shape)-2){attempt.reason='Combined source fit/contact failed';continue;}
+      const adjacency=mesh.vertices.map(()=>new Set());for(const f of mesh.objFaces)f.forEach((a,i)=>{const b=f[(i+1)%f.length];adjacency[a].add(b);adjacency[b].add(a);});
+      if(mesh.v3StructuralSeams.rails.some(r=>r.vertices.some((v,i)=>v===undefined||!mesh.vertices[v]||(i&&!adjacency[v].has(r.vertices[i-1]))))){attempt.reason='Disconnected composed seam';continue;}
+      const epsilon=v3.len(v3.sub(source.bounds.hi,source.bounds.lo))*1e-9,tips=new Set(mesh.vertices.flatMap((p,i)=>sweeps.some(s=>v3.len(v3.sub(p,s.frames.at(-1).c))<=epsilon)?[i]:[])),flow=artistMeshDiagnostics(mesh,sweeps,adjacency,tips);
+      if(tips.size!==3||flow.railKinkMaxDegrees>75||flow.railKinkP95Degrees>45){attempt.reason='Combined rail flow failed';continue;}
+      attempt.accepted=true;report.accepted=true;report.reason='Local accessory graft on preserved back pair';report.flow={maxDegrees:flow.railKinkMaxDegrees,p95Degrees:flow.railKinkP95Degrees,sourceTipPoles:tips.size};
+      return {seed:{...mesh,expectedComponents:1,curveUnionV2Audit:audit,curveUnionV2Grade:grade,curveUnionV2Groups:[{strands:3,layout:'3.0 local pair composition',preserved:false}]},report};
+    }
+    report.reason='No safe independent patch boundary';
+  }catch(error){report.reason=error.message;}
+  return {report};
+}
+
 async function curveUnionV3(sweeps,loops=16,smoothing=.55,onProgress=()=>{},options={}){
-  const started=Date.now(),source=buildSourceMesh(sweeps),budget=m=>m.objFaces.length<=source.objFaces.length&&m.faces.length<=source.faces.length&&m.vertices.length<=source.vertices.length,edits=[];
+  const started=Date.now(),source=buildSourceMesh(sweeps),allowExtra=options.allowSourceBudgetExceeded===true,withinSourceBudget=m=>m.objFaces.length<=source.objFaces.length&&m.faces.length<=source.faces.length&&m.vertices.length<=source.vertices.length,budget=m=>allowExtra||withinSourceBudget(m),edits=[];
   const timing={criticMs:0,validationMs:0,criticCalls:0},timed=(field,fn)=>(...args)=>{const start=Date.now();try{return fn(...args);}finally{timing[field]+=Date.now()-start;if(field==='criticMs')timing.criticCalls++;}},auditMesh=timed('validationMs',curveUnionV2AuditMesh),scoreMesh=timed('criticMs',curveUnionV2GradeMesh);
   const baseOptions={...options,volumeRecovery:0,onTiming:t=>{for(const key of Object.keys(timing))timing[key]+=t[key]||0;}};
-  let seed=await curveUnionV2(sweeps,loops,smoothing,(p,s)=>onProgress(p*.65,s.replace('2.0','3.0 base')),baseOptions);
+  let seed,baseFallback;
+  const assembly=await curveV3PairwiseAssembly(sweeps,source,loops,smoothing,onProgress,baseOptions,auditMesh,scoreMesh);
+  if(assembly?.seed){seed=assembly.seed;baseFallback=assembly.report;edits.push({operation:'insert independent accessory patch on approved back pair',...seed.v3PairwiseComposition});}
+  try{if(!seed)seed=await curveUnionV2(sweeps,loops,smoothing,(p,s)=>onProgress(p*.65,s.replace('2.0','3.0 base')),baseOptions);}
+  catch(error){
+    if(error.message!=='Curve Union 2.0 could not build a safe late-entry mesh within the original sweep polygon budget. The original sweeps are unchanged.')throw error;
+    onProgress(.66,'Curve Union 3.0: trying seam-aware source-budget fallback');await new Promise(r=>setTimeout(r,0));
+    const fallback=curveV3LateEntryFallback(sweeps,source,options,auditMesh,scoreMesh);baseFallback=fallback.report;seed=fallback.seed;
+    if(!seed){const failure=new Error(allowExtra?'Curve Union 3.0 could not build a safe late-entry mesh even with the source budget relaxed. The seam-aware alternatives failed geometry, contact, or flow checks, or the layout is unsupported. The original sweeps are unchanged.':'Curve Union 3.0 could not build a safe late-entry mesh within the original sweep budget. Its base mesh exceeded the budget, and no safe seam-aware fallback was available. The original sweeps are unchanged.',{cause:error});failure.curveUnionV3Fallback=baseFallback;throw failure;}
+    edits.push({operation:baseFallback.sourceGraft?'build source-preserving side graft':'build seam-aware starting mesh after base budget rejection',polygonsAfter:seed.objFaces.length,seams:seed.v3StructuralSeams});
+  }
+  if(!baseFallback){const recovered=curveV3PhysicalPairFallback(sweeps,source,seed,loops,options,auditMesh,scoreMesh);if(recovered){edits.push({operation:'rebuild invalid two-strand atlas from physical sections',polygonsBefore:seed.objFaces.length,polygonsAfter:recovered.seed.objFaces.length});seed=recovered.seed;baseFallback=recovered.report;}}
   const hasPreserved=seed.curveUnionV2Groups?.some(g=>g.preserved),protectedPositions=new Set();
   if(hasPreserved)for(const group of qualityOverlapGroups(sweeps,clamp(options.mergeDistance===undefined?.03:Number(options.mergeDistance)||0,0,.75)).groups)if(group.length===1)for(const p of sourceSweepMesh(group[0]).vertices)protectedPositions.add(p.join(','));
   let mesh=seed,audit=seed.curveUnionV2Audit,grade=seed.curveUnionV2Grade,quality=curveV3Quality(mesh);
@@ -2622,7 +3061,7 @@ async function curveUnionV3(sweeps,loops=16,smoothing=.55,onProgress=()=>{},opti
     if(!qualityGeometryAcceptable(g)||c.gapBridgeFaces||g.scores.shape<baselineGrade.scores.shape-2||c.normalizedChamfer>ref.normalizedChamfer*1.08+1e-6||c.minimumSourceCoverage<ref.minimumSourceCoverage-3||c.minimumAxialCoverage<ref.minimumAxialCoverage-8||c.railKinkP95Degrees>b.railKinkP95Degrees+1||c.railKinkMaxDegrees>b.railKinkMaxDegrees+2||q.warped>quality.warped||q.acute>quality.acute||q.thin>quality.thin||c.badJunctionValence>b.badJunctionValence||c.bodyPoleVertices>b.bodyPoleVertices||c.illegalTrackTerminations>b.illegalTrackTerminations)return false;
     edits.push({operation:label,polygonsBefore:mesh.objFaces.length,polygonsAfter:candidate.objFaces.length,qualityBefore:quality,qualityAfter:q,movedVertices:candidate.v3MovedVertices||0,...(candidate.v3StripRefinement?{strip:candidate.v3StripRefinement}:{}),...(candidate.v3CollapsedStrip?{collapse:candidate.v3CollapsedStrip}:{})});mesh=candidate;audit=a;grade=g;quality=q;return true;
   };
-  if(audit.hardValid&&budget(mesh)&&mesh.vertices.length<=12000){
+  if(!baseFallback&&audit.hardValid&&budget(mesh)&&mesh.vertices.length<=12000){
     if(!hasPreserved)accept(curveUnionV2DissolveTriangles(mesh,sweeps),'dissolve redundant triangle pairs');
     if(!hasPreserved&&mesh.vertices.length<=4000)for(const candidate of quadRotationMutations(mesh,6))if(accept(candidate,'redirect two-quad patch'))break;
     for(let pass=0;pass<2&&smoothing>0;pass++){
@@ -2632,11 +3071,11 @@ async function curveUnionV3(sweeps,loops=16,smoothing=.55,onProgress=()=>{},opti
     }
     if(!hasPreserved)accept(curveUnionV2DissolveTriangles(mesh,sweeps),'dissolve redundant triangle pairs');
   }
-  if(audit.hardValid&&budget(mesh)&&mesh.vertices.length<=4000&&smoothing>0&&options.junctionStripFit!==false){
+  if(!baseFallback&&audit.hardValid&&budget(mesh)&&mesh.vertices.length<=4000&&smoothing>0&&options.junctionStripFit!==false){
     onProgress(.92,'Curve Union 3.0: fitting continuous junction strips');await new Promise(r=>setTimeout(r,0));
     for(const strength of [.15,.06,.025])if(accept(curveV3FairJunctionStrips(mesh,sweeps,strength*clamp(smoothing)/.55,protectedPositions),'continuous junction strip fit'))break;
   }
-  if(audit.hardValid&&budget(mesh)&&mesh.vertices.length<=4000&&options.thinStripCleanup!==false){
+  if(!baseFallback&&audit.hardValid&&budget(mesh)&&mesh.vertices.length<=4000&&options.thinStripCleanup!==false){
     let attempts=0;
     for(let pass=0;pass<8&&attempts<12;pass++){
       onProgress(.93,'Curve Union 3.0: removing redundant thin strips');await new Promise(r=>setTimeout(r,0));
@@ -2649,7 +3088,7 @@ async function curveUnionV3(sweeps,loops=16,smoothing=.55,onProgress=()=>{},opti
       if(!improved)break;
     }
   }
-  if(audit.hardValid&&budget(mesh)&&mesh.vertices.length<=4000&&options.thinStripCleanup!==false&&options.terminalStripCleanup!==false){
+  if(!baseFallback&&audit.hardValid&&budget(mesh)&&mesh.vertices.length<=4000&&options.thinStripCleanup!==false&&options.terminalStripCleanup!==false){
     let attempts=0;
     for(let pass=0;pass<4&&attempts<8;pass++){
       onProgress(.95,'Curve Union 3.0: simplifying triangular strip endings');await new Promise(r=>setTimeout(r,0));
@@ -2664,12 +3103,12 @@ async function curveUnionV3(sweeps,loops=16,smoothing=.55,onProgress=()=>{},opti
   // Seam-first candidate has its own acceptance policy. Thin strips adjacent
   // to a measured physical seam are allowed; holes, folds and overspending
   // the source budget are not. Ordinary 3.0 cleanup above keeps its guards.
-  let seamReport={attempted:false,accepted:false};
-  if(options.structuralSeams!==false&&audit.hardValid&&!hasPreserved&&sweeps.length<=6&&seed.curveUnionV2Groups?.length===1&&seed.curveUnionV2Groups[0].lateEntry){
+  let seamReport=baseFallback?{...baseFallback,fallback:true}:{attempted:false,accepted:false};
+  if(!baseFallback&&options.structuralSeams!==false&&audit.hardValid&&!hasPreserved&&sweeps.length<=6&&seed.curveUnionV2Groups?.length===1&&seed.curveUnionV2Groups[0].lateEntry){
     onProgress(.96,'Curve Union 3.0: reserving physical strand seams');await new Promise(r=>setTimeout(r,0));
     seamReport.attempted=true;
     for(const supportLimit of [4,2,1,0])try{
-      const candidate=curveV3SeamCandidate(sweeps,supportLimit);
+      const candidate=curveV3SeamCandidate(sweeps,supportLimit,options);
       if(candidate&&budget(candidate)){
         const checked=auditMesh(candidate,audit.expectedComponents),q=curveV3Quality(candidate);
         if(checked.hardValid&&!checked.foldedQuads){
@@ -2688,16 +3127,36 @@ async function curveUnionV3(sweeps,loops=16,smoothing=.55,onProgress=()=>{},opti
   }
   if(Number(options.volumeRecovery)>0&&audit.hardValid){
     onProgress(.96,'Curve Union 3.0: guarded volume recovery');
+    const beforeRecovery=mesh,beforeRecoveryGrade=grade;
     const recovery=curveUnionV2RecoverVolume(mesh,sweeps,options.volumeRecovery,audit,grade,scoreMesh,auditMesh);
     const q=curveV3Quality(recovery.mesh);
-    const seamMoved=mesh.v3StructuralSeams&&[...mesh.v3StructuralSeams.rails,...mesh.v3StructuralSeams.supports].some(rail=>rail.vertices.some(i=>v3.len(v3.sub(mesh.vertices[i],recovery.mesh.vertices[i]))>1e-10));
+    const seamMoved=(mesh.v3StructuralSeams&&[...mesh.v3StructuralSeams.rails,...mesh.v3StructuralSeams.supports].some(rail=>rail.vertices.some(i=>v3.len(v3.sub(mesh.vertices[i],recovery.mesh.vertices[i]))>1e-10)))||mesh.v3PairwiseComposition?.baseVertexMap.some(i=>mesh.vertices[i].some((x,k)=>x!==recovery.mesh.vertices[i][k]));
     if(!seamMoved&&q.warped<=quality.warped&&q.acute<=quality.acute&&q.thin<=quality.thin&&q.energy<=quality.energy*1.1){mesh=recovery.mesh;audit=recovery.audit;grade=recovery.grade;mesh.volumeRecovery=recovery.report;quality=q;}
     else mesh={...mesh,volumeRecovery:{...recovery.report,accepted:false,movedVertices:0,reason:seamMoved?'3.0 retained physical seam positions':'3.0 retained the pre-recovery mesh to protect quad quality'}};
+    if(options.sectionLoopFit!==false&&!hasPreserved){
+      const baselineQuality=quality,baselineGrade=grade,passes=[];
+      for(let pass=0;pass<2;pass++){
+        onProgress(.97,'Curve Union 3.0: fitting source cross-section loops');
+        const fitted=curveV3FitSectionLoops(mesh,sweeps,options.volumeRecovery,audit,grade,scoreMesh,auditMesh);
+        passes.push(fitted.report);if(!fitted.report.accepted)break;
+        const q=curveV3Quality(fitted.mesh),a=baselineGrade.metrics,b=fitted.grade.metrics;
+        // Bound cumulative change, not just the increment of each iteration.
+        if(q.energy>baselineQuality.energy*1.15||b.railKinkP95Degrees>a.railKinkP95Degrees+1||b.railKinkMaxDegrees>a.railKinkMaxDegrees+2||b.densityRegularityScore<a.densityRegularityScore-2||fitted.grade.scores.flow<baselineGrade.scores.flow-1){passes[passes.length-1]={...fitted.report,accepted:false,movedVertices:0,reason:'Cumulative flow guard retained the previous fit'};break;}
+        mesh=fitted.mesh;audit=fitted.audit;grade=fitted.grade;quality=q;
+      }
+      mesh={...mesh,curveUnionV3SectionFit:{accepted:passes.some(p=>p.accepted),passes}};
+      if(mesh.curveUnionV3SectionFit.accepted){
+        const distances=mesh.vertices.map((p,i)=>v3.len(v3.sub(p,beforeRecovery.vertices[i])));
+        mesh.volumeRecovery={...mesh.volumeRecovery,strength:Number(options.volumeRecovery),accepted:true,limitedToLegacy:false,movedVertices:distances.filter(d=>d>1e-10).length,maxDisplacement:Math.max(...distances),beforeChamfer:beforeRecoveryGrade.metrics.normalizedChamfer,afterChamfer:grade.metrics.normalizedChamfer,reason:'Guarded normal and cross-section loop fit accepted'};
+      }
+    }
   }
   const safe=audit.hardValid&&!audit.foldedQuads&&qualityGeometryAcceptable(grade)&&!grade.metrics.gapBridgeFaces&&!mesh.contactBoundaryViolations&&budget(mesh);
-  const result={...mesh,topologyMode:'curve-union-v3',generationStrategy:'curve-union-v3',curveUnionV3Audit:audit,curveUnionV3Grade:grade,curveUnionV3ExportSafe:safe,curveUnionV3Edits:edits,curveUnionV3Baseline:reference,curveUnionV3Quality:quality,curveUnionV3ArtistReady:safe&&grade.artistQualityTarget===true,curveUnionV3SourceBudget:{source:{polygons:source.objFaces.length,triangles:source.faces.length,vertices:source.vertices.length},result:{polygons:mesh.objFaces.length,triangles:mesh.faces.length,vertices:mesh.vertices.length},withinBudget:budget(mesh)}};
+  const result={...mesh,topologyMode:'curve-union-v3',generationStrategy:'curve-union-v3',curveUnionV3Audit:audit,curveUnionV3Grade:grade,curveUnionV3ExportSafe:safe,curveUnionV3Edits:edits,curveUnionV3Baseline:reference,curveUnionV3Quality:quality,curveUnionV3ArtistReady:safe&&grade.artistQualityTarget===true,curveUnionV3SourceBudget:{source:{polygons:source.objFaces.length,triangles:source.faces.length,vertices:source.vertices.length},result:{polygons:mesh.objFaces.length,triangles:mesh.faces.length,vertices:mesh.vertices.length},withinBudget:withinSourceBudget(mesh),allowed:budget(mesh),allowSourceBudgetExceeded:allowExtra}};
   // Compatibility for existing summaries; do not retain the seed's stale grade.
   result.curveUnionV3SeamReport=seamReport;
+  if(assembly)result.curveUnionV3PairwiseReport=assembly.report;
+  if(baseFallback)result.curveUnionV3BaseFallback=baseFallback;
   result.curveUnionV2Audit=audit;result.curveUnionV2Grade=grade;result.curveUnionV2ExportSafe=safe;result.curveUnionV2SourceBudget=result.curveUnionV3SourceBudget;result.curveUnionV2RailFlowAccepted=grade.metrics.railKinkMaxDegrees<=60&&grade.metrics.railKinkP95Degrees<=25;
   onProgress(1,safe?'Curve Union 3.0 ready — inspect flow':'Curve Union 3.0 preview — geometry or source budget requires review');
   if(options.onTiming){const totalMs=Date.now()-started;options.onTiming({...timing,totalMs,constructionAndOtherMs:Math.max(0,totalMs-timing.criticMs-timing.validationMs)});}
