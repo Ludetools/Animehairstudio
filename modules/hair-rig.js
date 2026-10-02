@@ -166,17 +166,34 @@ export function rigJointFrame(joints, normals, index) {
   }
   if (!dot(y,y)) y = [0,1,0];
   let z = normals?.[index] || [0,0,1];
-  z = unit(z.map((v, axis) => v - dot(z,y) * y[axis]));
+  const projection = dot(z,y);
+  z = unit(z.map((v, axis) => v - projection * y[axis]));
   if (!dot(z,z)) {
     const fallback = Math.abs(y[2]) < 0.9 ? [0,0,1] : [1,0,0];
-    z = unit(fallback.map((v, axis) => v - dot(fallback,y) * y[axis]));
+    const fallbackProjection = dot(fallback,y);
+    z = unit(fallback.map((v, axis) => v - fallbackProjection * y[axis]));
   }
   return {x: unit(cross(y,z)), y, z};
 }
 
+// One normal needs only one XYZ result, not singleton input/output wrappers.
+function transformRigNormal(normal, matrix) {
+  return unit([
+    matrix[0]*normal[0] + matrix[4]*normal[1] + matrix[8]*normal[2],
+    matrix[1]*normal[0] + matrix[5]*normal[1] + matrix[9]*normal[2],
+    matrix[2]*normal[0] + matrix[6]*normal[1] + matrix[10]*normal[2]
+  ]);
+}
+
 export function transformRigNormals(normals, matrix, firstJoint = 0) {
-  return normals.map((normal, i) => i < firstJoint ? [...normal] : unit([0,1,2].map(axis =>
-    matrix[axis]*normal[0] + matrix[axis+4]*normal[1] + matrix[axis+8]*normal[2])));
+  return normals.map((normal, i) => i < firstJoint ? [...normal] : transformRigNormal(normal, matrix));
+}
+
+// Read-only display input: prepare once per chain/update, never cache on authored
+// rigs. Without deformation the existing normals can be borrowed unchanged.
+export function rigPoseNormals(rest, pose) {
+  const normals = rest.normals || rest.joints.map((_, i) => rigJointFrame(rest.joints, [], i).z);
+  return pose.matrices ? normals.map((normal, i) => transformRigNormal(normal, pose.matrices[i])) : normals;
 }
 
 export function transformRigJoints(joints, matrix, firstJoint = 0) {

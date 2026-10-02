@@ -7,8 +7,9 @@ import {createChainSimulation, stepChainSimulation, shakeChainSimulation} from '
 import {boneLimitFrame, mirrorBoneLimit} from './modules/hair-bone-limits.js';
 import {createBoneLimitEditor} from './modules/hair-bone-limit-editor.js';
 import {canParentRig, normalizeRigHierarchy, orderedHairRigs, descendantHairRigs, wireRigHierarchy} from './modules/hair-rig-hierarchy.js';
-import { normalizeHairRigs, normalizeHairRigRoot, transformRigJoints, rigJointFrame, transformRigNormals, hairBoneDisplayShape, automaticHairBoneNames, inferHairRigSide } from './modules/hair-rig.js';
+import { normalizeHairRigs, normalizeHairRigRoot, transformRigJoints, rigJointFrame, transformRigNormals, rigPoseNormals, hairBoneDisplayShape, automaticHairBoneNames, inferHairRigSide } from './modules/hair-rig.js';
 import { automaticHairWeights, skinHairPoints, hairJointWeightColors, MAX_HAIR_BINDING_BLEND } from './modules/hair-skinning.js';
+import { createHairPosePreview, disposeHairPosePreview } from './modules/hair-pose-preview.js';
 let hairPosePreview = null;
 let hairRigCreationPreview = null;
 let hairRigRoot = null;
@@ -68,6 +69,9 @@ import { effectiveRemeshMethod, remeshOutputAcceptable, remeshQualityChecksPasse
 import { startCurveUnionJob, unionSweeps as unionAutoRemeshSweeps } from "./modules/lazy-remesh-job.js?v=20260922-1";
 import { scheduleRemeshPreview, closeRemeshPreview, isCurrentRemeshPreview, finishRemeshPreview } from "./modules/remesh-preview-lifecycle.js";
 import { buildHairRigProposals } from "./modules/hair-rig-proposals.js";
+import { createHairRigSourceResolver, hairRigSourceForObject } from "./modules/hair-rig-sources.js?v=20261001-1";
+import { buildOutlinerHierarchy } from "./modules/outliner-hierarchy.js?v=20261001-1";
+import { STRESS_TEST_GEM_ID, STRESS_TEST_GEM_LOOK, normalizeStressTestSettings, stressTestStrandData, stressTestOutlinerObjects, appendStressTestRig, meanStressTestTime, summarizeStressTestFrames, nextStressTestFrame, disposeStressTestResources } from "./modules/stress-test.js?v=20261001-2";
 import { strokeSettingsOwner, createStrokeSettingsState, switchStrokeSettingsOwner } from "./modules/brush-settings-state.js?v=20260904-1";
 import { brushToolContext, brushStyleTransition } from "./modules/brush-tool-context.js?v=20260904-1";
 import { meshComponentSelectionAfterPick, meshComponentSelectionAfterMatches } from "./modules/mesh-selection.js?v=20260904-2";
@@ -311,9 +315,12 @@ import {
 } from "./modules/grease-pencil.js?v=20260828-6";
 import {
   createSelectionSetRecord,
+  existingSelectionSetIds,
   normalizeSelectionSets,
+  selectionSetMatchesSelection,
+  selectionSetObjectsInSceneOrder,
   updateSelectionSetMembers
-} from "./modules/selection-sets.js?v=20260804-2";
+} from "./modules/selection-sets.js?v=20261001-3";
 import {
   layoutRadialOptions,
   layoutRadialSubmenuSlots,
@@ -356,7 +363,7 @@ import {
   TAPER_VALUE_MAX,
   TWIST_CURVE_DISPLAY_RANGE_DEFAULT,
   TWIST_CURVE_VALUE_MAX
-} from "./modules/app-config.js?v=20260911-1";
+} from "./modules/app-config.js?v=20261001-1";
 import {
   BoundedHistory,
   expandHistoryDependencyIds,
@@ -378,10 +385,11 @@ import {
   pointInsideScreenBounds,
   resolveStrandSelection,
   restoreStrandSelection,
+  selectedStrandObjectsInOrder,
   segmentIntersectsScreenBounds,
   screenBoundsOverlap,
   triangleIntersectsScreenBounds
-} from "./modules/selection-state.js?v=20260904-2";
+} from "./modules/selection-state.js?v=20261001-2";
 import { relativeEditValue } from "./modules/multi-edit.js?v=20260802-1";
 import {
   fanTriangleEdgeMasks,
@@ -401,17 +409,20 @@ import {
 } from "./modules/anime-hair-shaders.js?v=20260806-9";
 import { GEM_SHADER, createGemHairMaterial, applyMintCrystalLook, normalizeGemFracturing, setGemHairFracturing, normalizeGemDepth, setGemHairDepth, captureGemRestPosition } from "./modules/gem-hair-shader.js";
 import {
+  createHairMaterialResolver,
   defaultMaterialIdForGeometry,
   ensureRequiredMaterialDefinitions,
   hairMaterialPresetValue,
   hairMaterialUsageCounts,
+  hairGradientStopsEqual,
   MAX_HAIR_GRADIENT_STOPS,
   normalizeHairGradientStops,
   normalizeHairMaterialDefinition,
   normalizeHairMaterialPresetLibrary,
   removeHairMaterialPreset,
   resolveHairMaterialDefinition
-} from "./modules/material-state.js?v=20260904-1";
+} from "./modules/material-state.js?v=20261001-1";
+import { hairMaterialEditorView } from './modules/material-editor-state.js';
 import {
   createDocumentLocalizer,
   DEFAULT_LANGUAGE,
@@ -1824,6 +1835,7 @@ let pendingCurveLatticePresetRemoval = null;
 let activeHairGradientStopIndex = 0;
 let hairGradientStopDrag = null;
 const hairGradientTextures = new Map();
+const hairGradientTextureStops = new WeakMap();
 function nextStrandName(region = "unassigned", excludedLockId = null) {
   const group = STRAND_GROUPS.find((item) => item.id === region) || STRAND_GROUPS.at(-1);
   const usedNames = new Set(
@@ -3721,6 +3733,20 @@ const hairMaterialAnimeNumericControls = Object.fromEntries(
     }];
   })
 );
+const hairMaterialEditorNumericControls = {
+  roughness: { input: hairMaterialRoughnessInput, output: hairMaterialRoughnessValue, digits: 2 },
+  gemFracturing: { input: hairMaterialGemFracturingInput, output: hairMaterialGemFracturingValue, digits: 2 },
+  ...Object.fromEntries(Object.entries(hairMaterialGemDepthControls).map(([key, control]) => [key, { ...control, digits: 2 }])),
+  ...Object.fromEntries(Object.entries(hairMaterialAnimeNumericControls).map(([key, control]) => [key, {
+    ...control, digits: ANIME_ANISOTROPIC_NUMERIC_FIELDS[key].digits
+  }])),
+  animeOutlineWidth: { input: hairMaterialAnimeOutlineWidthInput, output: hairMaterialAnimeOutlineWidthValue, digits: 1 },
+  animeOutlineOverlapWidth: { input: hairMaterialAnimeOutlineOverlapWidthInput, output: hairMaterialAnimeOutlineOverlapWidthValue, digits: 1 },
+  animeOutlineDepthGap: { input: hairMaterialAnimeOutlineDepthGapInput, output: hairMaterialAnimeOutlineDepthGapValue, digits: 3 }
+};
+const hairMaterialEditorNumericDigits = Object.fromEntries(
+  Object.entries(hairMaterialEditorNumericControls).map(([key, control]) => [key, control.digits])
+);
 const guideInputs = {
   x: document.querySelector("#guideX"),
   y: document.querySelector("#guideY"),
@@ -3753,6 +3779,18 @@ const turntablePanel = document.querySelector("#turntablePanel");
 const turntableSpeedInput = document.querySelector("#turntableSpeed");
 const turntableSpeedValue = document.querySelector("#turntableSpeedValue");
 const toggleUvCheckerButton = document.querySelector("#toggleUvChecker");
+const stressTestDialog = document.querySelector("#stressTestDialog");
+let stressTestSession = null;
+let stressTestReport = null;
+// The modal owns keyboard input; viewport shortcuts must not change the real
+// project while its viewport is paused. Native field/button behavior survives.
+for (const type of ["keydown", "keyup"]) window.addEventListener(type, (event) => {
+  if (!stressTestDialog.open) return;
+  event.stopImmediatePropagation();
+  if (type === "keydown" && event.key === "Escape") {
+    event.preventDefault();stressTestDialog.close();
+  }
+}, true);
 const uvCheckerMenuState = document.querySelector("#uvCheckerMenuState");
 const uvInspectorWindow = document.querySelector("#uvInspectorWindow");
 const uvInspectorCanvas = document.querySelector("#uvInspectorCanvas");
@@ -20647,11 +20685,16 @@ function hairGradientCss(stops) {
 }
 
 function sampleHairGradientColor(stops, position, target = new THREE.Color()) {
-  const normalized = normalizeHairGradientStops(stops);
+  return sampleNormalizedHairGradientColor(normalizeHairGradientStops(stops), position, target);
+}
+
+// Texture builds reuse one detached, normalized stop list for all texels.
+// Standalone samples still normalize live authored stops at their entry point.
+function sampleNormalizedHairGradientColor(normalized, position, target) {
   const t = THREE.MathUtils.clamp(Number(position) || 0, 0, 1);
   let right = normalized.findIndex((stop) => stop.position >= t);
-  if (right <= 0) return target.set(normalized[Math.max(0, right)]?.color || normalized[0].color);
   if (right < 0) return target.set(normalized.at(-1).color);
+  if (right === 0) return target.set(normalized[0].color);
   const left = normalized[right - 1];
   const next = normalized[right];
   const span = Math.max(0.000001, next.position - left.position);
@@ -20671,21 +20714,25 @@ function syncHairGradientTexture(definition) {
     hairGradientTextures.set(definition.id, texture);
   }
   const data = texture.image.data;
+  const stops = normalizeHairGradientStops(definition.baseColorGradientStops);
+  const previous = hairGradientTextureStops.get(texture);
+  if (previous?.data === data && hairGradientStopsEqual(previous.stops, stops)) return texture;
   const color = new THREE.Color();
   for (let index = 0; index < 256; index += 1) {
-    sampleHairGradientColor(definition.baseColorGradientStops, index / 255, color);
+    sampleNormalizedHairGradientColor(stops, index / 255, color);
     const offset = index * 4;
     data[offset] = Math.round(THREE.MathUtils.clamp(color.r, 0, 1) * 255);
     data[offset + 1] = Math.round(THREE.MathUtils.clamp(color.g, 0, 1) * 255);
     data[offset + 2] = Math.round(THREE.MathUtils.clamp(color.b, 0, 1) * 255);
     data[offset + 3] = 255;
   }
+  hairGradientTextureStops.set(texture, { data, stops });
   texture.needsUpdate = true;
   return texture;
 }
 
-function hairMaterialGradientActive(lock) {
-  return Boolean(materialForLock(lock)?.baseColorGradientEnabled && !showGroupColors);
+function hairMaterialGradientActive(lock, definition = materialForLock(lock)) {
+  return Boolean(definition?.baseColorGradientEnabled && !showGroupColors);
 }
 
 function strandGradientTintColor(lock) {
@@ -20705,10 +20752,9 @@ function strandGradientTintColor(lock) {
   return 0xffffff;
 }
 
-function strandDisplayColor(lock) {
+function strandDisplayColor(lock, definition = materialForLock(lock)) {
   const layer = HAIR_LAYERS.find((item) => item.id === normalizeHairLayer(lock.hairLayer)) || HAIR_LAYERS[1];
   const region = SCALP_REGIONS[lock.scalpRegion || "unassigned"] || SCALP_REGIONS.unassigned;
-  const definition = materialForLock(lock);
   const materialColor = definition.shader === ANIME_ANISOTROPIC_SHADER
     ? definition.animeBaseColor
     : definition.color;
@@ -20736,9 +20782,8 @@ function setAnimeHairBaseColor(material, color) {
   material.color.set(color);
 }
 
-function applyHairBaseGradient(material, lock) {
-  const definition = materialForLock(lock);
-  const enabled = hairMaterialGradientActive(lock);
+function applyHairBaseGradient(material, lock, definition = materialForLock(lock)) {
+  const enabled = hairMaterialGradientActive(lock, definition);
   const texture = enabled ? syncHairGradientTexture(definition) : null;
   if (material.userData.hairShader === ANIME_ANISOTROPIC_SHADER) {
     material.uniforms.uBaseGradient.value = texture || material.uniforms.uBaseGradient.value;
@@ -20750,12 +20795,11 @@ function applyHairBaseGradient(material, lock) {
   if (hadMap !== Boolean(texture)) material.needsUpdate = true;
 }
 
-function createAnimeAnisotropicMaterial(lock) {
-  const definition = materialForLock(lock);
+function createAnimeAnisotropicMaterial(lock, definition = materialForLock(lock)) {
   const material = new THREE.ShaderMaterial({
     name: "HairAnimeAnisotropicMaterial",
     uniforms: {
-      uBaseColor: { value: new THREE.Color(hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandDisplayColor(lock)) },
+      uBaseColor: { value: new THREE.Color(hairMaterialGradientActive(lock, definition) ? strandGradientTintColor(lock) : strandDisplayColor(lock, definition)) },
       uBaseGradient: { value: syncHairGradientTexture(definition) },
       uUseBaseGradient: { value: definition.baseColorGradientEnabled && !showGroupColors ? 1 : 0 },
       uShadowColor: { value: new THREE.Color(definition.animeShadowColor) },
@@ -20793,18 +20837,17 @@ function createAnimeAnisotropicMaterial(lock) {
   return material;
 }
 
-function createHairMaterial(lock) {
-  const definition = materialForLock(lock);
+function createHairMaterial(lock, definition = materialForLock(lock)) {
   if (definition.shader === ANIME_ANISOTROPIC_SHADER) {
-    const material = createAnimeAnisotropicMaterial(lock);
+    const material = createAnimeAnisotropicMaterial(lock, definition);
     material.userData.definition = definition;
     return material;
   }
   if (definition.shader === LAMBERT_SHADER) {
     const material = new THREE.MeshLambertMaterial({
       name: "HairLambertMaterial",
-      color: hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandDisplayColor(lock),
-      map: hairMaterialGradientActive(lock) ? syncHairGradientTexture(definition) : null,
+      color: hairMaterialGradientActive(lock, definition) ? strandGradientTintColor(lock) : strandDisplayColor(lock, definition),
+      map: hairMaterialGradientActive(lock, definition) ? syncHairGradientTexture(definition) : null,
       vertexColors: true,
       side: THREE.FrontSide,
       transparent: false,
@@ -20825,8 +20868,8 @@ function createHairMaterial(lock) {
       gemFractureDepth: definition.gemFractureDepth,
       gemPearlescence: definition.gemPearlescence,
       gemRainbowReflections: definition.gemRainbowReflections,
-      color: hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandDisplayColor(lock),
-      map: hairMaterialGradientActive(lock) ? syncHairGradientTexture(definition) : null,
+      color: hairMaterialGradientActive(lock, definition) ? strandGradientTintColor(lock) : strandDisplayColor(lock, definition),
+      map: hairMaterialGradientActive(lock, definition) ? syncHairGradientTexture(definition) : null,
       roughness: definition.roughness,
       vertexColors: true,
       side: THREE.FrontSide
@@ -20836,8 +20879,8 @@ function createHairMaterial(lock) {
   }
   const material = new THREE.MeshPhysicalMaterial({
     name: "HairAnisotropicMaterial",
-    color: hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandDisplayColor(lock),
-    map: hairMaterialGradientActive(lock) ? syncHairGradientTexture(definition) : null,
+    color: hairMaterialGradientActive(lock, definition) ? strandGradientTintColor(lock) : strandDisplayColor(lock, definition),
+    map: hairMaterialGradientActive(lock, definition) ? syncHairGradientTexture(definition) : null,
     roughness: definition.roughness,
     metalness: 0,
     anisotropy: 1,
@@ -20953,14 +20996,14 @@ function setShowBackfacesEnabled(enabled) {
   requestShadowMapRefresh();
 }
 
-function applyMaterialDefinitionToLock(lock) {
+function applyMaterialDefinitionToLock(lock, definition = null) {
   if (lock.mesh.material === lock.uvCheckerMaterial && lock.uvCheckerOriginalMaterial) {
     lock.mesh.material = lock.uvCheckerOriginalMaterial;
   }
-  const definition = materialForLock(lock);
+  definition ||= materialForLock(lock);
   if (lock.mesh.material.userData.hairShader !== definition.shader) {
     const previousMaterial = lock.mesh.material;
-    lock.mesh.material = createHairMaterial(lock);
+    lock.mesh.material = createHairMaterial(lock, definition);
     lock.mesh.material.side = strandUsesDoubleSidedMaterial(lock)
       ? THREE.DoubleSide
       : THREE.FrontSide;
@@ -20971,9 +21014,9 @@ function applyMaterialDefinitionToLock(lock) {
   setGemHairDepth(lock.mesh.material, definition);
   setAnimeHairBaseColor(
     lock.mesh.material,
-    hairMaterialGradientActive(lock) ? strandGradientTintColor(lock) : strandViewportBaseColor(lock)
+    hairMaterialGradientActive(lock, definition) ? strandGradientTintColor(lock) : strandViewportBaseColor(lock, definition)
   );
-  applyHairBaseGradient(lock.mesh.material, lock);
+  applyHairBaseGradient(lock.mesh.material, lock, definition);
   if (lock.mesh.material.userData.hairShader === STANDARD_ANISOTROPIC_SHADER || lock.mesh.material.userData.hairShader === GEM_SHADER) {
     lock.mesh.material.roughness = definition.roughness;
   } else if (lock.mesh.material.userData.hairShader === ANIME_ANISOTROPIC_SHADER) {
@@ -20983,7 +21026,7 @@ function applyMaterialDefinitionToLock(lock) {
       lock.mesh.material.uniforms[uniformName].value = definition[key];
     });
   }
-  updateStrandSelectionHighlightForLock(lock);
+  updateStrandSelectionHighlightForLock(lock, definition);
   if (uvCheckerEnabled) ensureUvCheckerForLock(lock);
 }
 
@@ -21105,10 +21148,12 @@ function commitRemoveHairMaterialPreset() {
 }
 
 function refreshMaterialUsers(materialId) {
+  const resolve = createHairMaterialResolver(projectMaterialDefinitions);
   locks.forEach((lock) => {
-    if ((lock.materialId || defaultMaterialIdForLockData(lock)) === materialId) applyMaterialDefinitionToLock(lock);
+    const id = lock.materialId || defaultMaterialIdForLockData(lock);
+    if (id === materialId) applyMaterialDefinitionToLock(lock, resolve(id));
   });
-  updateStrandSelectionHighlight();
+  updateStrandSelectionHighlight(resolve);
   if (drawStrandStroke) updateDrawStrandPreview();
   renderLockList();
 }
@@ -21220,6 +21265,39 @@ function renderHairMaterialOptions(selectedMaterialId = DEFAULT_HAIR_MATERIAL_ID
   hairMaterialSelect.value = projectMaterialDefinition(selectedMaterialId).id;
 }
 
+// Shared numeric wiring only: shader-specific normalization, undo capture and
+// generated slider/reset interactions retain their existing owners.
+function bindHairMaterialNumericControl(key, control, normalize = Number, digits = 2) {
+  control.input.addEventListener("input", () => {
+    markHairMaterialPresetCustom();
+    const material = activeHairMaterialDefinition();
+    material[key] = normalize(control.input.value);
+    control.output.textContent = material[key].toFixed(digits);
+    refreshMaterialUsers(material.id);
+  });
+}
+
+function bindHairMaterialColorControl(key, input) {
+  input.addEventListener("input", () => {
+    markHairMaterialPresetCustom();
+    const material = activeHairMaterialDefinition();
+    material[key] = input.value;
+    refreshMaterialUsers(material.id);
+    // Do not rebuild the editor while a native color picker is open.
+    renderHairMaterialOutliner();
+  });
+}
+
+function bindHairMaterialToggleControl(key, input) {
+  input.addEventListener("change", () => {
+    markHairMaterialPresetCustom();
+    const material = activeHairMaterialDefinition();
+    material[key] = input.checked;
+    refreshMaterialUsers(material.id);
+    syncHairMaterialEditor();
+  });
+}
+
 function syncHairMaterialEditor(lock = null) {
   if (lock) {
     activeHairMaterialId = materialForLock(lock).id;
@@ -21233,39 +21311,24 @@ function syncHairMaterialEditor(lock = null) {
   hairMaterialNameInput.value = definition.name;
   hairMaterialShaderInput.value = definition.shader;
   hairMaterialColorInput.value = definition.color;
-  hairMaterialRoughnessInput.value = String(definition.roughness);
-  hairMaterialRoughnessValue.textContent = definition.roughness.toFixed(2);
   syncHairMaterialGradientEditor();
-  const animeShader = definition.shader === ANIME_ANISOTROPIC_SHADER;
-  hairMaterialStandardControls.classList.toggle("hidden", animeShader);
-  hairMaterialRoughnessControl.classList.toggle("hidden", definition.shader !== STANDARD_ANISOTROPIC_SHADER && definition.shader !== GEM_SHADER);
-  hairMaterialGemControls.classList.toggle("hidden", definition.shader !== GEM_SHADER);
-  hairMaterialGemFracturingInput.value = String(definition.gemFracturing);
-  hairMaterialGemFracturingValue.textContent = definition.gemFracturing.toFixed(2);
-  Object.entries(hairMaterialGemDepthControls).forEach(([key, control]) => {
-    control.input.value = String(definition[key]);
-    control.output.textContent = definition[key].toFixed(2);
-  });
-  hairMaterialAnimeControls.classList.toggle("hidden", !animeShader);
-  hairMaterialAnimeOutlineEnabledInput.checked = definition.animeOutlineEnabled;
-  hairMaterialAnimeShadowJaggednessEnabledInput.checked = definition.animeShadowJaggednessEnabled;
-  hairMaterialAnimeOutlineSettings.hidden = !definition.animeOutlineEnabled;
-  hairMaterialAnimeOutlineWidthInput.value = String(definition.animeOutlineWidth);
-  hairMaterialAnimeOutlineWidthValue.textContent = definition.animeOutlineWidth.toFixed(1);
-  hairMaterialAnimeOutlineOverlapEnabledInput.checked = definition.animeOutlineOverlapEnabled;
-  hairMaterialAnimeOutlineOverlapWidthInput.disabled = !definition.animeOutlineOverlapEnabled;
-  hairMaterialAnimeOutlineOverlapWidthInput.value = String(definition.animeOutlineOverlapWidth);
-  hairMaterialAnimeOutlineOverlapWidthValue.textContent = definition.animeOutlineOverlapWidth.toFixed(1);
-  hairMaterialAnimeOutlineDepthGapInput.disabled = !definition.animeOutlineOverlapEnabled;
-  hairMaterialAnimeOutlineDepthGapInput.value = String(definition.animeOutlineDepthGap);
-  hairMaterialAnimeOutlineDepthGapValue.textContent = definition.animeOutlineDepthGap.toFixed(3);
+  const view = hairMaterialEditorView(definition, hairMaterialEditorNumericDigits);
+  hairMaterialStandardControls.classList.toggle("hidden", !view.showStandard);
+  hairMaterialRoughnessControl.classList.toggle("hidden", !view.showRoughness);
+  hairMaterialGemControls.classList.toggle("hidden", !view.showGem);
+  hairMaterialAnimeControls.classList.toggle("hidden", !view.showAnime);
+  hairMaterialAnimeOutlineEnabledInput.checked = view.outlineEnabled;
+  hairMaterialAnimeShadowJaggednessEnabledInput.checked = view.shadowJaggednessEnabled;
+  hairMaterialAnimeOutlineSettings.hidden = !view.outlineEnabled;
+  hairMaterialAnimeOutlineOverlapEnabledInput.checked = view.overlapEnabled;
+  hairMaterialAnimeOutlineOverlapWidthInput.disabled = !view.overlapEnabled;
+  hairMaterialAnimeOutlineDepthGapInput.disabled = !view.overlapEnabled;
   Object.entries(hairMaterialAnimeColorInputs).forEach(([key, input]) => {
     input.value = definition[key];
   });
-  Object.entries(hairMaterialAnimeNumericControls).forEach(([key, control]) => {
-    const field = ANIME_ANISOTROPIC_NUMERIC_FIELDS[key];
-    control.input.value = String(definition[key]);
-    control.output.textContent = Number(definition[key]).toFixed(field.digits);
+  Object.entries(hairMaterialEditorNumericControls).forEach(([key, control]) => {
+    control.input.value = view.numeric[key].value;
+    control.output.textContent = view.numeric[key].text;
   });
 }
 
@@ -25039,14 +25102,14 @@ function setMirrorXEditing(enabled) {
 }
 
 function hairRigSourceForLock(lock) {
-  const guide = clumpGuideForLock(lock);
-  return proceduralGuideForLock(lock) || (guide?.proceduralBrushGuide ? guide : lock);
+  return hairRigSourceForObject(lock, clumpGuideForLock(lock));
 }
 
 function hairRigSources() {
   const sources = new Map();
+  const resolveSource = createHairRigSourceResolver(locks);
   locks.filter(lock => !isModelingMesh(lock) && !['surface', 'curve-surface'].includes(lock.geometryType) && lock.points?.length > 1).forEach(lock => {
-    const source = hairRigSourceForLock(lock);
+    const source = resolveSource(lock);
     sources.set(source.id, source);
   });
   return [...sources.values()];
@@ -25354,52 +25417,47 @@ function exitHairPosePreview() {
   hairBindingBlendEdit = null;
   hairRootWeightEdit = null;
   scene.remove(preview.group);
-  preview.meshes.forEach(entry => { entry.clone.geometry.dispose(); entry.weightMaterial?.dispose(); });
+  disposeHairPosePreview(preview);
   requestShadowMapRefresh();
   rebuildHairRigVisuals();
   if (viewportEditMode === 'rigging') { renderHairRigUI(); attachHairRigTransform(); }
+}
+
+function createHairPoseMeshEntries(lock, rig, preview) {
+  const entries = [];
+  for (const object of [lock.mesh, lock.wireOverlay].filter(object => object?.geometry?.attributes.position)) {
+    object.updateWorldMatrix(true, false);
+    const geometry = object.geometry.clone();
+    preview.ownedGeometries.add(geometry);
+    captureGemRestPosition(THREE, geometry);
+    const clone = object.isLineSegments ? new THREE.LineSegments(geometry, object.material) : new THREE.Mesh(geometry, object.material);
+    clone.matrixAutoUpdate = false; clone.matrix.copy(object.matrixWorld); clone.renderOrder = object.renderOrder;
+    clone.castShadow = object.castShadow; clone.receiveShadow = object.receiveShadow;
+    preview.group.add(clone);
+    const position = object.geometry.attributes.position;
+    const points = Array.from({length: position.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(object.matrixWorld).toArray());
+    const entry = {rigId: rig.id, lock, object, clone, sourceGeometry: object.geometry, points,
+      inverse: object.matrixWorld.clone().invert(), weights: automaticHairWeights(points, rig.joints, rig.bindingBlend ?? 1)};
+    const tangent = object.geometry.attributes.tangent;
+    if (tangent) entry.tangents = Array.from({length: tangent.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(tangent, i).transformDirection(object.matrixWorld).toArray());
+    entries.push(entry);
+  }
+  return entries;
 }
 
 function startHairPosePreview() {
   cancelHairRigCreationPreview();
   if (viewportEditMode !== 'rigging' || hairPosePreview) return;
   finishHairRigTransform(true);
-  const preview = {rigs: new Map(), meshes: [], undo: [], redo: [], group: new THREE.Group()};
-  const owners = new Set();
+  let preview;
   try {
-    for (const rig of hairRigs) {
-      preview.rigs.set(rig.id, {id: rig.id, joints: rig.joints.map(p => [...p]), matrices: rig.joints.map(() => new THREE.Matrix4().toArray())});
-      if (!rig.boundStrandIds?.length) continue;
-      for (const id of rig.boundStrandIds) {
-        const lock = locks.find(item => item.id === id);
-        if (!lock?.mesh?.geometry?.attributes.position) continue;
-        if (owners.has(id)) throw new Error('A strand belongs to multiple chains. Unbind the conflicting chain first.');
-        owners.add(id);
-        for (const object of [lock.mesh, lock.wireOverlay].filter(object => object?.geometry?.attributes.position)) {
-          object.updateWorldMatrix(true, false);
-          const geometry = object.geometry.clone();
-          captureGemRestPosition(THREE, geometry);
-          const clone = object.isLineSegments ? new THREE.LineSegments(geometry, object.material) : new THREE.Mesh(geometry, object.material);
-          clone.matrixAutoUpdate = false; clone.matrix.copy(object.matrixWorld); clone.renderOrder = object.renderOrder;
-          clone.castShadow = object.castShadow; clone.receiveShadow = object.receiveShadow;
-          preview.group.add(clone);
-          const position = object.geometry.attributes.position;
-          const points = Array.from({length: position.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(position, i).applyMatrix4(object.matrixWorld).toArray());
-          const entry = {rigId: rig.id, lock, object, clone, sourceGeometry: object.geometry, points,
-            inverse: object.matrixWorld.clone().invert(), weights: automaticHairWeights(points, rig.joints, rig.bindingBlend ?? 1)};
-          const tangent = object.geometry.attributes.tangent;
-          if (tangent) entry.tangents = Array.from({length: tangent.count}, (_, i) => new THREE.Vector3().fromBufferAttribute(tangent, i).transformDirection(object.matrixWorld).toArray());
-          preview.meshes.push(entry);
-        }
-      }
-    }
-    if (!preview.meshes.length) throw new Error('Bind a chain to source strands first.');
+    preview = createHairPosePreview({rigs: hairRigs, locks, group: new THREE.Group(), createEntries: createHairPoseMeshEntries});
     preview.group.visible = false; scene.add(preview.group); hairPosePreview = preview;
     updateHairPoseMeshes(); rebuildHairRigVisuals(); renderHairRigUI(); attachHairRigTransform();
     document.querySelector('#hairRigMessage').textContent = 'Pose Preview · Temporary poses are not saved or exported.';
   } catch (error) {
     if (hairPosePreview) exitHairPosePreview();
-    else preview.group.traverse(object => object.geometry?.dispose());
+    else if (preview) { scene.remove(preview.group); disposeHairPosePreview(preview); }
     document.querySelector('#hairRigMessage').textContent = error.message;
   }
 }
@@ -25446,45 +25504,57 @@ function resetHairPhysics() {
   applyHairPose(physics.initial); renderHairRigUI();
 }
 
-function updateHairPhysics(elapsed) {
-  const physics = hairPosePreview?.physics;
-  if (!physics?.playing || viewportEditMode !== 'rigging') return;
-  const options = Object.fromEntries(['gravity', 'stiffness', 'damping'].map(key => [key, Number(document.querySelector(`[data-hair-physics="${key}"]`).value)]));
-  const headDelta = physics.head ? syncHairPhysicsHead() : new THREE.Matrix4();
+function updateHairPhysics(elapsed, diagnostic = null) {
+  const preview = diagnostic?.preview || hairPosePreview;
+  const rigs = diagnostic?.rigs || hairRigs;
+  const physics = preview?.physics;
+  if (!physics?.playing || (!diagnostic && viewportEditMode !== 'rigging')) return;
+  const options = diagnostic?.options || Object.fromEntries(['gravity', 'stiffness', 'damping'].map(key => [key, Number(document.querySelector(`[data-hair-physics="${key}"]`).value)]));
+  const headDelta = diagnostic ? diagnostic.headDelta : physics.head ? syncHairPhysicsHead() : new THREE.Matrix4();
   const headRotation = physics.head?.rotation || new THREE.Quaternion();
-  for (const authored of orderedHairRigs(hairRigs)) {
-    const initial=physics.initial.find(rig=>rig.id===authored.id);if(!initial)continue;
+  const initialById = new Map();
+  for (const rig of physics.initial) if (!initialById.has(rig.id)) initialById.set(rig.id, rig);
+  // Scratch math belongs to this update only; emitted joints/matrices remain
+  // detached arrays, and attachment/initial lookups are refreshed every frame.
+  const vector = new THREE.Vector3(), parentVector = new THREE.Vector3(), from = new THREE.Vector3(), to = new THREE.Vector3();
+  const rotation = new THREE.Quaternion(), parentRotation = new THREE.Quaternion();
+  const parentDelta = new THREE.Matrix4(), parentInverse = new THREE.Matrix4(), parentFrame = new THREE.Matrix4();
+  const posedMatrix = new THREE.Matrix4(), rotationMatrix = new THREE.Matrix4(), originMatrix = new THREE.Matrix4(), restMatrix = new THREE.Matrix4();
+  for (const authored of orderedHairRigs(rigs)) {
+    const initial=initialById.get(authored.id);if(!initial)continue;
     const chain = physics.chains.get(initial.id);
     let attachmentDelta=headDelta,attachmentRotation=headRotation;
     if(authored.parentBone) {
-      const parent=hairPosePreview.rigs.get(authored.parentBone.rigId),original=physics.initial.find(rig=>rig.id===authored.parentBone.rigId);
+      const parent=preview.rigs.get(authored.parentBone.rigId),original=initialById.get(authored.parentBone.rigId);
       const index=authored.parentBone.joint;
       if(parent&&original) {
-        attachmentDelta=new THREE.Matrix4().fromArray(parent.matrices[index]).multiply(new THREE.Matrix4().fromArray(original.matrices[index]).invert());
-        attachmentRotation=new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().extractRotation(attachmentDelta));
+        attachmentDelta=parentDelta.fromArray(parent.matrices[index]).multiply(parentInverse.fromArray(original.matrices[index]).invert());
+        attachmentRotation=parentRotation.setFromRotationMatrix(parentFrame.extractRotation(attachmentDelta));
       }
     }
-    chain.rest = initial.joints.map(p => new THREE.Vector3(...p).applyMatrix4(attachmentDelta).toArray());
+    chain.rest = initial.joints.map(p => vector.set(...p).applyMatrix4(attachmentDelta).toArray());
     const enabled = authored?.physicsEnabled || [];
     chain.normals = initial.joints.map((_,i) => {
       const normal = authored?.normals?.[i] || rigJointFrame(authored?.joints || initial.joints,[],i).z;
       const posed = transformRigNormals([normal],initial.matrices[i])[0];
-      return new THREE.Vector3(...posed).applyQuaternion(attachmentRotation).toArray();
+      return vector.set(...posed).applyQuaternion(attachmentRotation).toArray();
     });
     const points = stepChainSimulation(chain, elapsed, {...options, enabled, limits:authored?.rotationLimits || [], normals:chain.normals});
     const matrices = points.map((point, i) => {
       const bone = Math.min(i, points.length - 2);
-      const from = new THREE.Vector3(...initial.joints[bone + 1]).sub(new THREE.Vector3(...initial.joints[bone])).normalize().applyQuaternion(attachmentRotation);
-      const to = new THREE.Vector3(...points[bone + 1]).sub(new THREE.Vector3(...points[bone])).normalize();
-      const rotation = from.lengthSq() && to.lengthSq() ? new THREE.Quaternion().setFromUnitVectors(from, to) : new THREE.Quaternion();
+      from.set(...initial.joints[bone + 1]).sub(parentVector.set(...initial.joints[bone])).normalize().applyQuaternion(attachmentRotation);
+      to.set(...points[bone + 1]).sub(parentVector.set(...points[bone])).normalize();
+      if (from.lengthSq() && to.lengthSq()) rotation.setFromUnitVectors(from, to);
+      else rotation.identity();
       rotation.multiply(attachmentRotation);
-      return new THREE.Matrix4().makeTranslation(...point)
-        .multiply(new THREE.Matrix4().makeRotationFromQuaternion(rotation))
-        .multiply(new THREE.Matrix4().makeTranslation(...initial.joints[i].map(v => -v)))
-        .multiply(new THREE.Matrix4().fromArray(initial.matrices[i])).toArray();
+      return posedMatrix.makeTranslation(...point)
+        .multiply(rotationMatrix.makeRotationFromQuaternion(rotation))
+        .multiply(originMatrix.makeTranslation(-initial.joints[i][0], -initial.joints[i][1], -initial.joints[i][2]))
+        .multiply(restMatrix.fromArray(initial.matrices[i])).toArray();
     });
-    hairPosePreview.rigs.set(initial.id, {id: initial.id, joints: points.map(p => [...p]), matrices});
+    preview.rigs.set(initial.id, {id: initial.id, joints: points.map(p => [...p]), matrices});
   }
+  if (diagnostic) return; // The isolated controller times skinning separately; never touch editor helpers.
   updateHairPoseMeshes(); updateHairRigVisualPose();
 }
 
@@ -25614,28 +25684,51 @@ function updateHairWeightPreview() {
   }
 }
 
-function updateHairPoseMeshes() {
-  if (!hairPosePreview) return;
-  for (const entry of hairPosePreview.meshes) {
-    const matrices = hairPosePreview.rigs.get(entry.rigId).matrices;
-    const rootWeight = hairRigs.find(rig => rig.id === entry.rigId)?.rootWeights?.[entry.lock.id] || 0;
-    const rootMatrix = hairPosePreview.physics?.head?.delta || null;
+function updateHairPoseMeshes(preview = hairPosePreview, rigs = hairRigs, refreshShadows = true) {
+  if (!preview) return;
+  const scratch = new THREE.Vector3();
+  // Empty and single-rig previews need no full index. On a second distinct
+  // rig, index the current collection once instead of searching per chain.
+  // Rebuild every frame so root edits, resets and replacements cannot go stale.
+  let restById = null, firstRigId, firstRig, resolvedFirst = false;
+  const rootMatrix = preview.physics?.head?.delta || null;
+  for (const entry of preview.meshes) {
+    const matrices = preview.rigs.get(entry.rigId).matrices;
+    let rest;
+    if (!resolvedFirst) {
+      firstRigId = entry.rigId;firstRig = rigs.find(rig => rig.id === firstRigId);resolvedFirst = true;
+      rest = firstRig;
+    } else if (entry.rigId === firstRigId) rest = firstRig;
+    else {
+      if (!restById) {
+        restById = new Map();
+        for (const rig of rigs) {
+          const id = rig.id;
+          // Preserve Array.find's strict-equality behavior, including invalid NaN IDs.
+          if (id === id && !restById.has(id)) restById.set(id, rig);
+        }
+      }
+      rest = restById.get(entry.rigId);
+    }
+    const rootWeight = rest?.rootWeights?.[entry.lock.id] || 0;
     const position = entry.clone.geometry.attributes.position;
-    skinHairPoints(entry.points, entry.weights, matrices, false, rootWeight, rootMatrix).forEach((p, i) => {
-      const point = new THREE.Vector3(...p).applyMatrix4(entry.inverse); position.setXYZ(i, point.x, point.y, point.z);
+    entry.skinnedPoints = skinHairPoints(entry.points, entry.weights, matrices, false, rootWeight, rootMatrix, entry.skinnedPoints);
+    entry.skinnedPoints.forEach((p, i) => {
+      const point = scratch.set(...p).applyMatrix4(entry.inverse); position.setXYZ(i, point.x, point.y, point.z);
     });
     position.needsUpdate = true;
     if (entry.clone.isMesh) entry.clone.geometry.computeVertexNormals();
     if (entry.tangents) {
       const tangent = entry.clone.geometry.attributes.tangent;
-      skinHairPoints(entry.tangents, entry.weights, matrices, true, rootWeight, rootMatrix).forEach((p, i) => {
-        const direction = new THREE.Vector3(...p).transformDirection(entry.inverse); tangent.setXYZ(i, direction.x, direction.y, direction.z);
+      entry.skinnedTangents = skinHairPoints(entry.tangents, entry.weights, matrices, true, rootWeight, rootMatrix, entry.skinnedTangents);
+      entry.skinnedTangents.forEach((p, i) => {
+        const direction = scratch.set(...p).transformDirection(entry.inverse); tangent.setXYZ(i, direction.x, direction.y, direction.z);
       });
       tangent.needsUpdate = true;
     }
     entry.clone.geometry.computeBoundingSphere();
   }
-  requestShadowMapRefresh();
+  if (refreshShadows) requestShadowMapRefresh();
 }
 
 function renderRigScene(targetRenderer,targetCamera) {
@@ -25688,10 +25781,8 @@ function displayHairRig(rig) {
   return hairPosePreview?.rigs.get(rig?.id) || rig;
 }
 
-function hairRigJointQuaternion(rig, index) {
-  const rest = hairRigs.find(item => item.id === rig.id) || rig;
-  let normals = rest.normals || rest.joints.map((_, i) => rigJointFrame(rest.joints, [], i).z);
-  if (rig.matrices) normals = normals.map((normal, i) => transformRigNormals([normal], rig.matrices[i])[0]);
+function hairRigJointQuaternion(rig, index, normals = null) {
+  if (!normals) normals = rigPoseNormals(hairRigs.find(item => item.id === rig.id) || rig, rig);
   const frame = rigJointFrame(rig.joints, normals, index);
   return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(
     new THREE.Vector3(...frame.x), new THREE.Vector3(...frame.y), new THREE.Vector3(...frame.z)));
@@ -25787,11 +25878,13 @@ function rebuildHairRigVisuals() {
 // Playback changes poses, not display topology. Keep GPU resources and pick objects alive.
 function updateHairRigVisualPose() {
   if (!rigVisuals) { rebuildHairRigVisuals(); return; }
-  const poses = new Map();
+  const poses = new Map(), restById = new Map(), direction = new THREE.Vector3();
   for (const rig of hairRigs) {
+    if (!restById.has(rig.id)) restById.set(rig.id, rig);
     const pose = displayHairRig(rig);
     const points = pose.joints.map(point => new THREE.Vector3(...point));
-    const length = points.slice(1).reduce((sum, point, i) => sum + point.distanceTo(points[i]), 0);
+    let length = 0;
+    for (let i = 1; i < points.length; i++) length += points[i].distanceTo(points[i - 1]);
     poses.set(rig.id, {rig, pose, points, radius:Math.max(0.004, length * 0.012), frames:new Map()});
   }
   const root = hairPosePreview?.physics?.head?.position || (hairRigRoot && new THREE.Vector3(...hairRigRoot.position));
@@ -25821,9 +25914,14 @@ function updateHairRigVisualPose() {
     const radiusScale = entry.radius / binding.radius;
     object.position.copy(point);
     if (!binding.body) { object.scale.setScalar(radiusScale); continue; }
-    const direction = entry.points[binding.joint + 1].clone().sub(point);
+    direction.copy(entry.points[binding.joint + 1]).sub(point);
     object.position.addScaledVector(direction, 0.5);
-    if (!entry.frames.has(binding.joint)) entry.frames.set(binding.joint, hairRigJointQuaternion(entry.pose, binding.joint));
+    if (!entry.frames.has(binding.joint)) {
+      // Both bone bodies and edge decorations consume this chain's prepared
+      // normals. The map is frame-local so live pose/roll edits remain fresh.
+      entry.normals ||= rigPoseNormals(restById.get(entry.pose.id) || entry.pose, entry.pose);
+      entry.frames.set(binding.joint, hairRigJointQuaternion(entry.pose, binding.joint, entry.normals));
+    }
     object.quaternion.copy(entry.frames.get(binding.joint));
     object.scale.set(radiusScale, binding.length > 0 ? direction.length() / binding.length : 1, radiusScale);
   }
@@ -27286,16 +27384,19 @@ function captureHairstylePresetPreview(lockIds, scopeId = "full") {
     alpha: false,
     preserveDrawingBuffer: true
   });
-  previewRenderer.setPixelRatio(1);
-  previewRenderer.setSize(width, height, false);
-  previewRenderer.outputColorSpace = renderer.outputColorSpace;
-  previewRenderer.toneMapping = renderer.toneMapping;
-  previewRenderer.toneMappingExposure = renderer.toneMappingExposure;
-  previewRenderer.render(previewScene, previewCamera);
-  const image = previewRenderer.domElement.toDataURL("image/jpeg", 0.88);
-  previewRenderer.dispose();
-  previewRenderer.forceContextLoss?.();
-  return image;
+  try {
+    previewRenderer.setPixelRatio(1);
+    previewRenderer.setSize(width, height, false);
+    previewRenderer.outputColorSpace = renderer.outputColorSpace;
+    previewRenderer.toneMapping = renderer.toneMapping;
+    previewRenderer.toneMappingExposure = renderer.toneMappingExposure;
+    previewRenderer.render(previewScene, previewCamera);
+    return previewRenderer.domElement.toDataURL("image/jpeg", 0.88);
+  } finally {
+    // Thumbnail meshes borrow source resources: release only this renderer.
+    try { previewRenderer.dispose(); }
+    finally { previewRenderer.forceContextLoss?.(); }
+  }
 }
 
 function buildHairstylePresetFile(scope, state, previewImage) {
@@ -40761,7 +40862,7 @@ function setGroupColorView(enabled) {
   groupColorToggle.setAttribute("aria-pressed", String(showGroupColors));
   groupColorToggle.title = showGroupColors ? "Show default hair colour" : "Show strand group colours";
   groupColorToggle.setAttribute("aria-label", groupColorToggle.title);
-  locks.forEach(setStrandSelectionVisual);
+  locks.forEach((lock) => setStrandSelectionVisual(lock));
   renderLockList();
 }
 
@@ -41010,16 +41111,16 @@ function meshWorkspaceWireSelection(lock) {
   return Boolean(viewportEditMode === "mesh" && lock && selectedStrandIds.has(lock.id));
 }
 
-function strandViewportBaseColor(lock) {
-  if (hairMaterialGradientActive(lock)) return strandGradientTintColor(lock);
+function strandViewportBaseColor(lock, definition = materialForLock(lock)) {
+  if (hairMaterialGradientActive(lock, definition)) return strandGradientTintColor(lock);
   if (lock.locked) {
-    const mutedColor = new THREE.Color(strandDisplayColor(lock));
+    const mutedColor = new THREE.Color(strandDisplayColor(lock, definition));
     mutedColor.lerp(new THREE.Color(0x747780), 0.18);
     return `#${mutedColor.getHexString()}`;
   }
   if (sculptBrushSelectionMaskActive()) {
-    if (sculptBrushSelectionAllows(lock)) return strandDisplayColor(lock);
-    const maskedColor = new THREE.Color(strandDisplayColor(lock));
+    if (sculptBrushSelectionAllows(lock)) return strandDisplayColor(lock, definition);
+    const maskedColor = new THREE.Color(strandDisplayColor(lock, definition));
     maskedColor.multiplyScalar(0.28);
     return `#${maskedColor.getHexString()}`;
   }
@@ -41030,21 +41131,21 @@ function strandViewportBaseColor(lock) {
   const inSelectedClump = selectedClumpId && lock.clumpId === selectedClumpId;
   if (showSelectionHighlight && inSelectedClump) return lock.id === selectedId ? 0x76d4d9 : 0x5bbec4;
   if (showSelectionHighlight && lock.id === selectedId) {
-    const selectedColor = new THREE.Color(strandDisplayColor(lock));
+    const selectedColor = new THREE.Color(strandDisplayColor(lock, definition));
     selectedColor.lerp(new THREE.Color(STRAND_SELECTION_OUTLINE_COLOR), 0.12);
     return `#${selectedColor.getHexString()}`;
   }
   if (showSelectionHighlight && selectedStrandIds.has(lock.id)) {
-    const selectedColor = new THREE.Color(strandDisplayColor(lock));
+    const selectedColor = new THREE.Color(strandDisplayColor(lock, definition));
     selectedColor.lerp(new THREE.Color(STRAND_SELECTION_OUTLINE_COLOR), 0.08);
     return `#${selectedColor.getHexString()}`;
   }
   if (showSelectionHighlight && strandMirrorPartnerHighlighted(lock)) {
-    const mirrorColor = new THREE.Color(strandDisplayColor(lock));
+    const mirrorColor = new THREE.Color(strandDisplayColor(lock, definition));
     mirrorColor.lerp(new THREE.Color(STRAND_MIRROR_OUTLINE_COLOR), 0.12);
     return `#${mirrorColor.getHexString()}`;
   }
-  return strandDisplayColor(lock);
+  return strandDisplayColor(lock, definition);
 }
 
 function strandMirrorPartnerHighlighted(lock) {
@@ -41096,14 +41197,15 @@ function syncLockedStrandWireVisual(lock) {
   );
 }
 
-function setStrandSelectionVisual(lock) {
+function setStrandSelectionVisual(lock, definition = null) {
   const material = lock?.mesh?.material;
   if (!material) return;
   if (material.userData.uvChecker === true) {
     material.color.set(0xffffff);
   } else {
-    setAnimeHairBaseColor(material, strandViewportBaseColor(lock));
-    applyHairBaseGradient(material, lock);
+    definition ||= materialForLock(lock);
+    setAnimeHairBaseColor(material, strandViewportBaseColor(lock, definition));
+    applyHairBaseGradient(material, lock, definition);
     if (lock.locked) applyLockedStrandPalette(material);
   }
   material.emissive?.set(0x000000);
@@ -41131,12 +41233,15 @@ function syncProceduralParentVisibility(lock) {
   }
 }
 
-function updateStrandSelectionHighlightForLock(item) {
-  setStrandSelectionVisual(item);
+function updateStrandSelectionHighlightForLock(item, definition = null) {
+  setStrandSelectionVisual(item, definition);
 }
 
-function updateStrandSelectionHighlight() {
-  locks.forEach(updateStrandSelectionHighlightForLock);
+function updateStrandSelectionHighlight(resolve = createHairMaterialResolver(projectMaterialDefinitions)) {
+  locks.forEach((item) => updateStrandSelectionHighlightForLock(
+    item, item?.mesh?.material && item.mesh.material.userData?.uvChecker !== true
+      ? resolve(item.materialId || defaultMaterialIdForLockData(item)) : null
+  ));
 }
 
 function refreshStrandCurveSelectionVisuals() {
@@ -41231,7 +41336,9 @@ function refreshStrandSelectionConsumers({
 function selectLock(id, options = {}) {
   if (viewportEditMode === "rigging" && id) {
     if (Array.isArray(options.selectedIds)) {
-      const wanted = new Set(options.selectedIds.map(sourceId => locks.find(lock => lock.id === sourceId)).filter(Boolean).map(lock => hairRigSourceForLock(lock).id));
+      // Preserve map()'s sparse-entry skipping, without dropping explicit undefined IDs.
+      const selectedIds = options.selectedIds.filter(() => true);
+      const wanted = new Set(selectedStrandObjectsInOrder(locks, selectedIds).map(lock => hairRigSourceForLock(lock).id));
       rigSourceIds = new Set(hairRigSources().filter(lock => wanted.has(lock.id)).map(lock => lock.id));
       if (options.selectionMode !== 'add' && options.selectionMode !== 'remove') { selectedHairRigId = null; selectedHairJoint = -1; }
       setHairRigOutlinerTab('strands');
@@ -42523,9 +42630,7 @@ function getSelectedLock() {
 }
 
 function selectedLocksInOrder() {
-  return [...selectedStrandIds]
-    .map((id) => locks.find((lock) => lock.id === id))
-    .filter(Boolean);
+  return selectedStrandObjectsInOrder(locks, selectedStrandIds);
 }
 
 function lockStrands(targets) {
@@ -45972,7 +46077,7 @@ function deleteSelectionSet(selectionSetId) {
 }
 
 function selectSelectionSet(selectionSet) {
-  const memberIds = selectionSet.strandIds.filter((id) => locks.some((lock) => lock.id === id));
+  const memberIds = existingSelectionSetIds(selectionSet, locks);
   if (!memberIds.length) return false;
   selectLock(memberIds[0], {
     individualClumpMember: true,
@@ -47924,7 +48029,7 @@ function setTwistCurveAllStrandsPreviewEnabled(enabled, { persist = true } = {})
 function setLayerColorShiftsEnabled(enabled, { persist = true } = {}) {
   layerColorShiftsEnabled = Boolean(enabled);
   layerColorShiftsPreferenceInput.checked = layerColorShiftsEnabled;
-  locks.forEach(applyMaterialDefinitionToLock);
+  locks.forEach((lock) => applyMaterialDefinitionToLock(lock));
   if (drawStrandStroke) updateDrawStrandPreview();
   renderLockList();
   if (persist) saveBooleanPreference(LAYER_COLOR_SHIFTS_PREFERENCE_KEY, layerColorShiftsEnabled);
@@ -49168,13 +49273,14 @@ function handleOutlinerClumpDrop(event, targetLock) {
 }
 
 function outlinerSelectedStrandIds() {
-  return viewportEditMode === 'rigging'
-    ? new Set(locks.filter(lock => rigSourceIds.has(hairRigSourceForLock(lock).id)).map(lock => lock.id))
-    : selectedStrandIds;
+  if (viewportEditMode !== 'rigging') return selectedStrandIds;
+  const resolveSource = createHairRigSourceResolver(locks);
+  return new Set(locks.filter(lock => rigSourceIds.has(resolveSource(lock).id)).map(lock => lock.id));
 }
 
 function createOutlinerStrandButton(lock, options = {}) {
-  const rigSourceSelected = viewportEditMode === 'rigging' && rigSourceIds.has(hairRigSourceForLock(lock).id);
+  const rigSourceSelected = viewportEditMode === 'rigging'
+    && rigSourceIds.has((options.resolveRigSource || hairRigSourceForLock)(lock).id);
   const shell = document.createElement("div");
   shell.className = `lock-item-shell${options.nested ? " clump-child" : ""}`;
   const visible = strandVisibleForDisplay(lock);
@@ -49280,8 +49386,8 @@ function outlinerAutoRemeshLocks(result) {
     : [];
 }
 
-function createOutlinerAutoRemesh(result) {
-  const groupLocks = outlinerAutoRemeshLocks(result);
+function createOutlinerAutoRemesh(result, resolveRigSource = hairRigSourceForLock, sourceLocks = autoRemeshSourceLocks(result)) {
+  const groupLocks = result?.modelingMeshType === "auto-remesh" ? [result, ...sourceLocks] : [];
   const containsSelection = groupLocks.some((lock) => selectedStrandIds.has(lock.id));
   const isOpen = autoRemeshOpen.get(result.id) === true;
   const container = document.createElement("div");
@@ -49344,14 +49450,16 @@ function createOutlinerAutoRemesh(result) {
   const children = document.createElement("div");
   children.className = "outliner-clump-children";
   children.appendChild(createOutlinerStrandButton(result, {
+    resolveRigSource,
     nested: true,
     draggable: false,
     groupable: false,
     badge: "Remesh",
     title: "Generated Auto Remesh result"
   }));
-  autoRemeshSourceLocks(result).forEach((source) => {
+  sourceLocks.forEach((source) => {
     children.appendChild(createOutlinerStrandButton(source, {
+      resolveRigSource,
       nested: true,
       badge: "Source",
       title: "Original object retained by Auto Remesh"
@@ -49457,9 +49565,8 @@ function createOutlinerCurveSurface(lock) {
   return container;
 }
 
-function createOutlinerClump(guide) {
-  const selectedStrandIds = outlinerSelectedStrandIds();
-  const clumpLocks = outlinerClumpLocks(guide);
+function createOutlinerClump(guide, selectedStrandIds = outlinerSelectedStrandIds(), resolveRigSource = hairRigSourceForLock, directMembers = clumpDirectMembers(guide)) {
+  const clumpLocks = guide?.clumpGuide ? [guide, ...directMembers] : [];
   const isOpen = clumpOpen.get(guide.clumpId) === true;
   const selectedLock = getSelectedLock();
   const containsSelection = clumpLocks.some((lock) => selectedStrandIds.has(lock.id));
@@ -49534,17 +49641,14 @@ function createOutlinerClump(guide) {
   }));
   const children = document.createElement("div");
   children.className = "outliner-clump-children";
-  children.appendChild(createOutlinerStrandButton(guide, { nested: true }));
-  clumpDirectMembers(guide).forEach((lock) => children.appendChild(createOutlinerStrandButton(lock, { nested: true })));
+  children.appendChild(createOutlinerStrandButton(guide, { nested: true, resolveRigSource }));
+  directMembers.forEach((lock) => children.appendChild(createOutlinerStrandButton(lock, { nested: true, resolveRigSource })));
   container.append(header, children);
   return container;
 }
 
-function selectionSetMatchesCurrentSelection(selectionSet) {
-  const memberIds = selectionSet.strandIds.filter((id) => locks.some((lock) => lock.id === id));
-  return memberIds.length > 0
-    && memberIds.length === selectedStrandIds.size
-    && memberIds.every((id) => selectedStrandIds.has(id));
+function selectionSetMatchesCurrentSelection(selectionSet, validIds = new Set(locks.map(lock => lock.id))) {
+  return selectionSetMatchesSelection(selectionSet, selectedStrandIds, validIds);
 }
 
 function createSelectionSetsOutlinerFolder() {
@@ -49594,11 +49698,11 @@ function createSelectionSetsOutlinerFolder() {
     empty.textContent = "No selection sets";
     items.appendChild(empty);
   } else {
-    selectionSets.forEach((selectionSet) => {
-      const memberIds = new Set(selectionSet.strandIds);
-      const memberLocks = locks.filter((lock) => (
-        memberIds.has(lock.id) && !lock.proceduralDuplicatePreview
-      ));
+    // Shared only by this folder refresh; edits/deletions rebuild it next time.
+    const validIds = new Set(locks.map(lock => lock.id));
+    const members = selectionSetObjectsInSceneOrder(selectionSets, locks);
+    selectionSets.forEach((selectionSet, index) => {
+      const memberLocks = members[index];
       const visibleMemberCount = memberLocks.filter(strandVisibleForDisplay).length;
       const shell = document.createElement("div");
       shell.className = "selection-set-item-shell";
@@ -49613,7 +49717,7 @@ function createSelectionSetsOutlinerFolder() {
         }
       });
       const item = document.createElement("button");
-      item.className = `selection-set-item${selectionSetMatchesCurrentSelection(selectionSet) ? " active" : ""}`;
+      item.className = `selection-set-item${selectionSetMatchesCurrentSelection(selectionSet, validIds) ? " active" : ""}`;
       item.type = "button";
       const itemIcon = document.createElement("span");
       itemIcon.className = "selection-set-item-icon";
@@ -49645,28 +49749,19 @@ function createSelectionSetsOutlinerFolder() {
   return group;
 }
 
-function renderLockList() {
-  const selectedStrandIds = outlinerSelectedStrandIds();
-  const list = document.querySelector("#lockList");
+function renderLockList({ objects = locks, target = null, benchmark = false } = {}) {
+  const selectedStrandIds = benchmark ? new Set() : outlinerSelectedStrandIds();
+  const resolveRigSource = createHairRigSourceResolver(objects);
+  const hierarchy = buildOutlinerHierarchy(objects, {
+    groups: STRAND_GROUPS, layers: HAIR_LAYERS, selectedIds: selectedStrandIds,
+    isModelingMesh, normalizeHairLayer
+  });
+  const list = target || document.querySelector("#lockList");
   list.innerHTML = "";
-  STRAND_GROUPS.forEach((group) => {
+  hierarchy.groups.forEach(({ group, members: groupLocks, layers, hasSelection }) => {
     const groupLabel = strandRegionDisplayLabel(group.id);
-    const groupRoots = locks.filter((lock) => {
-      // Keep remesh/source folders accessible here as well as the editable
-      // non-adaptive result in Meshes. Both entries refer to the same object.
-      if (isModelingMesh(lock) && lock.modelingMeshType !== "auto-remesh") return false;
-      if (lock.proceduralDuplicatePreview) return false;
-      if (lock.clumpId && !lock.clumpGuide) return false;
-      if (autoRemeshResultForSource(lock)) return false;
-      return (lock.scalpRegion || "unassigned") === group.id;
-    });
-    const groupLocks = groupRoots.flatMap((lock) => (
-      lock.modelingMeshType === "auto-remesh"
-        ? outlinerAutoRemeshLocks(lock)
-        : lock.clumpGuide ? outlinerClumpLocks(lock) : [lock]
-    ));
     const groupElement = document.createElement("div");
-    const isOpen = strandGroupOpen.get(group.id) || groupLocks.some((lock) => selectedStrandIds.has(lock.id));
+    const isOpen = strandGroupOpen.get(group.id) || hasSelection;
     groupElement.className = `outliner-group${isOpen ? " open" : ""}`;
     groupElement.classList.toggle("outliner-group-empty", groupLocks.length === 0);
     groupElement.dataset.strandGroup = group.id;
@@ -49747,21 +49842,10 @@ function renderLockList() {
       empty.textContent = "No strands";
       items.appendChild(empty);
     }
-    HAIR_LAYERS.forEach((layer) => {
-      const layerRoots = groupRoots.filter((lock) => normalizeHairLayer(lock.hairLayer) === layer.id);
-      if (!layerRoots.length) return;
-      const layerLockCount = layerRoots.reduce((total, lock) => total + (
-        lock.modelingMeshType === "auto-remesh"
-          ? outlinerAutoRemeshLocks(lock).length
-          : lock.clumpGuide ? outlinerClumpLocks(lock).length : 1
-      ), 0);
+    layers.forEach(({ layer, roots: layerRoots, members: layerLocks, hasSelection: layerHasSelection }) => {
+      const layerLockCount = layerLocks.length;
       const layerKey = `${group.id}:${layer.id}`;
-      const layerOpen = strandLayerOpen.get(layerKey) !== false || layerRoots.some((lock) => (
-        selectedStrandIds.has(lock.id)
-        || (lock.clumpId && outlinerClumpLocks(lock).some((item) => selectedStrandIds.has(item.id)))
-        || (lock.modelingMeshType === "auto-remesh"
-          && outlinerAutoRemeshLocks(lock).some((item) => selectedStrandIds.has(item.id)))
-      ));
+      const layerOpen = strandLayerOpen.get(layerKey) !== false || layerHasSelection;
       const layerElement = document.createElement("div");
       layerElement.className = `outliner-layer${layerOpen ? " open" : ""}`;
       const layerHeader = document.createElement("div");
@@ -49777,11 +49861,6 @@ function renderLockList() {
         strandLayerOpen.set(layerKey, !layerOpen);
         renderLockList();
       });
-      const layerLocks = layerRoots.flatMap((lock) => (
-        lock.modelingMeshType === "auto-remesh"
-          ? outlinerAutoRemeshLocks(lock)
-          : lock.clumpGuide ? outlinerClumpLocks(lock) : [lock]
-      ));
       const layerVisibleCount = layerLocks.filter(strandVisibleForDisplay).length;
       const layerVisibility = createOutlinerVisibilityToggle({
         visible: layerLocks.length > 0 && layerVisibleCount === layerLocks.length,
@@ -49819,10 +49898,10 @@ function renderLockList() {
       layerRoots.forEach((lock) => {
         layerItems.appendChild(
           lock.modelingMeshType === "auto-remesh"
-            ? createOutlinerAutoRemesh(lock)
+            ? createOutlinerAutoRemesh(lock, resolveRigSource, hierarchy.remeshSourcesFor(lock))
             : lock.geometryType === "curve-surface"
             ? createOutlinerCurveSurface(lock)
-            : lock.clumpGuide ? createOutlinerClump(lock) : createOutlinerStrandButton(lock)
+            : lock.clumpGuide ? createOutlinerClump(lock, selectedStrandIds, resolveRigSource, hierarchy.clumpMembersFor(lock)) : createOutlinerStrandButton(lock, { resolveRigSource })
         );
       });
       layerElement.append(layerHeader, layerItems);
@@ -49831,8 +49910,10 @@ function renderLockList() {
     groupElement.appendChild(items);
     list.appendChild(groupElement);
   });
-  list.appendChild(createSelectionSetsOutlinerFolder());
-  refreshLiveSurfaceOptions();
+  if (!benchmark) {
+    list.appendChild(createSelectionSetsOutlinerFolder());
+    refreshLiveSurfaceOptions();
+  }
 }
 
 function updateCount() {
@@ -50413,20 +50494,8 @@ removeHairMaterialPresetButton.addEventListener("click", openRemoveHairMaterialP
   ...Object.values(hairMaterialAnimeColorInputs),
   ...Object.values(hairMaterialAnimeNumericControls).map((control) => control.input)
 ].forEach(bindUndoCapture);
-hairMaterialAnimeShadowJaggednessEnabledInput.addEventListener("change", () => {
-  markHairMaterialPresetCustom();
-  const material = activeHairMaterialDefinition();
-  material.animeShadowJaggednessEnabled = hairMaterialAnimeShadowJaggednessEnabledInput.checked;
-  refreshMaterialUsers(material.id);
-  syncHairMaterialEditor();
-});
-hairMaterialAnimeOutlineEnabledInput.addEventListener("change", () => {
-  markHairMaterialPresetCustom();
-  const material = activeHairMaterialDefinition();
-  material.animeOutlineEnabled = hairMaterialAnimeOutlineEnabledInput.checked;
-  refreshMaterialUsers(material.id);
-  syncHairMaterialEditor();
-});
+bindHairMaterialToggleControl("animeShadowJaggednessEnabled", hairMaterialAnimeShadowJaggednessEnabledInput);
+bindHairMaterialToggleControl("animeOutlineEnabled", hairMaterialAnimeOutlineEnabledInput);
 hairMaterialAnimeOutlineWidthInput.addEventListener("input", () => {
   markHairMaterialPresetCustom();
   const material = activeHairMaterialDefinition();
@@ -50487,36 +50556,12 @@ hairMaterialGemMintButton.addEventListener("click", () => {
   refreshMaterialUsers(material.id);
   syncHairMaterialEditor();
 });
-hairMaterialGemFracturingInput.addEventListener("input", () => {
-  markHairMaterialPresetCustom();
-  const material = activeHairMaterialDefinition();
-  material.gemFracturing = normalizeGemFracturing(hairMaterialGemFracturingInput.value);
-  hairMaterialGemFracturingValue.textContent = material.gemFracturing.toFixed(2);
-  refreshMaterialUsers(material.id);
-});
+bindHairMaterialNumericControl("gemFracturing", {input:hairMaterialGemFracturingInput, output:hairMaterialGemFracturingValue}, normalizeGemFracturing);
 Object.entries(hairMaterialGemDepthControls).forEach(([key, control]) => {
-  control.input.addEventListener("input", () => {
-    markHairMaterialPresetCustom();
-    const material = activeHairMaterialDefinition();
-    material[key] = normalizeGemDepth({ [key]: control.input.value })[key];
-    control.output.textContent = material[key].toFixed(2);
-    refreshMaterialUsers(material.id);
-  });
+  bindHairMaterialNumericControl(key, control, value => normalizeGemDepth({[key]:value})[key]);
 });
-hairMaterialColorInput.addEventListener("input", () => {
-  markHairMaterialPresetCustom();
-  const material = activeHairMaterialDefinition();
-  material.color = hairMaterialColorInput.value;
-  refreshMaterialUsers(material.id);
-  renderHairMaterialOutliner();
-});
-hairMaterialGradientEnabledInput.addEventListener("change", () => {
-  markHairMaterialPresetCustom();
-  const material = activeHairMaterialDefinition();
-  material.baseColorGradientEnabled = hairMaterialGradientEnabledInput.checked;
-  refreshMaterialUsers(material.id);
-  syncHairMaterialEditor();
-});
+bindHairMaterialColorControl("color", hairMaterialColorInput);
+bindHairMaterialToggleControl("baseColorGradientEnabled", hairMaterialGradientEnabledInput);
 editHairMaterialGradientButton.addEventListener("click", openHairMaterialGradientEditor);
 [closeHairMaterialGradientDialogButton, doneHairMaterialGradientButton].forEach((button) => {
   button.addEventListener("click", () => hairMaterialGradientDialog.close());
@@ -50607,31 +50652,14 @@ resetHairMaterialGradientButton.addEventListener("click", () => {
   activeHairGradientStopIndex = 0;
   updateHairMaterialGradientDefinition();
 });
-hairMaterialRoughnessInput.addEventListener("input", () => {
-  markHairMaterialPresetCustom();
-  const material = activeHairMaterialDefinition();
-  material.roughness = Number(hairMaterialRoughnessInput.value);
-  hairMaterialRoughnessValue.textContent = material.roughness.toFixed(2);
-  refreshMaterialUsers(material.id);
-});
+bindHairMaterialNumericControl("roughness", {input:hairMaterialRoughnessInput, output:hairMaterialRoughnessValue});
 Object.entries(hairMaterialAnimeColorInputs).forEach(([key, input]) => {
-  input.addEventListener("input", () => {
-    markHairMaterialPresetCustom();
-    const material = activeHairMaterialDefinition();
-    material[key] = input.value;
-    refreshMaterialUsers(material.id);
-    renderHairMaterialOutliner();
-  });
+  bindHairMaterialColorControl(key, input);
 });
 Object.entries(hairMaterialAnimeNumericControls).forEach(([key, control]) => {
-  control.input.addEventListener("input", () => {
-    markHairMaterialPresetCustom();
-    const material = activeHairMaterialDefinition();
-    const field = ANIME_ANISOTROPIC_NUMERIC_FIELDS[key];
-    material[key] = THREE.MathUtils.clamp(Number(control.input.value), field.min, field.max);
-    control.output.textContent = material[key].toFixed(field.digits);
-    refreshMaterialUsers(material.id);
-  });
+  const field = ANIME_ANISOTROPIC_NUMERIC_FIELDS[key];
+  bindHairMaterialNumericControl(key, control,
+    value => THREE.MathUtils.clamp(Number(value), field.min, field.max), field.digits);
 });
 Object.entries(groupInputs).forEach(([key, input]) => {
   input.addEventListener("pointerdown", requestGroupDefaultsWarning, { capture: true });
@@ -58112,6 +58140,240 @@ renderer.domElement.addEventListener("pointerdown", (event) => {
   activateStrandControlPoint(hit.object, event);
 });
 
+function setStressTestBusy(busy) {
+  document.querySelector("#runStressTest").disabled = busy;
+  document.querySelector("#stopStressTest").disabled = !busy;
+  stressTestDialog.querySelectorAll("input, select").forEach((input) => { input.disabled = busy; });
+  document.querySelector("#stressTestBones").disabled = busy || document.querySelector("#stressTestMode").value === "render";
+}
+
+function stopStressTest(message = "Stopped. Test resources released; your project is unchanged.") {
+  const session = stressTestSession;
+  stressTestSession = null;
+  disposeStressTestResources(session);
+  setStressTestBusy(false);
+  document.querySelector("#stressTestStatus").textContent = message;
+}
+
+function finishStressTest(session) {
+  if (stressTestSession !== session) return;
+  const frames = summarizeStressTestFrames(session.intervals, session.submissionTimes);
+  if (!frames) { stopStressTest("No valid frames measured. Please run again with this tab visible."); return; }
+  stressTestReport = {
+    kind: "ahs-isolated-stress-test", version: 2, appVersion: APP_VERSION,
+    settings: session.settings, material: session.material,
+    viewport: session.viewport, generationWallMs: session.generationWallMs,
+    outlinerRebuildMs: session.outlinerRebuildMs, vertices: session.vertices,
+    drawCalls: session.drawCalls, triangles: session.triangles, ...frames,
+    rigs: session.rigs?.length || 0, bones: (session.rigs?.length || 0) * session.settings.bones,
+    bindingCpuMs: session.bindingCpuMs,
+    physicsOptions: session.physicsOptions,
+    meanPhysicsMs: meanStressTestTime(session.physicsTimes), meanSkinningMs: meanStressTestTime(session.skinningTimes),
+    scope: "Generated strands; camera orbit; 2-second warm-up; optional independent per-strand physics with oscillating roots and production binding/skinning. No shadows, outlines, head collider or editor helpers. Outliner timing includes detached DOM construction, not layout/paint. Physics, skinning and render submission are CPU timings, not GPU timing."
+  };
+  document.querySelector("#stressTestResults").textContent = [
+    `${frames.fps.toFixed(1)} FPS average · ${frames.frames} measured frames`,
+    `Frame time: median ${frames.medianFrameMs.toFixed(2)} ms · p95 ${frames.p95FrameMs.toFixed(2)} ms · p99 ${frames.p99FrameMs.toFixed(2)} ms`,
+    `Worst frame: ${frames.worstFrameMs.toFixed(2)} ms · frames over 33 ms: ${frames.framesOver33Ms}`,
+    `CPU render submission: ${frames.meanRenderSubmissionMs.toFixed(2)} ms average (not GPU time)`,
+    ...(session.pose ? [
+      `${stressTestReport.rigs} independent rigs · ${stressTestReport.bones} bones · all strands bound and simulated`,
+      `CPU physics + pose matrices: ${stressTestReport.meanPhysicsMs.toFixed(2)} ms · skinning + normals/tangents/bounds: ${stressTestReport.meanSkinningMs.toFixed(2)} ms average`,
+      `Rig creation + binding: ${session.bindingCpuMs.toFixed(2)} ms CPU`
+    ] : ["Render-only mode: rigging and physics excluded"]),
+    `${session.drawCalls} draw calls · ${session.triangles.toLocaleString()} triangles · ${session.vertices.toLocaleString()} vertices`,
+    `Outliner rebuild: ${session.outlinerRebuildMs.toFixed(2)} ms median (detached DOM, excludes layout/paint)`,
+    `Generation: ${(session.generationWallMs / 1000).toFixed(2)} s including cooperative yields`,
+    `Canvas: ${session.viewport.width} × ${session.viewport.height} CSS pixels · ${session.settings.pixelRatio}× pixel ratio`
+  ].join("\n");
+  document.querySelector("#downloadStressTestReport").disabled = false;
+  stopStressTest("Complete. Test resources released; results retained below.");
+}
+
+function renderStressTestFrame(session, timestamp) {
+  if (stressTestSession !== session || session.disposed) return;
+  try {
+    session.startTime ??= timestamp;
+    const elapsed = timestamp - session.startTime;
+    const angle = elapsed * 0.0003;
+    session.camera.position.set(Math.sin(angle) * 4.5, 1.8, Math.cos(angle) * 4.5);
+    session.camera.lookAt(0, -0.2, 0);
+    let physicsMs = 0, skinningMs = 0;
+    if (session.pose) {
+      const dt = session.previousTime == null ? 1/60 : Math.max(0, (timestamp - session.previousTime) / 1000);
+      const head = session.pose.physics.head;
+      head.rotation.setFromAxisAngle(session.motionAxis, Math.sin(elapsed * 0.002) * 0.22);
+      // Move around the generated scalp's root height, not the world origin.
+      session.headMatrix.makeTranslation(Math.sin(elapsed * 0.0017) * 0.18, 0.9, 0)
+        .multiply(session.motionMatrix.makeRotationFromQuaternion(head.rotation))
+        .multiply(session.motionOrigin);
+      head.delta = session.headMatrix.toArray(); // Skinning consumes packed arrays; physics math consumes Matrix4.
+      const physicsStart = performance.now();
+      updateHairPhysics(dt, {preview:session.pose, rigs:session.rigs, options:session.physicsOptions, headDelta:session.headMatrix});
+      physicsMs = performance.now() - physicsStart;
+      const skinningStart = performance.now();
+      updateHairPoseMeshes(session.pose, session.rigs, false);
+      skinningMs = performance.now() - skinningStart;
+    }
+    session.previousTime = timestamp;
+    const renderStart = performance.now();
+    session.renderer.render(session.scene, session.camera);
+    const submission = performance.now() - renderStart;
+    session.drawCalls = session.renderer.info.render.calls;
+    session.triangles = session.renderer.info.render.triangles;
+    if (elapsed >= 2000) {
+      if (session.lastTime != null) {
+        session.intervals.push(timestamp - session.lastTime);
+        session.submissionTimes.push(submission);
+        session.physicsTimes.push(physicsMs);session.skinningTimes.push(skinningMs);
+      }
+      session.lastTime = timestamp;
+      if (timestamp - session.lastStatusTime >= 500) {
+        document.querySelector("#stressTestStatus").textContent = `Measuring… ${Math.min(session.settings.seconds, (elapsed - 2000) / 1000).toFixed(1)} / ${session.settings.seconds} seconds`;
+        session.lastStatusTime = timestamp;
+      }
+    }
+    if (elapsed >= 2000 + session.settings.seconds * 1000) { finishStressTest(session); return; }
+    session.frame = window.requestAnimationFrame((next) => renderStressTestFrame(session, next));
+  } catch (error) {
+    stopStressTest(`Test failed: ${error.message}`);
+  }
+}
+
+async function runStressTest() {
+  stopStressTest();
+  stressTestReport = null;
+  document.querySelector("#stressTestResults").textContent = "";
+  document.querySelector("#downloadStressTestReport").disabled = true;
+  const session = { objects: [], controller: new AbortController(), scheduler: window,
+    intervals: [], submissionTimes: [], physicsTimes: [], skinningTimes: [], bindingCpuMs:0, lastStatusTime: 0 };
+  stressTestSession = session;
+  setStressTestBusy(true);
+  const status = document.querySelector("#stressTestStatus");
+  try {
+    session.settings = normalizeStressTestSettings({
+      count: document.querySelector("#stressTestCount").value,
+      segments: document.querySelector("#stressTestSegments").value,
+      seconds: document.querySelector("#stressTestSeconds").value,
+      pixelRatio: document.querySelector("#stressTestPixelRatio").value,
+      materialId: document.querySelector("#stressTestMaterial").value,
+      mode: document.querySelector("#stressTestMode").value,
+      bones: document.querySelector("#stressTestBones").value
+    });
+    const fullGem = session.settings.materialId === STRESS_TEST_GEM_ID;
+    const definition = fullGem ? {name:"Gem — full effects", shader:GEM_SHADER, ...STRESS_TEST_GEM_LOOK}
+      : projectMaterialDefinition(session.settings.materialId);
+    session.material = {...definition}; // Include effect values so downloaded runs are reproducible.
+    session.physicsOptions = session.settings.mode === "rig-physics" ? {gravity:1, stiffness:0.35, damping:0.2} : null;
+    session.motionAxis = new THREE.Vector3(0,0,1);
+    session.headMatrix = new THREE.Matrix4();
+    session.motionMatrix = new THREE.Matrix4();session.motionOrigin = new THREE.Matrix4().makeTranslation(0,-0.9,0);
+    session.scene = new THREE.Scene();
+    session.scene.background = new THREE.Color("#131920");
+    session.group = new THREE.Group();session.scene.add(session.group);
+    session.scene.add(new THREE.HemisphereLight(0xddeeff, 0x302838, 1.8));
+    const key = new THREE.DirectionalLight(0xffffff, 3);key.position.set(3, 4, 5);session.scene.add(key);
+    session.camera = new THREE.PerspectiveCamera(35, 1, 0.05, 100);
+    // A lost WebGL context cannot safely be reused on the next run. Each
+    // session gets a fresh canvas; old context-loss events cannot stop it.
+    const previousCanvas = document.querySelector("#stressTestCanvas");
+    const canvas = previousCanvas.cloneNode(false);previousCanvas.replaceWith(canvas);
+    canvas.addEventListener("webglcontextlost", (event) => {
+      event.preventDefault();
+      if (stressTestSession === session && !session.disposed) stopStressTest("WebGL context lost. Try a smaller test.");
+    });
+    session.renderer = new THREE.WebGLRenderer({canvas, antialias: true});
+    session.renderer.setPixelRatio(session.settings.pixelRatio);
+    session.renderer.outputColorSpace = renderer.outputColorSpace;
+    session.renderer.toneMapping = renderer.toneMapping;
+    session.renderer.toneMappingExposure = renderer.toneMappingExposure;
+    const resizeTest = () => {
+      const width = Math.max(1, canvas.clientWidth), height = Math.max(1, canvas.clientHeight);
+      session.viewport = {width,height};
+      session.renderer.setSize(width,height,false);
+      session.camera.aspect = width / height;session.camera.updateProjectionMatrix();
+    };
+    resizeTest();
+    session.observer = new ResizeObserver(() => {
+      if (stressTestSession !== session || session.disposed) return;
+      if (session.startTime != null && (canvas.clientWidth !== session.viewport.width || canvas.clientHeight !== session.viewport.height)) {
+        stopStressTest("Canvas resized during measurement. Run again at the new size for comparable results.");return;
+      }
+      resizeTest();
+    });
+    session.observer.observe(canvas.parentElement);
+    const generationStart = performance.now();
+    while (session.objects.length < session.settings.count) {
+      if (session.controller.signal.aborted) return;
+      const batchStart = performance.now();
+      do {
+        const data = stressTestStrandData(session.objects.length, session.settings, STRAND_GROUPS, HAIR_LAYERS);
+        const draft = addLock("front", {...data,
+          points: data.points.map(point => new THREE.Vector3(...point)),
+          pointSurfaceNormals: data.normals.map(normal => new THREE.Vector3(...normal))
+        }, {transient:true,id:data.id,name:data.name,deferInitialGeometry:true});
+        session.objects.push(draft); // Own the material/placeholder before building geometry, even on failure.
+        if (fullGem) {
+          const material = createGemHairMaterial(THREE, {...STRESS_TEST_GEM_LOOK, vertexColors:true, side:THREE.FrontSide},
+            new THREE.Vector3(3,4,5).normalize());
+          draft.mesh.material.dispose();draft.mesh.material = material;
+        }
+        const geometry = createHairGeometry(draft);
+        draft.mesh.geometry.dispose();draft.mesh.geometry = geometry;
+        session.group.add(draft.mesh);
+        if (session.settings.mode === "rig-physics") {
+          const bindingStart = performance.now();
+          appendStressTestRig(THREE, session, data, draft, createHairPoseMeshEntries);
+          session.bindingCpuMs += performance.now() - bindingStart;
+        }
+      } while (session.objects.length < session.settings.count && performance.now() - batchStart < 8);
+      status.textContent = `Generating${session.physicsOptions ? " and binding" : ""}… ${session.objects.length} / ${session.settings.count} strands`;
+      await nextStressTestFrame(session.controller.signal, window);
+    }
+    session.generationWallMs = performance.now() - generationStart;
+    session.vertices = session.objects.reduce((sum,object) => sum + object.mesh.geometry.attributes.position.count,0);
+    const objects = stressTestOutlinerObjects(session.objects), timings = [];
+    for (let index = 0; index < 4; index++) {
+      const target = document.createElement("div");
+      const start = performance.now();
+      renderLockList({objects,target,benchmark:true});
+      if (index) timings.push(performance.now() - start);
+      target.replaceChildren();
+      await nextStressTestFrame(session.controller.signal, window);
+    }
+    session.outlinerRebuildMs = timings.sort((a,b) => a-b)[1];
+    status.textContent = "Warming up shaders and rendering for 2 seconds…";
+    session.frame = window.requestAnimationFrame((timestamp) => renderStressTestFrame(session,timestamp));
+  } catch (error) {
+    if (stressTestSession === session) stopStressTest(`Test failed: ${error.message}`);
+  }
+}
+
+document.querySelector("#openStressTest").addEventListener("click", () => {
+  closeAppMenus();cancelToolShortcutPress();
+  const select = document.querySelector("#stressTestMaterial");
+  select.replaceChildren(...projectMaterialDefinitions.map((definition) => {
+    const option = document.createElement("option");option.value = definition.id;
+    option.textContent = `${definition.name} (${definition.shader})`;return option;
+  }));
+  const gemOption = document.createElement("option");gemOption.value = STRESS_TEST_GEM_ID;
+  gemOption.textContent = "Gem — full effects (isolated test preset)";select.append(gemOption);
+  select.value = STRESS_TEST_GEM_ID;
+  stressTestDialog.showModal();
+});
+document.querySelector("#runStressTest").addEventListener("click", runStressTest);
+document.querySelector("#stressTestMode").addEventListener("change", () => setStressTestBusy(Boolean(stressTestSession)));
+document.querySelector("#stopStressTest").addEventListener("click", () => stopStressTest());
+document.querySelector("#closeStressTest").addEventListener("click", () => stressTestDialog.close());
+stressTestDialog.addEventListener("close", () => stopStressTest());
+stressTestDialog.addEventListener("cancel", () => stopStressTest());
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden && stressTestSession) stopStressTest("Stopped because the tab became hidden. Keep it visible for valid timings.");
+});
+document.querySelector("#downloadStressTestReport").addEventListener("click", () => {
+  if (stressTestReport) downloadTextFile(JSON.stringify(stressTestReport,null,2),"AHS-stress-test.json","application/json");
+});
+
 let fpsFrameCount = 0;
 let fpsSampleStart = performance.now();
 let previousAnimationTimestamp = performance.now();
@@ -58121,7 +58383,16 @@ controls.addEventListener("change", () => {
   cameraViewportHelpersDirty = true;
 });
 
+function pauseEditorFrameForStressTest(timestamp) {
+  if (!stressTestSession) return false;
+  // Avoid competing render work and advancing the user's physics solver.
+  // Reset timing so returning from diagnostics cannot produce a huge delta.
+  previousAnimationTimestamp = timestamp;fpsSampleStart = timestamp;fpsFrameCount = 0;
+  requestAnimationFrame(animate);return true;
+}
+
 function animate(timestamp = performance.now()) {
+  if (pauseEditorFrameForStressTest(timestamp)) return;
   // Also catch silent programmatic value/min/max changes (selection, presets and undo).
   // Cached elements, no layout reads, and unchanged fills perform no DOM writes.
   if (timestamp - lastSliderFillSync >= 100) {

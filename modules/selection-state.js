@@ -1,6 +1,24 @@
-function uniqueValidIds(ids, validIds) {
-  const valid = validIds == null ? null : new Set(validIds);
+function uniqueValidIds(ids, validIds, validLookup = null) {
+  const valid = validLookup || (validIds == null ? null : new Set(validIds));
   return [...new Set(ids || [])].filter((id) => id != null && (!valid || valid.has(id)));
+}
+
+// Return borrowed scene objects in selection order, never scene-list order.
+// Multi-selection resolves each requested ID's first match in one scan; stop
+// once all are found so unrelated trailing objects need not be visited.
+export function selectedStrandObjectsInOrder(objects, selectedIds) {
+  const ids = [...selectedIds];
+  if (ids.length < 2) return ids.map(id => objects.find(object => object.id === id)).filter(Boolean);
+  const wanted = new Set(ids), found = new Map();
+  for (const object of objects) {
+    const id = object.id;
+    // find() uses strict equality, so even a requested NaN must not match NaN.
+    if (id === id && wanted.delete(id)) {
+      found.set(id, object);
+      if (!wanted.size) break;
+    }
+  }
+  return ids.map(id => found.get(id)).filter(Boolean);
 }
 
 export function screenBoundsOverlap(first, second) {
@@ -116,13 +134,16 @@ export function resolveStrandSelection({
   validIds
 } = {}) {
   const valid = validIds == null ? null : new Set(validIds);
+  // Share the scene index only within this transition. Custom/one-shot
+  // iterables retain the former per-filter consumption behavior.
+  const validLookup = Array.isArray(validIds) || validIds instanceof Set ? valid : null;
   const requestedActiveId = requestedId != null && (!valid || valid.has(requestedId))
     ? requestedId
     : undefined;
-  const requested = uniqueValidIds(requestedIds, validIds);
+  const requested = uniqueValidIds(requestedIds, validIds, validLookup);
 
   if (selectionMode === "add" || selectionMode === "remove") {
-    const nextIds = new Set(uniqueValidIds(selectedIds, validIds));
+    const nextIds = new Set(uniqueValidIds(selectedIds, validIds, validLookup));
     const primaryId = nextIds.has(activeId) ? activeId : undefined;
     requested.forEach((id) => {
       if (selectionMode === "remove") nextIds.delete(id);
@@ -136,7 +157,7 @@ export function resolveStrandSelection({
   }
 
   if (Array.isArray(explicitSelectedIds)) {
-    const nextIds = new Set(uniqueValidIds(explicitSelectedIds, validIds));
+    const nextIds = new Set(uniqueValidIds(explicitSelectedIds, validIds, validLookup));
     if (requestedActiveId) nextIds.add(requestedActiveId);
     return { activeId: requestedActiveId, selectedIds: [...nextIds] };
   }
@@ -147,9 +168,11 @@ export function resolveStrandSelection({
 export function restoreStrandSelection({ activeId, selectedIds, validIds } = {}) {
   const valid = validIds == null ? null : new Set(validIds);
   if (activeId == null || (valid && !valid.has(activeId))) return emptyStrandSelection();
+  const validLookup = Array.isArray(validIds) || validIds instanceof Set ? valid : null;
   const restoredIds = uniqueValidIds(
     Array.isArray(selectedIds) ? selectedIds : [activeId],
-    validIds
+    validIds,
+    validLookup
   );
   if (!restoredIds.includes(activeId)) restoredIds.push(activeId);
   return { activeId, selectedIds: restoredIds };

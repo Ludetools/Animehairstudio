@@ -79,6 +79,41 @@ export function resolveHairMaterialDefinition(definitions, materialId) {
   return definition ? normalizeHairMaterialDefinition(definition) : null;
 }
 
+// A synchronous refresh owns this resolver. Do not retain it after authored
+// resource edits, reassignment, undo or load; only actual users are normalized.
+export function createHairMaterialResolver(definitions) {
+  const materials = Array.isArray(definitions) ? definitions : [];
+  const resolved = new Map(), normalized = new Set();
+  let materialIndex = null;
+  return (materialId) => {
+    if (!resolved.has(materialId)) {
+      if (resolved.size && !materialIndex) {
+        materialIndex = new Map();
+        materials.forEach((material) => {
+          const id = material.id;
+          // Map matches NaN to itself; the original strict-equality search did not.
+          if (id === id && !materialIndex.has(id)) materialIndex.set(id, material);
+        });
+      }
+      const definition = materialIndex
+        ? materialIndex.get(materialId)
+        : materials.find((material) => material.id === materialId);
+      resolved.set(materialId, definition || materials[0] || null);
+    }
+    const definition = resolved.get(materialId);
+    if (definition && !normalized.has(definition)) {
+      normalizeHairMaterialDefinition(definition);
+      normalized.add(definition);
+    }
+    return definition;
+  };
+}
+
+export function hairGradientStopsEqual(left, right) {
+  return Boolean(left && right && left.length === right.length
+    && left.every((stop, index) => stop.position === right[index].position && stop.color === right[index].color));
+}
+
 export function defaultMaterialIdForGeometry(
   geometryType,
   { hairMaterialId, meshMaterialId, meshGeometryTypes = ["poly", "hair-shell"] }
@@ -89,21 +124,11 @@ export function defaultMaterialIdForGeometry(
 export function ensureRequiredMaterialDefinitions(definitions, requiredDefinitions) {
   const normalized = (Array.isArray(definitions) ? definitions : [])
     .filter((material) => material && typeof material === "object")
-    .map((material) => normalizeHairMaterialDefinition({
-      ...material,
-      baseColorGradientStops: Array.isArray(material.baseColorGradientStops)
-        ? material.baseColorGradientStops.map((stop) => ({ ...stop }))
-        : material.baseColorGradientStops
-    }));
+    .map(normalizedMaterialCopy);
   const ids = new Set(normalized.map((material) => material.id).filter(Boolean));
   (Array.isArray(requiredDefinitions) ? requiredDefinitions : []).forEach((material) => {
     if (!material || typeof material !== "object" || !material.id || ids.has(material.id)) return;
-    normalized.push(normalizeHairMaterialDefinition({
-      ...material,
-      baseColorGradientStops: Array.isArray(material.baseColorGradientStops)
-        ? material.baseColorGradientStops.map((stop) => ({ ...stop }))
-        : material.baseColorGradientStops
-    }));
+    normalized.push(normalizedMaterialCopy(material));
     ids.add(material.id);
   });
   return normalized;
@@ -111,21 +136,27 @@ export function ensureRequiredMaterialDefinitions(definitions, requiredDefinitio
 
 export function hairMaterialUsageCounts(locks, definitions, defaultMaterialId) {
   const counts = new Map();
+  const resolve = createHairMaterialResolver(definitions);
   (Array.isArray(locks) ? locks : []).forEach((lock) => {
-    const definition = resolveHairMaterialDefinition(definitions, lock?.materialId || defaultMaterialId);
+    const materialId = lock?.materialId || defaultMaterialId;
+    const definition = resolve(materialId);
     if (!definition) return;
     counts.set(definition.id, (counts.get(definition.id) || 0) + 1);
   });
   return counts;
 }
 
-export function hairMaterialPresetValue(material = {}) {
-  const normalized = normalizeHairMaterialDefinition({
+function normalizedMaterialCopy(material) {
+  return normalizeHairMaterialDefinition({
     ...material,
     baseColorGradientStops: Array.isArray(material.baseColorGradientStops)
       ? material.baseColorGradientStops.map((stop) => ({ ...stop }))
       : material.baseColorGradientStops
   });
+}
+
+export function hairMaterialPresetValue(material = {}) {
+  const normalized = normalizedMaterialCopy(material);
   const animeSettings = normalizeAnimeAnisotropicSettings(normalized);
   return {
     color: normalized.color,

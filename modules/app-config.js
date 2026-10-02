@@ -1,4 +1,4 @@
-export const APP_VERSION = "1.0.2";
+export const APP_VERSION = "1.1.1";
 export const CAMERA_FOV_DEFAULT = 38;
 export const CAMERA_FOV_MIN = 10;
 export const CAMERA_FOV_MAX = 100;

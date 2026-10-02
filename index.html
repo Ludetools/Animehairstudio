@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Hair Studio</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=20260830-2" />
-  <link rel="stylesheet" href="./styles.css?v=20260911-3" />
+  <link rel="stylesheet" href="./styles.css?v=20261001-1" />
   </head>
   <body>
     <!-- Shared, static lens maps for the iPad lab. Keep rendered (not display:none)
@@ -199,6 +199,8 @@
             <div class="app-menu-shell">
               <button id="debugMenuToggle" class="app-menu-trigger" type="button" aria-haspopup="menu" aria-expanded="false">Debug</button>
               <div id="debugMenu" class="app-menu-dropdown hidden" role="menu" aria-label="Debug">
+                <button id="openStressTest" type="button" role="menuitem"><span>Stress Test…</span></button>
+                <div class="app-menu-separator" role="separator"></div>
                 <button id="toggleShowBackfaces" type="button" role="menuitem" aria-pressed="false" title="Render strand and mesh backfaces with their normal material"><span>Show Backfaces</span><span id="showBackfacesMenuState" class="app-menu-state">Off</span></button>
                 <button id="toggleBackfaceDebug" type="button" role="menuitem" aria-pressed="false" title="Highlight back-facing geometry in bright green"><span>Green Backfaces</span><span id="backfaceDebugMenuState" class="app-menu-state">Off</span></button>
                 <button id="toggleUvChecker" type="button" role="menuitem" aria-pressed="false">
@@ -2327,15 +2329,19 @@
       <div class="patch-notes-dialog-shell">
         <header class="patch-notes-dialog-head">
           <div>
-            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 1.0.2 Patch Notes</h2>
-            <p id="patchNotesDialogSummary">New Rigging workspace, physics and skeletal export, Gem shading, anime outlines, Boolean remeshing, and in-app guides.</p>
+            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 1.1.1 Patch Notes</h2>
+            <p id="patchNotesDialogSummary">Gradient fixes, shared-material and large-scene optimizations, editor cleanup, and an isolated stress test.</p>
           </div>
           <button id="closePatchNotes" type="button" title="Close patch notes" aria-label="Close patch notes">X</button>
         </header>
         <div class="patch-notes-workspace">
           <nav class="patch-notes-sidebar" role="tablist" aria-label="Patch note versions">
-            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="1.0.2">
-              <strong>1.0.2</strong>
+            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="1.1.1">
+              <strong>1.1.1</strong>
+              <time datetime="2026-10-01">October 1, 2026</time>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-patch-notes-version="1.1.0">
+              <strong>1.1.0</strong>
               <time datetime="2026-09-29">September 29, 2026</time>
             </button>
             <button type="button" role="tab" aria-selected="false" data-patch-notes-version="1.0.1">
@@ -2368,8 +2374,39 @@
             </button>
           </nav>
           <div class="patch-notes-panels">
-            <article class="patch-notes-content" data-patch-notes-panel="1.0.2"
-              data-patch-notes-title="Anime Hair Studio Version 1.0.2 Patch Notes"
+            <article class="patch-notes-content" data-patch-notes-panel="1.1.1"
+              data-patch-notes-title="Anime Hair Studio Version 1.1.1 Patch Notes"
+              data-patch-notes-summary="Gradient fixes, shared-material and large-scene optimizations, editor cleanup, and an isolated stress test.">
+              <section class="patch-notes-section">
+                <h3>New features</h3>
+                <ul>
+                  <li><strong>Isolated Stress Test</strong><br />Open Debug > Stress Test to generate a disposable scene with per-strand rigs and physics, or compare render-only mode. A full-effects Gem option exercises fractures, inclusions, pearlescence and rainbow reflections. Reports show frame intervals and CPU work, not GPU timings; the test does not modify the current hairstyle.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>UI changes</h3>
+                <ul>
+                  <li><strong>Material Editor Cleanup</strong><br />Material readouts and shader-specific visibility now share one editor model. Existing controls, precision, colour-picker behaviour and undo boundaries are retained; no layout changes are introduced.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Tweaks and quality of life</h3>
+                <ul>
+                  <li><strong>Shared Gradient Texture Reuse</strong><br />Strands using the same material reuse its unchanged gradient texture. Edited or restored gradient stops rebuild it on the next update, without regenerating it for every strand.</li>
+                  <li><strong>Large Scene Refreshes</strong><br />Reduced repeated searches in material, outliner and selection updates. Refresh-local lookups preserve object order and are rebuilt after edits, undo or loading.</li>
+                  <li><strong>Rig and Physics Cleanup</strong><br />Reduced repeated rig lookups and reused CPU scratch data in preview updates. Performance still depends on scene complexity, rendering resolution and material settings.</li>
+                  <li><strong>Internal Reliability Work</strong><br />Consolidated material control bindings and focused regression coverage for resource replacement, undo, shared materials and preview cleanup. Project formats and authored geometry remain unchanged.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Bug fixes</h3>
+                <ul>
+                  <li><strong>Gradient Endpoint Colours</strong><br />Fixed gradients reverting to the first colour beyond the final stop. Roots and tips now retain the nearest endpoint colour outside the authored stop interval.</li>
+                </ul>
+              </section>
+            </article>
+            <article class="patch-notes-content hidden" data-patch-notes-panel="1.1.0"
+              data-patch-notes-title="Anime Hair Studio Version 1.1.0 Patch Notes"
               data-patch-notes-summary="New Rigging workspace, physics and skeletal export, Gem shading, anime outlines, Boolean remeshing, and in-app guides.">
               <section class="patch-notes-section">
                 <h3>New features</h3>
@@ -3805,6 +3842,23 @@
         <button id="exitGuidedWorkflow" type="button">Exit Guide</button>
       </div>
     </section>
-    <script id="ahsMainModule" type="module" src="./app.js?v=20260912-1"></script>
+    <dialog id="stressTestDialog" class="stress-test-dialog" aria-labelledby="stressTestTitle">
+      <header><div><h2 id="stressTestTitle">Stress Test</h2><p>Isolated diagnostics — your project, selection and undo history stay untouched.</p></div><button id="closeStressTest" type="button" aria-label="Close stress test">Close</button></header>
+      <div class="stress-test-settings">
+        <label>Strands<input id="stressTestCount" type="number" min="50" max="5000" step="50" value="500" /></label>
+        <label>Length segments<input id="stressTestSegments" type="number" min="4" max="64" step="1" value="16" /></label>
+        <label>Workload<select id="stressTestMode"><option value="rig-physics">Rig + physics per strand</option><option value="render">Render only</option></select></label>
+        <label>Bones per strand<input id="stressTestBones" type="number" min="2" max="24" step="1" value="6" /></label>
+        <label>Material<select id="stressTestMaterial"></select></label>
+        <label>Pixel ratio<select id="stressTestPixelRatio"><option value="1">1×</option><option value="2">2×</option></select></label>
+        <label>Measure (seconds)<input id="stressTestSeconds" type="number" min="5" max="30" step="1" value="10" /></label>
+      </div>
+      <p class="stress-test-note">Uses real strand geometry and materials, with an automatic camera orbit. Rig + physics binds and simulates every strand while moving its roots. Gem — full effects enables fractures, internal fracture depth, inclusions, pearlescence and rainbow reflections without changing your materials. Shadows, outlines, head collisions and editor helpers are excluded. The editor viewport pauses during the run. FPS is refresh-rate capped; physics, skinning and render submission are CPU work, not GPU timing.</p>
+      <div class="stress-test-viewport"><canvas id="stressTestCanvas" aria-label="Generated stress-test scene"></canvas></div>
+      <p id="stressTestStatus" role="status" aria-live="polite">Ready. Start with 500 strands, then increase the load.</p>
+      <pre id="stressTestResults" aria-label="Stress test results"></pre>
+      <footer><button id="runStressTest" type="button">Run Test</button><button id="stopStressTest" type="button" disabled>Stop</button><button id="downloadStressTestReport" type="button" disabled>Download Report</button></footer>
+    </dialog>
+    <script id="ahsMainModule" type="module" src="./app.js?v=20261001-8"></script>
   </body>
 </html>

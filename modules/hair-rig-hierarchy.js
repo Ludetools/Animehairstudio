@@ -12,8 +12,11 @@ export function normalizeRigHierarchy(rigs) {
   return rigs;
 }
 export function orderedHairRigs(rigs) {
-  const result=[],seen=new Set();
-  function visit(rig){if(seen.has(rig.id))return;seen.add(rig.id);const p=rigs.find(r=>r.id===rig.parentBone?.rigId);if(p)visit(p);result.push(rig);}
+  const result=[],seen=new Set(),byId=new Map();
+  // Preserve find()'s first-match behavior; rebuild on every call so live
+  // parenting and replacement rigs cannot leave a stale hierarchy cache.
+  for(const rig of rigs)if(!byId.has(rig.id))byId.set(rig.id,rig);
+  function visit(rig){if(seen.has(rig.id))return;seen.add(rig.id);const p=byId.get(rig.parentBone?.rigId);if(p)visit(p);result.push(rig);}
   rigs.forEach(visit);return result;
 }
 export function descendantHairRigs(rigs,id,firstJoint=0) {

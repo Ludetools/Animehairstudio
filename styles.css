@@ -124,6 +124,30 @@ button:focus-visible {
   margin-bottom: 4px;
 }
 
+.stress-test-dialog {
+  width: min(900px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 18px;
+  border: 1px solid #554b55;
+  border-radius: 8px;
+  color: #f4f0ec;
+  background: #1b191f;
+}
+.stress-test-dialog::backdrop { background: #08070acc; }
+.stress-test-dialog header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.stress-test-dialog h2 { margin: 0; font-size: 20px; }
+.stress-test-dialog header p, .stress-test-note { font-size: 12px; color: #b8b1bd; line-height: 1.5; }
+.stress-test-settings { display: flex; flex-wrap: wrap; gap: 12px; margin: 14px 0; }
+.stress-test-settings label { display: grid; gap: 6px; font-size: 12px; }
+.stress-test-settings input { width: 100px; }
+.stress-test-settings select { max-width: 240px; }
+.stress-test-viewport { width: 100%; height: clamp(180px, 35vh, 380px); background: #131920; border-radius: 6px; overflow: hidden; }
+#stressTestCanvas { display: block; width: 100%; height: 100%; }
+#stressTestResults { white-space: pre-wrap; font: 12px/1.6 monospace; margin: 12px 0; }
+.stress-test-dialog footer { display: flex; flex-wrap: wrap; gap: 8px; }
+
 .warning-dialog {
   width: min(430px, calc(100vw - 32px));
   padding: 0;
