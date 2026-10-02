@@ -34,6 +34,17 @@ export function flatCurveLatticePointData({
   return points;
 }
 
+// Guides store rows across the surface; strand lattices store each full
+// root-to-tip controller consecutively. Keep their starting shape identical.
+export function flatStrandLatticePointData(options = {}) {
+  const columns = Math.max(2, Math.round(Number(options.columns) || DEFAULT_CURVE_LATTICE_PLANE.columns));
+  const rows = Math.max(2, Math.round(Number(options.rows) || DEFAULT_CURVE_LATTICE_PLANE.rows));
+  const points = flatCurveLatticePointData({ ...options, columns, rows });
+  return Array.from({ length: columns }, (_, column) => (
+    Array.from({ length: rows }, (_, row) => points[row * columns + column])
+  )).flat();
+}
+
 function interpolatePoint(a, b, amount) {
   return {
     x: a.x + (b.x - a.x) * amount,

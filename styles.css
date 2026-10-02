@@ -6747,7 +6747,8 @@ body.rigging-workspace-active .tool-panel.guide-enabled[data-active-attribute-ta
 #proportionalPanel.hidden,
 #turntablePanel.hidden,
 #strandShapePanel.hidden,
-#strandLatticeSettings.hidden {
+#strandLatticeSettings.hidden,
+#strandLatticeTopologySettings.hidden {
   display: none;
 }
 

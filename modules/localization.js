@@ -7,6 +7,9 @@ export const DEFAULT_LANGUAGE = "en";
 export const LANGUAGE_STORAGE_KEY = "anime-hair-studio-language";
 
 const JA = Object.freeze({
+  "Create Strand Lattice": "ストランドラティスを作成",
+  "Create a strand lattice": "ストランドラティスを作成",
+  "Strand Lattice tool": "ストランドラティスツール",
   "Shared by the highlights and shadow edge. Noise Scale and Noise Blur shape both; Edge Softness smooths the shadow edge.": "ハイライトと影の境界で共有します。ノイズのスケールとぼかしは両方に適用され、エッジの柔らかさは影の境界を滑らかにします。",
   "Auto Remesh...": "自動リメッシュ...",
   "Auto Remesh": "自動リメッシュ",
@@ -801,6 +804,12 @@ const JA = Object.freeze({
   "Coil": "コイル",
   "Split Panel Tool": "スプリットパネルツール",
   "Panel Geometry": "パネル形状",
+  "Horizontal Controls": "横方向の制御点",
+  "Vertical Controls": "縦方向の制御点",
+  "Editable control rows from root to tip. Reset: 8.": "根元から毛先までの制御点の行数。リセット：8。",
+  "Editable control columns across the lattice. Reset: 3.": "ラティスを横断する制御点の列数。リセット：3。",
+  "Mesh loops from root to tip, including boundaries. Does not add control points. Reset: 27.": "境界を含む根元から毛先までのメッシュループ数。制御点は追加されません。リセット：27。",
+  "Mesh loops across the lattice, including boundaries. Does not add control points. Reset: 3.": "境界を含むラティスを横断するメッシュループ数。制御点は追加されません。リセット：3。",
   "Horizontal Loops": "横方向ループ",
   "Vertical Loops": "縦方向ループ",
   "Bridge Loops": "ブリッジループ",

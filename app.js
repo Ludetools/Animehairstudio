@@ -39,6 +39,7 @@ import { chamferMeshEdges } from './modules/mesh-chamfer.js?v=20260907-4';
 import { triangulatePolygon } from './modules/polygon-triangulation.js';
 import { settingsClearance } from './modules/settings-clearance.js?v=20260907-1';
 import { resizeStrandLattice } from './modules/strand-lattice-resize.js?v=20260907-1';
+import { strandLatticeTopologyFields, strandLatticeTopologyValues, resampleStrandLatticeRenderGrid } from './modules/strand-lattice-topology.js?v=20261002-1';
 import { orderStrandLatticeCurves, curveSurfacePointVisible } from './modules/strand-lattice-order.js?v=20260907-1';
 import { flippedCurveNormalIndices, rebuiltCurveNormals } from './modules/curve-normal-repair.js?v=20260907-2';
 let meshBackfaceDebugEnabled = false;
@@ -47,7 +48,7 @@ import { strandBundleTemplate, ponytailBundleRecipe } from './modules/strand-bun
 import { bundlePreviewPaths } from './modules/bundle-preview.js?v=20260907-1';
 import { mountStrandBundleEditor } from './modules/strand-bundle-editor.js?v=20260907-7';
 import { editingContextLabel, meshOperationReasons, singleTargetMarqueeSelection } from './modules/editing-context.js?v=20260905-2';
-import { guideTopics, searchGuideTopics } from './modules/guide-topics.js';
+import { guideTopics, searchGuideTopics } from './modules/guide-topics.js?v=20261002-2';
 import { importHeadGuideSteps, advanceImportHeadGuide } from './modules/import-head-guide.js';
 
 let headImportGuide = null;
@@ -209,11 +210,12 @@ import {
   curveLatticeLoopPointIndices,
   DEFAULT_CURVE_LATTICE_PLANE,
   flatCurveLatticePointData,
+  flatStrandLatticePointData,
   normalizeCurveLatticePresetLibrary,
   removeCurveLatticePreset as removeCurveLatticePresetFromLibrary,
   resampleCurveLatticeLineData,
   resampleCurveLatticePointData
-} from "./modules/curve-lattice.js?v=20260902-4";
+} from "./modules/curve-lattice.js?v=20261002-1";
 import {
   createLoftSurfaceLatticePointData,
   createSurfaceLatticePointData,
@@ -363,7 +365,7 @@ import {
   TAPER_VALUE_MAX,
   TWIST_CURVE_DISPLAY_RANGE_DEFAULT,
   TWIST_CURVE_VALUE_MAX
-} from "./modules/app-config.js?v=20261001-1";
+} from "./modules/app-config.js?v=20261002-1";
 import {
   BoundedHistory,
   expandHistoryDependencyIds,
@@ -428,7 +430,7 @@ import {
   DEFAULT_LANGUAGE,
   LANGUAGE_STORAGE_KEY,
   normalizeLanguage
-} from "./modules/localization.js?v=20260904-1";
+} from "./modules/localization.js?v=20261002-2";
 import {
   emptyToolPresetLibrary,
   normalizeToolPresetLibrary,
@@ -3893,6 +3895,8 @@ const curveLatticeGuideMode = document.querySelector("#curveLatticeGuideMode");
 const viewportCapsuleGuideTool = document.querySelector("#viewportCapsuleGuideTool");
 const viewportDrawCapsuleGuideTool = document.querySelector("#viewportDrawCapsuleGuideTool");
 const viewportCurveLatticeGuideTool = document.querySelector("#viewportCurveLatticeGuideTool");
+const strandLatticeMode = document.querySelector("#strandLatticeMode");
+const viewportStrandLatticeTool = document.querySelector("#viewportStrandLatticeTool");
 const createViewportReferenceMenu = document.querySelector("#createViewportReferenceMenu");
 const createPlaneReferenceMenu = document.querySelector("#createPlaneReferenceMenu");
 const strandOutlinerTab = document.querySelector("#strandOutlinerTab");
@@ -14834,6 +14838,7 @@ function updateViewportToolVisibility() {
   viewportCurveLatticeGuideTool.classList.toggle("hidden", !guideMode || scalpBuilderEditing || !CURVE_LATTICE_FEATURE_ENABLED);
   viewportCurveLatticeGuideTool.classList.toggle("active", guideMode && latticeSelected);
   viewportCurveLatticeGuideTool.setAttribute("aria-pressed", String(guideMode && latticeSelected));
+  viewportStrandLatticeTool.classList.toggle("edit-mode-tool-hidden", viewportEditMode !== "strand" || setupEditorActive);
   sculptBrushDock.classList.toggle("hidden", viewportEditMode !== "strand" || setupEditorActive);
   if (viewportEditMode !== "strand" || setupEditorActive) setSculptBrushCursorVisible(false);
 }
@@ -19966,7 +19971,7 @@ function curveSurfaceControllerHitFromEvent(event, lock = getSelectedLock()) {
 }
 
 function createConnectedCurveCardGeometry(lock) {
-  const renderRows = THREE.MathUtils.clamp(
+  const legacyRenderRows = THREE.MathUtils.clamp(
     Math.max(
       Math.round(Number(lock.lengthSegments) || 26) + 1,
       Math.round(Number(lock.curveSurfaceRows) || DEFAULT_CURVE_SURFACE_ROWS)
@@ -19974,15 +19979,18 @@ function createConnectedCurveCardGeometry(lock) {
     5,
     257
   );
+  const topology = lock.curveSurfaceLoft ? strandLatticeTopologyValues(lock) : null;
+  const renderRows = topology?.rows ?? legacyRenderRows;
   const controllers = sampledCurveSurfaceControllerCurves(lock, renderRows);
   const controllerSides = sampledCurveSurfaceControllerSides(lock, renderRows);
-  const grid = buildConnectedCurveCardGrid(controllers, {
+  const sourceGrid = buildConnectedCurveCardGrid(controllers, {
     rows: renderRows,
     stripWidth: lock.curveSurfaceStripWidth,
     side: lock.curveSurfaceSide || { x: 1, y: 0, z: 0 },
     controllerSides,
     loft: Boolean(lock.curveSurfaceLoft)
   });
+  const grid = topology ? resampleStrandLatticeRenderGrid(sourceGrid, topology.columns) : sourceGrid;
   const positions = [];
   const tangents = [];
   const uvs = [];
@@ -23528,6 +23536,7 @@ function addLock(presetName, overrides = {}, options = {}) {
   lock.curveSurfaceColumns = lock.geometryType === "curve-surface" ? curveSurfaceColumns : null;
   lock.curveSurfaceRows = lock.geometryType === "curve-surface" ? curveSurfaceRows : null;
   lock.curveSurfaceLoft = lock.geometryType === "curve-surface" && Boolean(base.curveSurfaceLoft);
+  Object.assign(lock, strandLatticeTopologyFields(base));
   lock.curveSurfaceSymmetric = lock.geometryType === "curve-surface" && Boolean(base.curveSurfaceSymmetric);
   lock.curveSurfaceCompoundProfile = lock.geometryType === "curve-surface"
     && Boolean(base.curveSurfaceCompoundProfile);
@@ -24641,6 +24650,7 @@ function createMirrorPartner(lock, options = {}) {
     curveSurfaceRows: lock.curveSurfaceRows,
     curveSurfaceSymmetric: Boolean(lock.curveSurfaceSymmetric),
     curveSurfaceLoft: Boolean(lock.curveSurfaceLoft),
+    ...strandLatticeTopologyFields(lock),
     curveSurfaceCompoundProfile: Boolean(lock.curveSurfaceCompoundProfile),
     compoundBridgeLoops: Number(lock.compoundBridgeLoops || 0),
     compoundBridgeSmoothing: Number(lock.compoundBridgeSmoothing || 0),
@@ -24870,6 +24880,7 @@ function syncMirrorPartnerFromLock(lock, partner = mirrorPartnerFor(lock), optio
   partner.curveSurfaceSymmetric = Boolean(lock.curveSurfaceSymmetric);
   partner.curveSurfaceCompoundProfile = Boolean(lock.curveSurfaceCompoundProfile);
   partner.curveSurfaceLoft = Boolean(lock.curveSurfaceLoft);
+  Object.assign(partner, strandLatticeTopologyFields(lock));
   partner.compoundBridgeLoops = lock.curveSurfaceCompoundProfile
     ? THREE.MathUtils.clamp(Math.round(Number(lock.compoundBridgeLoops) || 0), 0, 8)
     : null;
@@ -26690,6 +26701,7 @@ function snapshotState() {
       curveSurfaceRows: lock.geometryType === "curve-surface" ? lock.curveSurfaceRows : null,
       curveSurfaceSymmetric: lock.geometryType === "curve-surface" && Boolean(lock.curveSurfaceSymmetric),
       curveSurfaceLoft: Boolean(lock.curveSurfaceLoft),
+      ...strandLatticeTopologyFields(lock),
       curveSurfaceCompoundProfile: lock.geometryType === "curve-surface"
         && Boolean(lock.curveSurfaceCompoundProfile),
       compoundBridgeLoops: lock.geometryType === "curve-surface" && lock.curveSurfaceCompoundProfile
@@ -29257,6 +29269,7 @@ function restoreLock(snapshot, { deferRootAttachment = false, remapRootAttachmen
     curveSurfaceRows: snapshot.geometryType === "curve-surface" ? curveSurfaceRows : null,
     curveSurfaceSymmetric: snapshot.geometryType === "curve-surface" && Boolean(snapshot.curveSurfaceSymmetric),
     curveSurfaceLoft: snapshot.geometryType === "curve-surface" && Boolean(snapshot.curveSurfaceLoft),
+    ...strandLatticeTopologyFields(snapshot),
     curveSurfaceCompoundProfile: snapshot.geometryType === "curve-surface"
       && Boolean(snapshot.curveSurfaceCompoundProfile),
     compoundBridgeLoops: snapshot.geometryType === "curve-surface" && snapshot.curveSurfaceCompoundProfile
@@ -41918,6 +41931,7 @@ function updateAttributeEditorMode() {
   const editingMesh = Boolean(isModelingMesh(activeLock));
   const editingLattice = viewportEditMode === "strand" && Boolean(activeLock?.curveSurfaceLoft);
   document.querySelector('#strandLatticeSettings').classList.toggle('hidden', !editingLattice);
+  document.querySelector('#strandLatticeTopologySettings').classList.toggle('hidden', !editingLattice);
   if (editingLattice) syncStrandLatticeSettings(activeLock);
   const editingStrand = Boolean(activeLock) && !editingMesh;
   const selectedGuide = getSelectedGuide();
@@ -45639,7 +45653,15 @@ function syncStrandLatticeSettings(lock) {
   document.querySelector('#strandLatticeColumns').value = lock.curveSurfaceColumns;
   document.querySelector('#strandLatticeRowsValue').textContent = String(lock.curveSurfaceRows);
   document.querySelector('#strandLatticeColumnsValue').textContent = String(lock.curveSurfaceColumns);
-  for (const id of ['strandLatticeRows', 'strandLatticeColumns', 'strandLatticeNormalOffset']) {
+  const topology = strandLatticeTopologyValues(lock);
+  document.querySelector('#strandLatticeTopologyRows').value = topology.rows;
+  const columnsInput = document.querySelector('#strandLatticeTopologyColumns');
+  columnsInput.max = String(Math.max(128, topology.columns));
+  columnsInput.closest('label').querySelectorAll('input[type="number"]').forEach(input => { input.max = columnsInput.max; });
+  columnsInput.value = topology.columns;
+  document.querySelector('#strandLatticeTopologyRowsValue').textContent = String(topology.rows);
+  document.querySelector('#strandLatticeTopologyColumnsValue').textContent = String(topology.columns);
+  for (const id of ['strandLatticeRows', 'strandLatticeColumns', 'strandLatticeNormalOffset', 'strandLatticeTopologyRows', 'strandLatticeTopologyColumns']) {
     const range = document.querySelector(`#${id}`);
     range.disabled = Boolean(lock.locked);
     range.closest('label').querySelectorAll('input, button').forEach(control => { control.disabled = Boolean(lock.locked); });
@@ -45651,6 +45673,7 @@ function applyStrandLatticeLoops(columns, rows, { source = null, recordUndo = tr
   if (viewportEditMode !== 'strand' || !lock?.curveSurfaceLoft || lock.locked) return false;
   if (columns === lock.curveSurfaceColumns && rows === lock.curveSurfaceRows) return false;
   const base = source || lock;
+  const topology = strandLatticeTopologyValues(lock);
   const curves = curveSurfaceControllerCurves(base).map(points => new THREE.CatmullRomCurve3(points));
   const resized = resizeStrandLattice(base, columns, rows, (column,t) => curves[column].getPoint(t));
   if (!resized) return false;
@@ -45660,6 +45683,8 @@ function applyStrandLatticeLoops(columns, rows, { source = null, recordUndo = tr
   selectedPoint = null;
   selectedCurveSurfaceController = null;
   Object.assign(lock, resized, {
+    curveSurfaceTopologyRows: topology.rows,
+    curveSurfaceTopologyColumns: topology.columns,
     points: resized.points.map(p => new THREE.Vector3(p.x,p.y,p.z)),
     pointSurfaceNormals: resized.pointSurfaceNormals.map(p => p ? new THREE.Vector3(p.x,p.y,p.z).normalize() : null)
   });
@@ -45667,6 +45692,53 @@ function applyStrandLatticeLoops(columns, rows, { source = null, recordUndo = tr
   syncStrandLatticeSettings(lock);
   renderLockList();
   return true;
+}
+
+function applyStrandLatticeTopology(columns, rows, { recordUndo = true, beforeCommit = null } = {}) {
+  const lock = getSelectedLock();
+  if (viewportEditMode !== 'strand' || !lock?.curveSurfaceLoft || lock.locked) return false;
+  const current = strandLatticeTopologyValues(lock);
+  if (!Number.isInteger(columns) || columns < 2 || columns > Math.max(128, current.columns)
+    || !Number.isInteger(rows) || rows < 2 || rows > 257) return false;
+  if (columns === current.columns && rows === current.rows) return false;
+  beforeCommit?.();
+  if (recordUndo) pushUndoState();
+  lock.curveSurfaceTopologyColumns = columns;
+  lock.curveSurfaceTopologyRows = rows;
+  updateLockGeometry(lock, { immediate: true });
+  syncActiveMirror(lock, { refreshUi: true });
+  syncStrandLatticeSettings(lock);
+  updateCount();
+  return true;
+}
+
+function createStandaloneStrandLattice() {
+  const columns = DEFAULT_CURVE_LATTICE_PLANE.columns;
+  const rows = DEFAULT_CURVE_LATTICE_PLANE.rows;
+  const points = flatStrandLatticePointData({ columns, rows }).map(dataToVector);
+  pushUndoState();
+  const lattice = addLock("front", {
+    ...strandCreationDefaults,
+    geometryType: "curve-surface",
+    curveSurfaceLoft: true,
+    curveSurfaceColumns: columns,
+    curveSurfaceRows: rows,
+    curveSurfaceCenterCurve: Math.floor(columns / 2),
+    curveSurfaceSymmetric: false,
+    curveSurfaceSide: new THREE.Vector3(1, 0, 0),
+    scalpRegion: "unassigned",
+    hairCard: true,
+    rootAttachmentEnabled: false,
+    rootScalpOffset: 0,
+    points,
+    pointSurfaceNormals: points.map(() => null)
+  }, { deferUi: true });
+  lattice.name = `Strand Lattice ${lockIndex}`;
+  setLocksOutlinerVisibility([lattice], true);
+  selectLock(lattice.id, { individualClumpMember: true });
+  setActiveTool("move");
+  updateCount();
+  return lattice;
 }
 
 function selectedStrandLatticeSources() {
@@ -54096,7 +54168,7 @@ rebuildHairShellExtrusionCurveButton.addEventListener("click", openRebuildCurveD
 createCompoundStrandButton.addEventListener("click", createCompoundStrand);
 document.querySelector('#createStrandLattice').addEventListener("click", () => openStrandLatticeDialog());
 document.querySelector('#createStrandLatticeGuide').addEventListener("click", () => openStrandLatticeDialog("guide"));
-function bindStrandLatticeLoopControl(range) {
+function bindStrandLatticeLoopControl(range, topology = false) {
   let gesture = null;
   const finish = () => { gesture = null; inputEditSession.finish(range); };
   range.addEventListener('pointerdown', finish);
@@ -54110,9 +54182,10 @@ function bindStrandLatticeLoopControl(range) {
     const target = getSelectedLock();
     if (!target?.curveSurfaceLoft || target.locked || viewportEditMode !== 'strand') { finish(); return; }
     if (gesture?.target !== target) gesture = { target, source: { ...target } };
-    applyStrandLatticeLoops(
-      Number(document.querySelector('#strandLatticeColumns').value),
-      Number(document.querySelector('#strandLatticeRows').value),
+    const apply = topology ? applyStrandLatticeTopology : applyStrandLatticeLoops;
+    apply(
+      Number(document.querySelector(topology ? '#strandLatticeTopologyColumns' : '#strandLatticeColumns').value),
+      Number(document.querySelector(topology ? '#strandLatticeTopologyRows' : '#strandLatticeRows').value),
       { source: gesture.source, recordUndo: false, beforeCommit: () => inputEditSession.begin(range) }
     );
   }, true);
@@ -54171,6 +54244,7 @@ function bindLatticeNormalOffset(id, guideMode) {
 bindLatticeNormalOffset('curveLatticeNormalOffset', true);
 bindLatticeNormalOffset('strandLatticeNormalOffset', false);
 ['strandLatticeRows', 'strandLatticeColumns'].forEach(id => bindStrandLatticeLoopControl(document.querySelector(`#${id}`)));
+['strandLatticeTopologyRows', 'strandLatticeTopologyColumns'].forEach(id => bindStrandLatticeLoopControl(document.querySelector(`#${id}`), true));
 document.querySelector('#strandLatticeForm').addEventListener('submit', event => {
   event.preventDefault();
   if (createStrandLattice(Number(strandLatticePointCountInput.value), strandLatticeDialog.dataset.output, document.querySelector('#strandLatticeHideSources').checked)) strandLatticeDialog.close();
@@ -54391,6 +54465,17 @@ function createCurveLatticeGuideFromUi() {
   updatePlacementStatus();
 }
 
+function createStrandLatticeFromUi() {
+  if (scalpBuilderEditing) return;
+  exitSetupEditors();
+  setViewportEditMode("strand");
+  createStandaloneStrandLattice();
+  closeAppMenus();
+  updatePlacementStatus();
+}
+
+strandLatticeMode.addEventListener("click", createStrandLatticeFromUi);
+viewportStrandLatticeTool.addEventListener("click", createStrandLatticeFromUi);
 capsuleGuideMode.addEventListener("click", toggleCapsuleGuideTool);
 drawCapsuleGuideMode.addEventListener("click", activateCapsuleGuideDrawTool);
 viewportCapsuleGuideTool.addEventListener("click", toggleCapsuleGuideTool);

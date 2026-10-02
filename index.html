@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Hair Studio</title>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg?v=20260830-2" />
-  <link rel="stylesheet" href="./styles.css?v=20261001-1" />
+  <link rel="stylesheet" href="./styles.css?v=20261002-1" />
   </head>
   <body>
     <!-- Shared, static lens maps for the iPad lab. Keep rendered (not display:none)
@@ -138,6 +138,7 @@
                 <button id="openAutoRemeshStrands" type="button" role="menuitem">Auto Remesh...</button>
                 <button id="convertStrandsToMesh" type="button" role="menuitem" title="Bake selected strands into editable meshes. Original strands are kept and hidden. Undoable.">Convert to Mesh</button>
                 <button id="createStrandLattice" type="button" role="menuitem" title="Select at least two neighbouring strands. Curves are ordered spatially. Roots form the top edge; tips form the bottom. Originals are retained and hidden.">Create Lattice from Strands</button>
+                <button id="strandLatticeMode" type="button" role="menuitem" title="Create a strand lattice"><span class="tool-icon icon-curve-lattice-guide" aria-hidden="true"></span><span>Create Strand Lattice</span></button>
                 <button id="createStrandLatticeGuide" type="button" role="menuitem" title="Select 2–12 neighbouring strands to create a smooth live-surface guide. Originals remain visible.">Create Lattice Guide from Strands</button>
                 <button id="createCompoundStrand" type="button" role="menuitem" hidden aria-hidden="true" tabindex="-1">Create Compound Strand</button>
                 <button id="createHairShell" type="button" role="menuitem" hidden aria-hidden="true" tabindex="-1">Create Hair Shell</button>
@@ -789,6 +790,7 @@
           <button id="viewportDrawCapsuleGuideTool" class="tool-button guide-toolbar-tool hidden" data-tool="draw-capsule-guide" type="button" title="Draw a capsule guide along a curve" aria-label="Draw Capsule Guide tool" aria-pressed="false"><span class="tool-icon icon-draw-capsule-guide" aria-hidden="true"></span></button>
           <button id="viewportCapsuleGuideTool" class="tool-button guide-toolbar-tool hidden" type="button" title="Create or edit a capsule guide" aria-label="Capsule Guide tool" aria-pressed="false"><span class="tool-icon icon-surface-guide" aria-hidden="true"></span></button>
           <button id="viewportCurveLatticeGuideTool" class="tool-button guide-toolbar-tool hidden" type="button" title="Create a curve lattice guide" aria-label="Curve Lattice Guide tool" aria-pressed="false"><span class="tool-icon icon-curve-lattice-guide" aria-hidden="true"></span></button>
+          <button id="viewportStrandLatticeTool" class="tool-button edit-mode-tool-hidden" type="button" title="Create a strand lattice" aria-label="Strand Lattice tool"><span class="tool-icon icon-curve-lattice-guide" aria-hidden="true"></span></button>
         </div>
         <section id="presetLibrary" class="preset-library hidden" role="dialog" aria-modal="false" aria-labelledby="presetLibraryTitle">
           <header class="preset-library-head">
@@ -1939,9 +1941,15 @@
           <div class="section-head">Curve Lattice</div>
           <div id="strandLatticeSettingsForm">
             <label class="topology-control" title="Move points along their surface normals. Relative per edit; returns to zero after commit. Undo restores the previous shape.">Normal Offset <input id="strandLatticeNormalOffset" type="range" min="-0.5" max="0.5" step="0.005" value="0" /><output class="slider-value">0</output></label>
-            <label class="topology-control" for="strandLatticeRows" title="Root-to-tip loop count, including boundaries. Reset: 8.">Horizontal Loops <input id="strandLatticeRows" type="range" min="2" max="256" step="1" value="8" /><output id="strandLatticeRowsValue" class="slider-value">8</output></label>
-            <label class="topology-control" for="strandLatticeColumns" title="Across-lattice loop count, including boundaries. Reset: 3.">Vertical Loops <input id="strandLatticeColumns" type="range" min="2" max="128" step="1" value="3" /><output id="strandLatticeColumnsValue" class="slider-value">3</output></label>
+            <label class="topology-control" for="strandLatticeRows" title="Editable control rows from root to tip. Reset: 8.">Horizontal Controls <input id="strandLatticeRows" type="range" min="2" max="256" step="1" value="8" /><output id="strandLatticeRowsValue" class="slider-value">8</output></label>
+            <label class="topology-control" for="strandLatticeColumns" title="Editable control columns across the lattice. Reset: 3.">Vertical Controls <input id="strandLatticeColumns" type="range" min="2" max="128" step="1" value="3" /><output id="strandLatticeColumnsValue" class="slider-value">3</output></label>
           </div>
+        </div>
+
+        <div id="strandLatticeTopologySettings" class="panel-section sliders hidden" data-attribute-panel="strands">
+          <div class="section-head">Topology</div>
+          <label class="topology-control" for="strandLatticeTopologyRows" title="Mesh loops from root to tip, including boundaries. Does not add control points. Reset: 27.">Horizontal Loops <input id="strandLatticeTopologyRows" type="range" min="2" max="257" step="1" value="27" /><output id="strandLatticeTopologyRowsValue" class="slider-value">27</output></label>
+          <label class="topology-control" for="strandLatticeTopologyColumns" title="Mesh loops across the lattice, including boundaries. Does not add control points. Reset: 3.">Vertical Loops <input id="strandLatticeTopologyColumns" type="range" min="2" max="128" step="1" value="3" /><output id="strandLatticeTopologyColumnsValue" class="slider-value">3</output></label>
         </div>
 
         <div id="strandShapePanel" class="panel-section sliders" data-attribute-panel="strands">
@@ -2329,14 +2337,18 @@
       <div class="patch-notes-dialog-shell">
         <header class="patch-notes-dialog-head">
           <div>
-            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 1.1.1 Patch Notes</h2>
-            <p id="patchNotesDialogSummary">Gradient fixes, shared-material and large-scene optimizations, editor cleanup, and an isolated stress test.</p>
+            <h2 id="patchNotesDialogTitle">Anime Hair Studio Version 1.1.2 Patch Notes</h2>
+            <p id="patchNotesDialogSummary">Blank strand lattices, independent mesh topology, clearer lattice controls, and updated guide content.</p>
           </div>
           <button id="closePatchNotes" type="button" title="Close patch notes" aria-label="Close patch notes">X</button>
         </header>
         <div class="patch-notes-workspace">
           <nav class="patch-notes-sidebar" role="tablist" aria-label="Patch note versions">
-            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="1.1.1">
+            <button class="active" type="button" role="tab" aria-selected="true" data-patch-notes-version="1.1.2">
+              <strong>1.1.2</strong>
+              <time datetime="2026-10-02">October 2, 2026</time>
+            </button>
+            <button type="button" role="tab" aria-selected="false" data-patch-notes-version="1.1.1">
               <strong>1.1.1</strong>
               <time datetime="2026-10-01">October 1, 2026</time>
             </button>
@@ -2374,7 +2386,36 @@
             </button>
           </nav>
           <div class="patch-notes-panels">
-            <article class="patch-notes-content" data-patch-notes-panel="1.1.1"
+            <article class="patch-notes-content" data-patch-notes-panel="1.1.2"
+              data-patch-notes-title="Anime Hair Studio Version 1.1.2 Patch Notes"
+              data-patch-notes-summary="Blank strand lattices, independent mesh topology, clearer lattice controls, and updated guide content.">
+              <section class="patch-notes-section">
+                <h3>New features</h3>
+                <ul>
+                  <li><strong>Blank Strand Lattices</strong><br />Create an editable 3-by-3 strand lattice directly from the Strands toolbar or Curves > Create Strand Lattice, without drawing source strands first. The existing Create Lattice from Strands command remains available.</li>
+                  <li><strong>Independent Mesh Topology</strong><br />Adjust Horizontal Loops and Vertical Loops separately in the lattice's Topology section. Change mesh density without adding, removing or moving editable control points; settings support undo, linked mirrors, project save/load and custom hairstyle presets.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>UI changes</h3>
+                <ul>
+                  <li><strong>Clearer Lattice Controls</strong><br />Curve Lattice now labels the editable cage settings as Horizontal Controls and Vertical Controls. Mesh loop settings live in a separate Topology section, with editable values and reset buttons.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Tweaks and quality of life</h3>
+                <ul>
+                  <li><strong>Lattice Guide</strong><br />The searchable in-app guide explains blank lattice creation, creating lattices from existing strands, and the difference between control-point density and mesh topology.</li>
+                </ul>
+              </section>
+              <section class="patch-notes-section">
+                <h3>Bug fixes</h3>
+                <ul>
+                  <li><strong>Stable Lattice Resolution</strong><br />Changing lattice control counts no longer changes the chosen mesh loop counts. Older lattices retain their existing mesh resolution until edited; non-loft Curve Surface geometry keeps its existing behaviour.</li>
+                </ul>
+              </section>
+            </article>
+            <article class="patch-notes-content hidden" data-patch-notes-panel="1.1.1"
               data-patch-notes-title="Anime Hair Studio Version 1.1.1 Patch Notes"
               data-patch-notes-summary="Gradient fixes, shared-material and large-scene optimizations, editor cleanup, and an isolated stress test.">
               <section class="patch-notes-section">
@@ -3859,6 +3900,6 @@
       <pre id="stressTestResults" aria-label="Stress test results"></pre>
       <footer><button id="runStressTest" type="button">Run Test</button><button id="stopStressTest" type="button" disabled>Stop</button><button id="downloadStressTestReport" type="button" disabled>Download Report</button></footer>
     </dialog>
-    <script id="ahsMainModule" type="module" src="./app.js?v=20261001-8"></script>
+    <script id="ahsMainModule" type="module" src="./app.js?v=20261002-3"></script>
   </body>
 </html>
